@@ -1,4 +1,4 @@
-package Log::Munger;
+package Log::Munger::RuleFileParser;
 
 use 5.006;
 use strict;
@@ -7,7 +7,7 @@ use YAML::XS;
 
 =head1 NAME
 
-Log::Munger - Extracts info from 
+Log::Munger::RuleFileParser - Extracts info from 
 
 =head1 VERSION
 
@@ -36,6 +36,8 @@ sub new {
 	my $self = {
 		'order'      => [],
 		'mungers'    => {},
+		'share_dir'  => File::ShareDir::dist_dir('Log-Munger'),
+		'rules_dirs' => [ '/etc/log_munger/rules/', '/usr/local/etc/log_munger/rules/', ],
 	};
 	bless $self;
 
@@ -67,6 +69,52 @@ sub load {
 
 	
 } ## end sub load
+
+=head2 rule_file_location
+
+Returns the full path to the rule file specified.
+
+    - file :: The file to load.
+        Default :: undef
+
+=cut
+
+sub rule_file_location {
+	my ( $self, %opts ) = @_;
+
+	if ( !defined( $opts{'file'} ) ) {
+		die('$opts{file} is undef');
+	}
+
+	if ( $opts{'file'} =~ /^\// ) {
+		if ( -f $opts{'file'} ) {
+			return $opts{'file'};
+		} elsif ( -f $opts{'file'} . '.yaml' ) {
+			return $opts{'file'} . '.yaml';
+		} else {
+			return undef;
+		}
+	}
+
+	foreach my $rules_dir ( @{ $self->{'rules_dirs'} } ) {
+		if ( -d $rules_dir ) {
+			if ( -f $rules_dir . '/' . $opts{'file'} ) {
+				return $rules_dir . '/' . $opts{'file'};
+			} elsif ( -f $rules_dir . '/' . $opts{'file'} . '.yaml' ) {
+				return $rules_dir . '/' . $opts{'file'} . '.yaml';
+			}
+
+		}
+	} ## end foreach my $rules_dir ( @{ $self->{'rules_dirs'...}})
+
+	if ( $self->{'share_dir'} . '/' . $opts{'file'} ) {
+		return $self->{'share_dir'} . '/' . $opts{'file'};
+	} elsif ( $self->{'share_dir'} . '/' . $opts{'file'} . '.yaml' ) {
+		return $self->{'share_dir'} . '/' . $opts{'file'} . '.yaml';
+	}
+
+	return undef;
+} ## end sub rule_file_location
 
 =head2 process_item
 
