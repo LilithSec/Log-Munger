@@ -21,7 +21,12 @@ our $VERSION = '0.0.1';
 
     use Log::Munger::WhichRuleFile;
 
-    my $foo = Log::Munger::WhichRuleFile->rule_file_location('file'=>'postfix');
+    my $file_location = Log::Munger::WhichRuleFile->rule_file_location('file'=>'postfix');
+    if (!defined($file_location)) {
+        print "Not found.\n";
+    } else {
+        print 'File Location: ' . $file_location . "\n";
+    }
 
 =head1 METHODS
 
@@ -29,8 +34,16 @@ our $VERSION = '0.0.1';
 
 Returns the full path to the rule file specified.
 
-    - file :: The file to load.
+    - file :: The file to locate. If undef will die.
         Default :: undef
+
+    my $file_location;
+    $file_location = Log::Munger::WhichRuleFile->rule_file_location('file'=>'postfix');
+    if (!defined($file_location)) {
+        print "Not found.\n";
+    } else {
+        print 'File Location: ' . $file_location . "\n";
+    }
 
 =cut
 
