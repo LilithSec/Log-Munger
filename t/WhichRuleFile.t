@@ -18,6 +18,15 @@ eval {
 			'Log::Munger::WhichRuleFile->rule_file_location(file=>"postfix") returned undef instead of the path to share/postfix.yaml'
 		);
 	}
+
+	if ($file_location !~ /\.yaml$/){
+		die('"'.$file_location.'" does not end in .yaml');
+	}
+
+	if (-f $file_location){
+		die('"'.$file_location.'" does not exist or is not a file');
+	}
+
 	$worked = 1;
 };
 ok( $worked eq '1', 'rule file locate' ) or diag( "rule file locate test failed ... " . $@ );
