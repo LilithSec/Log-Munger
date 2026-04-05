@@ -77,9 +77,9 @@ sub rule_file_location {
 	} ## end foreach my $rules_dir (@rules_dirs)
 
 	my $share_dir = File::ShareDir::dist_dir('Log-Munger');
-	if ( $share_dir . '/' . $opts{'file'} ) {
+	if ( -f $share_dir . '/' . $opts{'file'} ) {
 		return $share_dir . '/' . $opts{'file'};
-	} elsif ( $share_dir . '/' . $opts{'file'} . '.yaml' ) {
+	} elsif ( -f $share_dir . '/' . $opts{'file'} . '.yaml' ) {
 		return $share_dir . '/' . $opts{'file'} . '.yaml';
 	}
 
