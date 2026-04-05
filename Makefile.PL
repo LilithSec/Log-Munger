@@ -4,6 +4,8 @@ use warnings;
 use ExtUtils::MakeMaker;
 use File::ShareDir::Install;
 
+install_share 'share';
+
 my %WriteMakefileArgs = (
 	NAME               => 'Log::Munger',
 	AUTHOR             => q{Zane C. Bowers-Hadley <vvelox@vvelox.net>},
@@ -57,3 +59,6 @@ delete $WriteMakefileArgs{LICENSE}
 	unless eval { ExtUtils::MakeMaker->VERSION('6.31'); 1 };
 
 WriteMakefile(%WriteMakefileArgs);
+
+package MY;
+use File::ShareDir::Install qw(postamble);
