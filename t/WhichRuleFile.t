@@ -19,11 +19,15 @@ eval {
 		);
 	}
 
+	if (ref($file_location) ne ''){
+		die('$file_location is of ref type "'.ref($file_location).'" and not ""');
+	}
+	
 	if ($file_location !~ /\.yaml$/){
 		die('"'.$file_location.'" does not end in .yaml');
 	}
 
-	if (-f $file_location){
+	if (! -f $file_location){
 		die('"'.$file_location.'" does not exist or is not a file');
 	}
 
@@ -40,6 +44,6 @@ eval {
 	}
 	$worked = 1;
 };
-ok( $worked eq '0', 'rule file locate2' ) or diag( "rule file locate2 test failed ... " . $@ );
+ok( $worked eq '1', 'rule file locate2' ) or diag( "rule file locate2 test failed ... " . $@ );
 
 done_testing($tests);
