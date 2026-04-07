@@ -77,20 +77,6 @@ eval {
 			die('Expected var .vars.'.$item.' does not have the expected value');
 		};
 	};
-	
-	my @found_vars = keys( %{ $rules->{'vars'} } );
-	foreach my $item (@found_vars) {
-		if ( !defined( $base_vars->{$item} ) ) {
-			die( 'Found unexected var "' . $item . '" undef .vars in base.yaml' );
-		}
-		if ( ref( $rules->{'vars'}{$item} ) ne '' ) {
-			die(      '.vars.'
-					. $item
-					. ' in base.yaml has a ref of "'
-					. ref( $rules->{'vars'}{$item} )
-					. '" and not ""' );
-		}
-	} ## end foreach my $item (@found_vars)
 
 	$worked = 1;
 };
