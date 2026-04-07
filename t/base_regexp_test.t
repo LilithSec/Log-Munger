@@ -950,4 +950,148 @@ eval {
 };
 ok( $worked eq '1', 'URN regexp' ) or diag( "testing URN regexp failed ... " . $@ );
 
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'CISCOMAC'} . ')';
+	my $to_test = {
+		'  a b c=AABC.D433.FF00 d' => 'AABC.D433.FF00',
+		'  a b c=1234.5678.ABCD d' => '1234.5678.ABCD',
+		'  a b c=AaBb.cDdE.eFf0 d' => 'AaBb.cDdE.eFf0',
+		'  a b c=0124.FfEe.DdCc d' => '0124.FfEe.DdCc',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'CISCOMAC regexp' ) or diag( "testing CISCOMAC regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'WINDOWSMAC'} . ')';
+	my $to_test = {
+		'  a b c=AA-BC-D4-33-FF-00 d' => 'AA-BC-D4-33-FF-00',
+		'  a b c=12-34-56-78-AB-CD d' => '12-34-56-78-AB-CD',
+		'  a b c=Aa-Bb-cD-dE-eF-f0 d' => 'Aa-Bb-cD-dE-eF-f0',
+		'  a b c=01-24-Ff-Ee-Dd-Cc d' => '01-24-Ff-Ee-Dd-Cc',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'WINDOWSMAC regexp' ) or diag( "testing WINDOWSMAC regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'COMMONMAC'} . ')';
+	my $to_test = {
+		'  a b c=AA:BC:D4:33:FF:00 d' => 'AA:BC:D4:33:FF:00',
+		'  a b c=12:34:56:78:AB:CD d' => '12:34:56:78:AB:CD',
+		'  a b c=Aa:Bb:cD:dE:eF:f0 d' => 'Aa:Bb:cD:dE:eF:f0',
+		'  a b c=01:24:Ff:Ee:Dd:Cc d' => '01:24:Ff:Ee:Dd:Cc',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'COOMONMAC regexp' ) or diag( "testing COMMONMAC regexp failed ... " . $@ );
+
 done_testing($tests);
