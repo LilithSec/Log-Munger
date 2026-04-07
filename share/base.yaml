@@ -35,13 +35,15 @@ vars:
   TTY: '(?:/dev/(pts|tty([pq])?)(\w+)?/?(?:[0-9]+))'
   # does not ignore invalid characters for windows paths
   WINPATH: '(?>[A-Za-z]+:|\\)(?:\\[^\\?*]*)+'
+  # likely could stand to have a dumb version written for stuff this breaks
   UNIXPATH: "(/|./|../)[^\0]+"
   URIPROTO: '[A-Za-z]([A-Za-z0-9+\-.]+)+'
   URIPATH: (?:/[A-Za-z0-9$.+!*'(){},~:;=@#%&_\-]*)+
+  # buggy and needs tests
   URIPARAM: \?[A-Za-z0-9$.+!*'|(){},~@#%&/=:;_?\-\[\]<>]*
   MONTH: '\b(?:[Jj]an(?:uary|uar)?|[Ff]eb(?:ruary|ruar)?|[Mm](?:a|ä)?r(?:ch|z)?|[Aa]pr(?:il)?|[Mm]a(?:y|i)?|[Jj]un(?:e|i)?|[Jj]ul(?:y|i)?|[Aa]ug(?:ust)?|[Ss]ep(?:tember)?|[Oo](?:c|k)?t(?:ober)?|[Nn]ov(?:ember)?|[Dd]e(?:c|z)(?:ember)?)\b'
-  MONTHNUM: '(?:0?[1-9]|1[0-2])'
-  MONTHNUM2: '(?:0[1-9]|1[0-2])'
+  MONTHNUM: '(11|12|10|0[1-9])'
+  MONTHNUM2: '(11|12|10|[1-9])'
   MONTHDAY: '(?:(?:0[1-9])|(?:[12][0-9])|(?:3[01])|[1-9])'
   DAY: '(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)'
   YEAR: '(?>\d\d){1,2}'
