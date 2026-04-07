@@ -47,6 +47,9 @@ vars:
   HOUR: '(?:2[0123]|[01]?[0-9])'
   MINUTE: '(?:[0-5][0-9])'
   SECOND: '(?:(?:[0-5]?[0-9]|60)(?:[:.,][0-9]+)?)'
+  LOGLEVEL: '([Aa]lert|ALERT|[Tt]race|TRACE|[Dd]ebug|DEBUG|[Nn]otice|NOTICE|[Ii]nfo?(?:rmation)?|INFO?(?:RMATION)?|[Ww]arn?(?:ing)?|WARN?(?:ING)?|[Ee]rr?(?:or)?|ERR?(?:OR)?|[Cc]rit?(?:ical)?|CRIT?(?:ICAL)?|[Ff]atal|FATAL|[Ss]evere|SEVERE|EMERG(?:ENCY)?|[Ee]merg(?:ency)?)'
+  TZ: '(?:[APMCE][SD]T|UTC)'
+  PROG: '[\\x21-\\x5a\\x5c\\x5e-\\x7e]+'
 
 vars_templated:
   MAC: '(?:[%-- CISCOMAC --%]|[%-- WINDOWSMAC --%]|[%-- COMMONMAC --%])'
@@ -55,5 +58,19 @@ vars_templated:
   PATH: '(?:[%-- UNIXPATH --%]|[%-- WINPATH --%])'
   URIPATHPARAM: '[%-- URIPATH --%](?:[%-- URIPARAM --%])?'
   TIME: '(?!<[0-9])[%-- HOUR --%]:[%-- MINUTE --%](?::[%-- SECOND --%])(?![0-9])'
-vares_templated_late:
+  DATE_US: '[%-- MONTHNUM --%][/-][%-- MONTHDAY --%][/-][%-- YEAR --%]'
+  DATE_EU: '[%-- MONTHDAY --%][./-][%-- MONTHNUM --%][./-][%-- YEAR --%]'
+  ISO8601_TIMEZONE: '(?:Z|[+-][%-- HOUR --%](?::?[%-- MINUTE --%]))'
+  ISO8601_SECOND: '(?:[%-- SECOND --%]|60)'
+  DATESTAMP_RFC822: '[%-- DAY --%] [%-- MONTH--%] [%-- MONTHDAY --%] [%-- YEAR --%] [%-- TIME --%] [%-- TZ --%]'
+  DATESTAMP_OTHER: '[%-- DAY --%] [%-- MONTH --%] [%-- MONTHDAY --%] [%-- TIME --%] [%-- TZ --%] [%-- YEAR --%]'
+  DATESTAMP_EVENTLOG: '[%-- YEAR --%][%-- MONTHNUM2 --%][%-- MONTHDAY --%][%-- HOUR --%][%-- MINUTE --%][%-- SECOND --%]'
+  HTTPDATE: '[%-- MONTHDAY --%]/[%-- MONTH --%]/[%-- YEAR --%]:[%-- TIME --%] [%-- INT --%]'
+vars_templated_late:
   URI: '[%-- URIPROTO --%]://(?:[%-- USER --%](?::[^@]*)?@)?(?:[%-- HOSTandPORT --%])?(?:[%-- URIPATHPARAM --%])?'
+  TIMESTAMP_ISO8601: '[%-- YEAR --%]-[%-- MONTHNUM --%]-[%-- MONTHDAY --%][T ][%-- HOUR --%]:?[%-- MINUTE --%](?::?[%-- SECOND --%])?[%--  ISO8601_TIMEZONE --%]?'
+  DATE: '([%-- DATE_US --%]|[%-- DATE_EU --%])'
+  DATESTAMP_RFC2822: '[%-- DAY --%], [%-- MONTHDAY --%] [%-- MONTH --%] [%-- YEAR --%] [%-- TIME --%] [%-- ISO8601_TIMEZONE --%]'
+  SYSLOGTIMESTAMP: '[%-- MONTH --%] +[%-- MONTHDAY --] [%-- TIME --%]'
+vars_templated_late0:
+  DATESTAMP: '[%-- DATE --%][- ][%-- TIME --%]'
