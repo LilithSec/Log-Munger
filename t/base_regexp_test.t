@@ -8,7 +8,7 @@ BEGIN {
 	use_ok('Log::Munger::RuleFileParser') || print "Bail out!\n";
 }
 
-my $tests = 19;
+my $tests = 25;
 
 my $parser = Log::Munger::RuleFileParser->new;
 my $rules  = $parser->load( 'file' => 'base' );
@@ -1093,5 +1093,153 @@ eval {
 	$worked = 1;
 };
 ok( $worked eq '1', 'COOMONMAC regexp' ) or diag( "testing COMMONMAC regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'TTY'} . ')';
+	my $to_test = {
+		'  a b c=/dev/pts/3 d' => '/dev/pts/3',
+		'  a b c=/dev/pts33 d' => '/dev/pts33',
+		'  a b c=/dev/tty0 d'  => '/dev/tty0',
+		'  a b c=/dev/ttyp0 d' => '/dev/ttyp0',
+		'  a b c=/dev/ttyq3 d' => '/dev/ttyq3',
+		'  a b c=/dev/ttyv4 d' => '/dev/ttyv4',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'TTY regexp' ) or diag( "testing TTY regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'WINPATH'} . ')';
+	my $to_test = {
+		'  a b c=c:\\a\\bb\\ccc d' => 'c:\\a\\bb\\ccc d',
+		'  a b c=D:\\aa33\\v d'    => 'D:\\aa33\\v d',
+		'  a b c=D:\\aa33\\v (86)' => 'D:\\aa33\\v (86)',
+		'  a b c=D:\\aa33\\v (86)' => 'D:\\aa33\\v (86)',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'WINPATH regexp' ) or diag( "testing WINPATH regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'UNIXPATH'} . ')';
+	my $to_test = {
+		'  a b c=/dev/pts/3 d' => '/dev/pts/3 d',
+		'  a b c=/dev/pts33 d' => '/dev/pts33 d',
+		'  a b c=/dev/tty0 d'  => '/dev/tty0 d',
+		'  a b c=/dev/ttyp0 d' => '/dev/ttyp0 d',
+		'  a b c=./dev/ttyq3 d' => './dev/ttyq3 d',
+		'  a b c=../dev/ttyv4 d' => '../dev/ttyv4 d',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'UNIXPATH regexp' ) or diag( "testing UNIXPATH regexp failed ... " . $@ );
 
 done_testing($tests);

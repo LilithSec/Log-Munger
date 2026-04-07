@@ -33,8 +33,9 @@ vars:
   WINDOWSMAC: '(?:(?:[A-Fa-f0-9]{2}-){5}[A-Fa-f0-9]{2})'
   COMMONMAC: '(?:(?:[A-Fa-f0-9]{2}:){5}[A-Fa-f0-9]{2})'
   TTY: '(?:/dev/(pts|tty([pq])?)(\w+)?/?(?:[0-9]+))'
-  WINPATH: '(?>[A-Za-z]+:|\\\\)(?:\\\\[^\\\\?*]*)+'
-  UNIXPATH: '(/[[[:alnum:]]_%!$@:.,+~-]*)+'
+  # does not ignore invalid characters for windows paths
+  WINPATH: '(?>[A-Za-z]+:|\\)(?:\\[^\\?*]*)+'
+  UNIXPATH: "(/|./|../)[^\0]+"
   URIPROTO: '[A-Za-z]([A-Za-z0-9+\-.]+)+'
   URIPATH: (?:/[A-Za-z0-9$.+!*'(){},~:;=@#%&_\-]*)+
   URIPARAM: \?[A-Za-z0-9$.+!*'|(){},~@#%&/=:;_?\-\[\]<>]*
