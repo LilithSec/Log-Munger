@@ -8,7 +8,7 @@ BEGIN {
 	use_ok('Log::Munger::RuleFileParser') || print "Bail out!\n";
 }
 
-my $tests = 38;
+my $tests = 39;
 
 my $parser = Log::Munger::RuleFileParser->new;
 my $rules  = $parser->load( 'file' => 'base' );
@@ -1884,5 +1884,53 @@ eval {
 	$worked = 1;
 };
 ok( $worked eq '1', 'TZ regexp' ) or diag( "testing TZ regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'PROG'} . ')';
+	my $to_test = {
+		'  a b c=CDT d' => 'CDT',
+		'  a b c=UTC d' => 'UTC',
+		'  a b c=apache2 d' => 'apache2',
+		'  a b c=postfix/smtpd d' => 'postfix/smtpd',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'PROG regexp' ) or diag( "testing PROG regexp failed ... " . $@ );
 
 done_testing($tests);
