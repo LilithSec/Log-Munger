@@ -8,7 +8,7 @@ BEGIN {
 	use_ok('Log::Munger::RuleFileParser') || print "Bail out!\n";
 }
 
-my $tests = 31;
+my $tests = 38;
 
 my $parser = Log::Munger::RuleFileParser->new;
 my $rules  = $parser->load( 'file' => 'base' );
@@ -1391,9 +1391,9 @@ $worked = 0;
 eval {
 	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'MONTHNUM'} . ')';
 	my $to_test = {
-		'  a b c=01 d' => '01',
+		'  a b c=1 d'  => '1',
 		'  a b c=12 d' => '12',
-		'  a b c=03 d' => '03',
+		'  a b c=3 d'  => '3',
 		'  a b c=04 d' => '04',
 	};
 	my @test_strings = keys( %{$to_test} );
@@ -1439,10 +1439,10 @@ $worked = 0;
 eval {
 	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'MONTHNUM2'} . ')';
 	my $to_test = {
-		'  a b c=1 d'  => '1',
+		'  a b c=01 d' => '01',
 		'  a b c=12 d' => '12',
 		'  a b c=10 d' => '10',
-		'  a b c=4 d'  => '4',
+		'  a b c=04 d' => '04',
 	};
 	my @test_strings = keys( %{$to_test} );
 
@@ -1491,6 +1491,7 @@ eval {
 		'  a b c=12 d' => '12',
 		'  a b c=22 d' => '22',
 		'  a b c=04 d' => '04',
+		'  a b c=31 d' => '31',
 	};
 	my @test_strings = keys( %{$to_test} );
 
@@ -1530,5 +1531,358 @@ eval {
 	$worked = 1;
 };
 ok( $worked eq '1', 'MONTHDAY regexp' ) or diag( "testing MONTHDAY regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'DAY'} . ')';
+	my $to_test = {
+		'  a b c=Mon d'       => 'Mon',
+		'  a b c=Monday d'    => 'Monday',
+		'  a b c=Tue d'       => 'Tue',
+		'  a b c=Tuesday d'   => 'Tuesday',
+		'  a b c=Wed d'       => 'Wed',
+		'  a b c=Wednesday d' => 'Wednesday',
+		'  a b c=Thu d'       => 'Thu',
+		'  a b c=Thursday d'  => 'Thursday',
+		'  a b c=Fri d'       => 'Fri',
+		'  a b c=Friday d'    => 'Friday',
+		'  a b c=Sat d'       => 'Sat',
+		'  a b c=Saturday d'  => 'Saturday',
+		'  a b c=Sun d'       => 'Sun',
+		'  a b c=Sunday d'    => 'Sunday',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'DAY regexp' ) or diag( "testing DAY regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'YEAR'} . ')';
+	my $to_test = {
+		'  a b c=11 d'   => '11',
+		'  a b c=12 d'   => '12',
+		'  a b c=22 d'   => '22',
+		'  a b c=04 d'   => '04',
+		'  a b c=31 d'   => '31',
+		'  a b c=2031 d' => '2031',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'YEAR regexp' ) or diag( "testing YEAR regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'HOUR'} . ')';
+	my $to_test = {
+		'  a b c=1 d'  => '1',
+		'  a b c=12 d' => '12',
+		'  a b c=22 d' => '22',
+		'  a b c=04 d' => '04',
+		'  a b c=20 d' => '20',
+		'  a b c=0 d'  => '0',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'HOUR regexp' ) or diag( "testing HOUR regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'MINUTE'} . ')';
+	my $to_test = {
+		'  a b c=01 d' => '01',
+		'  a b c=12 d' => '12',
+		'  a b c=59 d' => '59',
+		'  a b c=04 d' => '04',
+		'  a b c=20 d' => '20',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'MINUTE regexp' ) or diag( "testing MINUTE regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'SECOND'} . ')';
+	my $to_test = {
+		'  a b c=01 d' => '01',
+		'  a b c=12 d' => '12',
+		'  a b c=59,333333 d' => '59,333333',
+		'  a b c=04:333333 d' => '04:333333',
+		'  a b c=20.333333 d' => '20.333333',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'SECOND regexp' ) or diag( "testing SECOND regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'LOGLEVEL'} . ')';
+	my $to_test = {
+		'  a b c=Alert d' => 'Alert',
+		'  a b c=alert d' => 'alert',
+		'  a b c=ALERT d' => 'ALERT',
+		'  a b c=FATAL d' => 'FATAL',
+		'  a b c=Fatal d' => 'Fatal',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'LOGLEVEL regexp' ) or diag( "testing LOGLEVEL regexp failed ... " . $@ );
+
+$worked = 0;
+eval {
+	my $regexp  = 'c=(?<TEST>' . $rules->{'vars'}{'TZ'} . ')';
+	my $to_test = {
+		'  a b c=CDT d' => 'CDT',
+		'  a b c=UTC d' => 'UTC',
+		'  a b c=EST d' => 'EST',
+		'  a b c=CST d' => 'CST',
+	};
+	my @test_strings = keys( %{$to_test} );
+
+	foreach my $test_string (@test_strings) {
+		if ( $test_string =~ /$regexp/ ) {
+			my %found_items = %+;
+			if ( !defined( $found_items{'TEST'} ) ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST, but test is undef' );
+			} elsif ( $found_items{'TEST'} ne $to_test->{$test_string} ) {
+				die(      '"'
+						. $regexp
+						. '" did not match "'
+						. $test_string
+						. '"... expected return was "'
+						. $to_test->{$test_string}
+						. '" for the var TEST but "'
+						. $found_items{'TEST'}
+						. '" was found instead' );
+			} ## end elsif ( $found_items{'TEST'} ne $to_test->{$test_string...})
+		} else {
+			die(      '"'
+					. $regexp
+					. '" did not match "'
+					. $test_string
+					. '"... expected return was "'
+					. $to_test->{$test_string}
+					. '"' );
+		}
+	} ## end foreach my $test_string (@test_strings)
+
+	$worked = 1;
+};
+ok( $worked eq '1', 'TZ regexp' ) or diag( "testing TZ regexp failed ... " . $@ );
 
 done_testing($tests);
