@@ -134,5 +134,73 @@ sub load {
 		} ## end if ( defined( $rules->{'includes'}[0] ) )
 	} ## end if ( defined( $rules->{'includes'} ) )
 
+	if ( defined( $rules->{'vars'} ) ) {
+		if ( ref( $rules->{'vars'} ) ne 'HASH' ) {
+			die( '$rules->{vars} exists and is of ref "' . ref( $rules->{'vars'} ) . '" and not HASH' );
+		}
+
+		foreach my $item ( keys( %{ $rules->{'vars'} } ) ) {
+			if (   ( ref( $rules->{'vars'}{$item} ) ne 'ARRAY' )
+				&& ( ref( $rules->{'vars'}{$item} ) ne '' ) )
+			{
+				die(      '$rules->{vars}{'
+						. $item
+						. '} is of ref "'
+						. ref( $rules->{'vars'}{$item} )
+						. '" and not "HASH" or ""' );
+			}
+			if ( ref( $rules->{'vars'}{$item} ) eq 'ARRAY' ) {
+				my $joined = join( '', @{ $rules->{'vars'}{$item} } );
+				$rules->{'vars'}{$item} = $joined;
+			}
+		} ## end foreach my $item ( keys( %{ $rules->{'vars'} } ...))
+	} ## end if ( defined( $rules->{'vars'} ) )
+
+	my $tt = Template->new(
+		'START_TAG' => '[%--',
+		'END_TAG'   => '--%]',
+	);
+
+	my @template_hashes         = ( 'vars_templated', 'vars_templated_late' );
+	my $vars_templated_late_int = 0;
+	while ( defined( $rules->{ 'vars_templated_late' . $vars_templated_late_int } ) ) {
+		push( @template_hashes, 'vars_templated_late' . $vars_templated_late_int );
+		$vars_templated_late_int++;
+	}
+
+	foreach my $template_hash (@template_hashes) {
+		if ( defined( $rules->{$template_hash} ) ) {
+			if ( ref( $rules->{$template_hash} ) ne 'HASH' ) {
+				die(      '$rules->{'
+						. $template_hash
+						. '} exists and is of ref "'
+						. ref( $rules->{$template_hash} )
+						. '" and not HASH' );
+			}
+
+			foreach my $item ( keys( %{ $rules->{$template_hash} } ) ) {
+				if (   ( ref( $rules->{$template_hash}{$item} ) ne 'ARRAY' )
+					&& ( ref( $rules->{$template_hash}{$item} ) ne '' ) )
+				{
+					die(      '$rules->{'
+							. $template_hash . '}{'
+							. $item
+							. '} is of ref "'
+							. ref( $rules->{'vars'}{$item} )
+							. '" and not "HASH" or ""' );
+				} ## end if ( ( ref( $rules->{$template_hash}{$item...})))
+				if ( ref( $rules->{$template_hash}{$item} ) eq 'ARRAY' ) {
+					my $joined = join( '', @{ $rules->{$template_hash}{$item} } );
+					$rules->{$template_hash}{$item} = $joined;
+				}
+
+				my $results;
+				$tt->process( \$rules->{$template_hash}{$item}, $rules->{'vars'}, \$results )
+					|| die( 'Failed to process $rules->{' . $template_hash . '}{' . $item . '} ... ' . $tt->error() );
+				$rules->{'vars'}{$item} = $results;
+			} ## end foreach my $item ( keys( %{ $rules->{$template_hash...}}))
+		} ## end if ( defined( $rules->{$template_hash} ) )
+	} ## end foreach my $template_hash (@template_hashes)
+
 	return $rules;
 } ## end sub load
