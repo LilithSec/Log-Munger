@@ -1,1 +1,7 @@
 #!perl
+
+use strict;
+use warnings;
+
+use Log::Munger::App;
+Log::Munger::App->run;

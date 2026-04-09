@@ -57,7 +57,7 @@ vars:
 vars_templated:
   MAC: '(?:[%-- CISCOMAC --%]|[%-- WINDOWSMAC --%]|[%-- COMMONMAC --%])'
   # does not properly handle IPv6... need to fix
-  HOSTandPORT: '[%-- HOSTNAMEorIP --%]:[%-- POSINT --%]'
+  HOSTandPORT: '(?:[%-- HOSTNAMEorIP --%]:[%-- POSINT --%])'
   PATH: '(?:[%-- UNIXPATH --%]|[%-- WINPATH --%])'
   URIPATHPARAM: '[%-- URIPATH --%](?:[%-- URIPARAM --%])?'
   TIME: '(?!<[0-9])[%-- HOUR --%]:[%-- MINUTE --%](?::[%-- SECOND --%])(?![0-9])'
