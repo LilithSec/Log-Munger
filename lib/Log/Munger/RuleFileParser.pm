@@ -156,17 +156,14 @@ sub load {
 		} ## end foreach my $item ( keys( %{ $rules->{'vars'} } ...))
 	} ## end if ( defined( $rules->{'vars'} ) )
 
-	my $tt = Template->new(
-		'START_TAG' => '[%--',
-		'END_TAG'   => '--%]',
-	);
-
 	my @template_hashes         = ( 'vars_templated', 'vars_templated_late' );
 	my $vars_templated_late_int = 0;
 	while ( defined( $rules->{ 'vars_templated_late' . $vars_templated_late_int } ) ) {
 		push( @template_hashes, 'vars_templated_late' . $vars_templated_late_int );
 		$vars_templated_late_int++;
 	}
+
+	my $tt = Template->new;
 
 	foreach my $template_hash (@template_hashes) {
 		if ( defined( $rules->{$template_hash} ) ) {
