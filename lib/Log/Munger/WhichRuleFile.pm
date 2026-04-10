@@ -54,7 +54,7 @@ sub rule_file_location {
 		die('$opts{file} is undef');
 	}
 
-	if ( $opts{'file'} =~ /^\// ) {
+	if ( $opts{'file'} =~ /^[\/.]/ ) {
 		if ( -f $opts{'file'} ) {
 			return $opts{'file'};
 		} elsif ( -f $opts{'file'} . '.yaml' ) {

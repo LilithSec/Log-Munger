@@ -68,6 +68,14 @@ sub load {
 
 	my $file_location = Log::Munger::WhichRuleFile->rule_file_location( 'file' => $opts{'file'} );
 
+	if ( !defined($file_location) ) {
+		die(      '"'
+				. $opts{'file'}
+				. '" could not be found by Log::Munger::WhichRuleFile->rule_file_location(file =>"'
+				. $opts{'file'}
+				. '")' );
+	}
+
 	my $rules;
 	eval {
 		my $rules_yaml_raw = read_file($file_location);
