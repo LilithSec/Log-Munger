@@ -149,14 +149,14 @@ sub test {
 						# lack of positive tests should be considered an error as
 						#
 						if ( !defined( $rules->{'vars_tests'}{$var}{'positive'} ) ) {
-							push( @errors, '.vars_tests.' . $var . 'positive is undef' );
+							push( @errors, '.vars_tests.' . $var . '.positive is undef' );
 						} elsif ( defined( $rules->{'vars_tests'}{$var}{'positive'} )
 							&& ( ref( $rules->{'vars_tests'}{$var}{'positive'} ) ne 'ARRAY' ) )
 						{
 							push( @errors,
 									  '.vars_tests.'
 									. $var
-									. 'positive has a ref of "'
+									. '.positive has a ref of "'
 									. ref( $rules->{'vars_tests'}{$var}{'positive'} )
 									. '" and not "ARRAY"' );
 						} elsif ( defined( $rules->{'vars_tests'}{$var}{'positive'} )
@@ -166,7 +166,7 @@ sub test {
 							push( @errors,
 									  '.vars_tests.'
 									. $var
-									. 'positive has a ref of "'
+									. '.positive has a ref of "'
 									. ref( $rules->{'vars_tests'}{$var}{'positive'} )
 									. '" and not "ARRAY"' );
 						} else {
@@ -204,7 +204,7 @@ sub test {
 									push( @errors,
 											  '.vars_tests.'
 											. $var
-											. 'positive.'
+											. '.positive.'
 											. $test_int
 											. '.result has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} )
@@ -257,12 +257,12 @@ sub test {
 						# handle negative tests
 						#
 						if ( !defined( $rules->{'vars_tests'}{$var}{'negative'} ) ) {
-							push( @errors, '.vars_tests.' . $var . 'negative is undef' );
+							push( @errors, '.vars_tests.' . $var . '.negative is undef' );
 						} elsif ( ref( $rules->{'vars_tests'}{$var}{'negative'} ) ne 'ARRAY' ) {
 							push( @errors,
 									  '.vars_tests.'
 									. $var
-									. 'negative is has a ref of "'
+									. '.negative is has a ref of "'
 									. ref( $rules->{'vars_tests'}{$var}{'negative'} )
 									. '" and not "ARRAY"' );
 						} else {
@@ -276,7 +276,7 @@ sub test {
 									push( @errors,
 											  '.vars_tests.'
 											. $var
-											. 'negative.'
+											. '.negative.'
 											. $test_int
 											. ' is has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] )
