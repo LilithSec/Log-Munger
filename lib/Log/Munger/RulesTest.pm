@@ -346,8 +346,7 @@ sub test {
 				&& ( ref( $rules->{'vars'}{$var} ) ne '' ) )
 			{
 				push( @errors, '.vars.' . $var . ' has a ref of "' . ref( $rules->{'vars'}{$var} ) . '" and not ""' );
-			} elsif ( ( ref( $rules->{'vars_tests'}{$var} ) eq 'HASH' )
-				&& !defined( $rules->{'vars'}{$var} ) )
+			} elsif ( !defined( $rules->{'vars'}{$var} ) )
 			{
 				push( @errors, '.vars.' . $var . ' has tests for it but it is undefined' );
 			} else {

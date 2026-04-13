@@ -72,7 +72,7 @@ vars_templated_late:
   URI: '[% URIPROTO %]://(?:[% USER %](?::[^@]*)?@)?(?:[% HOSTandPORT %])?(?:[% URIPATHPARAM %])?'
   TIMESTAMP_ISO8601: '[% YEAR %]-[% MONTHNUM %]-[% MONTHDAY %][T ][% HOUR %]:?[% MINUTE %](?::?[% SECOND %])?[%  ISO8601_TIMEZONE %]?'
   DATE: '([% DATE_US %]|[% DATE_EU %])'
-  DATESTAMP_RFC2822: '[% DAY %], [% MONTHDAY %] [% MONTH %] [% YEAR %] [% TIME %] [% ISO8601_TIMEZONE %]'
+  DATESTAMP_RFC822: '[% DAY %], [% MONTHDAY %] [% MONTH %] [% YEAR %] [% TIME %] [% ISO8601_TIMEZONE %]'
   SYSLOGTIMESTAMP: '[% MONTH %] +[% MONTHDAY %] [% TIME %]'
 vars_templated_late0:
   DATESTAMP: '[% DATE %][- ][% TIME %]'
@@ -750,6 +750,8 @@ vars_tests:
         result: '2031'
       - string: '  a b c=203 d'
         result: '20'
+      - string: '  a b c=1994 d'
+        result: '1994'
     negative:
       - '  a b c=2 d'
       - '  a b c=-3 d'
@@ -1038,10 +1040,13 @@ vars_tests:
     negative:
       - '  a b c=.9 d'
       - '  a b c= d'
-#  DATESTAMP_RFC822:
-#    test_template: 'c=(?<TEST>[% TEST_VAR %])'
-#    positive:
-#      - string: '  a b c= d'
-#        result: ''
-#    negative:
-#      - '  a b c= d'
+  DATESTAMP_RFC822:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=Sun, 16 Nov 1994 01:23:44 -1200 d'
+        result: 'Sun, 16 Nov 1994 01:23:44 -1200'
+      - string: '  a b c=Sun, 16 Nov 1994 01:23:44 Z d'
+        result: 'Sun, 16 Nov 1994 01:23:44 Z'
+    negative:
+      - '  a b c= d'
+      - '  a b c=Sun, 16 Nov 1994 01:23:44 GMT d'
