@@ -77,3 +77,20 @@ vars_templated_late:
   SYSLOGTIMESTAMP: '[% MONTH %] +[% MONTHDAY %] [% TIME %]'
 vars_templated_late0:
   DATESTAMP: '[% DATE %][- ][% TIME %]'
+vars_tests:
+  IPv6:
+    test_template: '(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c ::1 d'
+        result: '::1'
+      - string: '  a b c=::1 d'
+        result: '::1'
+      - string: '  a b c=::1; d'
+        result: '::1'
+      - string: '  a b c=fc00:bbbb:dddd:ab01::9:faca; d'
+        result: 'fc00:bbbb:dddd:ab01::9:faca'
+    negative:
+      - '  a b c 192.168.1.2 d'
+      - '  a b c= d'
+      - '  a b c=:1; d'
+      - '  a b c=fc00:dddd:ab01:9:faca; d'
