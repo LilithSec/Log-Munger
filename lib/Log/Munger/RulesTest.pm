@@ -180,7 +180,7 @@ sub test {
 									push( @errors,
 											  '.vars_tests.'
 											. $var
-											. 'positive.'
+											. '.positive.'
 											. $test_int
 											. ' has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int] )
@@ -245,7 +245,20 @@ sub test {
 													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'}
 													. '"' );
 										} ## end elsif ( $found_items{'TEST'} ne $rules->{'vars_tests'...})
-									} ## end if ( $rules->{'vars_tests'}{$var}{'positive'...})
+									} else {
+										push( @errors,
+												  '.var_tests.'
+												. $var
+												. '.positive.'
+												. $test_int
+												. ' did not match but was expected to found... test_regex="'
+												. $test_regex
+												. '" string="'
+												. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
+												. '" expected result="'
+												. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'}
+												. '"' );
+									} ## end else [ if ( $rules->{'vars_tests'}{$var}{'positive'...})]
 								} ## end else [ if ( ref( $rules->{'vars_tests'}{$var}{'positive'...}))]
 
 								$test_int++;
@@ -280,11 +293,9 @@ sub test {
 											. $test_int
 											. ' is has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] )
-										  . '" and not ""' );
+											. '" and not ""' );
 								} else {
-									if ( $rules->{'vars_tests'}{$var}{'negative'}[$test_int]
-										=~ /$test_regex/ )
-									{
+									if ( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] =~ /$test_regex/ ) {
 										my %found_items = %+;
 										if ( !defined( $found_items{'TEST'} ) ) {
 											push( @warnings,
