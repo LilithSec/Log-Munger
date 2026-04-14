@@ -57,6 +57,7 @@ vars_templated:
   MAC: '(?:[% CISCOMAC %]|[% WINDOWSMAC %]|[% COMMONMAC %])'
   # does not properly handle IPv6... need to fix
   HOSTandPORT: '(?:[% HOSTNAMEorIP %]:[% POSINT %])'
+  HOSTmaybePORT: '(?:[% HOSTNAMEorIP %](:[% POSINT %])?)'
   PATH: '(?:[% UNIXPATH %]|[% WINPATH %])'
   URIPATHPARAM: '[% URIPATH %](?:[% URIPARAM %])?'
   TIME: '(?!<[0-9])[% HOUR %]:[% MINUTE %](?::[% SECOND %])(?![0-9])'
@@ -64,15 +65,15 @@ vars_templated:
   DATE_EU: '[% MONTHDAY %][./-][% MONTHNUM %][./-][% YEAR %]'
   ISO8601_TIMEZONE: '(?:Z|[+-][% HOUR %](?::?[% MINUTE %]))'
   ISO8601_SECOND: '(?:60|[% SECOND %])'
+  DATESTAMP_EVENTLOG: '[% YEAR %][% MONTHNUM2 %][% MONTHDAY %][% HOUR %][% MINUTE %][% SECOND %]'
+vars_templated_late:
   DATESTAMP_RFC822: '[% DAY %] [% MONTH%] [% MONTHDAY %] [% YEAR %] [% TIME %] [% TZ %]'
   DATESTAMP_OTHER: '[% DAY %] [% MONTH %] [% MONTHDAY %] [% TIME %] [% TZ %] [% YEAR %]'
-  DATESTAMP_EVENTLOG: '[% YEAR %][% MONTHNUM2 %][% MONTHDAY %][% HOUR %][% MINUTE %][% SECOND %]'
   HTTPDATE: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [% INT %]'
-vars_templated_late:
-  URI: '[% URIPROTO %]://(?:[% USER %](?::[^@]*)?@)?(?:[% HOSTandPORT %])?(?:[% URIPATHPARAM %])?'
+  URI: '[% URIPROTO %]://(?:[% USERNAME %](?::[^@]*)?@)?(?:[% HOSTmaybePORT %])?(?:[% URIPATHPARAM %])?'
   TIMESTAMP_ISO8601: '[% YEAR %]-[% MONTHNUM %]-[% MONTHDAY %][T ][% HOUR %]:?[% MINUTE %](?::?[% SECOND %])?[%  ISO8601_TIMEZONE %]?'
   DATE: '([% DATE_US %]|[% DATE_EU %])'
-  DATESTAMP_RFC822: '[% DAY %], [% MONTHDAY %] [% MONTH %] [% YEAR %] [% TIME %] [% ISO8601_TIMEZONE %]'
+  DATESTAMP_RFC2822: '[% DAY %], [% MONTHDAY %] [% MONTH %] [% YEAR %] [% TIME %] [% ISO8601_TIMEZONE %]'
   SYSLOGTIMESTAMP: '[% MONTH %] +[% MONTHDAY %] [% TIME %]'
 vars_templated_late0:
   DATESTAMP: '[% DATE %][- ][% TIME %]'
@@ -999,6 +1000,22 @@ vars_tests:
       - '  a b c= d'
       - '  a b 3-2-2022 d'
       - '  a b c=3-2 d'
+  DATE:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=03/12/20 d'
+        result: '03/12/20'
+      - string: '  a b c=03/12/2022 d'
+        result: '03/12/2022'
+      - string: '  a b c=3-12-20 d'
+        result: '3-12-20'
+      - string: '  a b c=3-2-2022 d'
+        result: '3-2-2022'
+    negative:
+      - '  a b c=322022 d'
+      - '  a b c= d'
+      - '  a b 3-2-2022 d'
+      - '  a b c=3-2 d'
   ISO8601_TIMEZONE:
     test_template: 'c=(?<TEST>[% TEST_VAR %])'
     positive:
@@ -1040,7 +1057,7 @@ vars_tests:
     negative:
       - '  a b c=.9 d'
       - '  a b c= d'
-  DATESTAMP_RFC822:
+  DATESTAMP_RFC2822:
     test_template: 'c=(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '  a b c=Sun, 16 Nov 1994 01:23:44 -1200 d'
@@ -1050,3 +1067,46 @@ vars_tests:
     negative:
       - '  a b c= d'
       - '  a b c=Sun, 16 Nov 1994 01:23:44 GMT d'
+  DATESTAMP_OTHER:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=Sun Feb 22 01:23:44 UTC 1984 d'
+        result: 'Sun Feb 22 01:23:44 UTC 1984'
+    negative:
+      - '  a b c= d'
+      - '  a b c=Sun, 16 Nov 1994 01:23:44 GMT d'
+  DATESTAMP_EVENTLOG:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: 'a b c=20221222134533 d'
+        result: '20221222134533'
+      - string: 'a b c=20221222134533.44 d'
+        result: '20221222134533.44'
+    negative:
+      - '  a b c= d'
+      - '  a b c=2022122533 d'
+  HTTPDATE:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: 'a b c=22/Nov/1984:01:22:33 1 d'
+        result: '22/Nov/1984:01:22:33 1'
+    negative:
+      - '  a b c= d'
+      - '  a b c=22/11/1984:01:22:33 1 d'
+  URI:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=HTTP://foo.bar:33/test.png?ref=derp d'
+        result: 'HTTP://foo.bar:33/test.png?ref=derp'
+      - string: '  a b c=HTTP://foo.bar/test.png?ref=derp d'
+        result: 'HTTP://foo.bar/test.png?ref=derp'
+      - string: '  a b c=HTTP://1.2.3.4/test.png?ref=derp d'
+        result: 'HTTP://1.2.3.4/test.png?ref=derp'
+      - string: '  a b c=HTTP://::1/test.png?ref=derp d'
+        result: 'HTTP://::1/test.png?ref=derp'
+      - string: '  a b c=HTTP://foo:@::1/test.png?ref=derp d'
+        result: 'HTTP://foo:@::1/test.png?ref=derp'
+      - string: '  a b c=HTTP://foo:bar@::1/test.png?ref=derp d'
+        result: 'HTTP://foo:bar@::1/test.png?ref=derp'
+    negative:
+      - '  a b c= d'
