@@ -54,6 +54,8 @@ vars:
   TZ: '(?:[APMCE][SD]T|UTC)'
   PROG: "[\x21-\x5a\x5c\x5e-\x7e]+"
 vars_templated:
+  # commonly used in logstash stuff, add the alias here
+  NUMBER: '[% INTorFLOAT %]'
   # commonly used in logstash so template this here for people who expect USER and USERNAME to both exist
   USER: '[% USERNAME %]'
   MAC: '(?:[% CISCOMAC %]|[% WINDOWSMAC %]|[% COMMONMAC %])'
@@ -1396,3 +1398,30 @@ vars_tests:
     negative:
       - '  a b c= d'
       - '  a b c=/foo d'
+  NUMBER:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=1.99 d'
+        result: '1.99'
+      - string: '  a b c=1.9 d'
+        result: '1.9'
+      - string: '  a b c=1.3; d'
+        result: '1.3'
+      - string: '  a b c=341.0; d'
+        result: '341.0'
+      - string: '  a b c=341.2; d'
+        result: '341.2'
+      - string: '  a b c=341.393914; d'
+        result: '341.393914'
+      - string: '  a b c=1 d'
+        result: '1'
+      - string: '  a b c=1@ d'
+        result: '1'
+      - string: '  a b c=1; d'
+        result: '1'
+      - string: '  a b c=341; d'
+        result: '341'
+    negative:
+      - '  a b c=A d'
+      - '  a b c=@1.1 d'
+      - '  a b c=%1@ d'
