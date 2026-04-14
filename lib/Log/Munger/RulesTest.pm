@@ -358,6 +358,15 @@ sub test {
 						. '" and not "HASH"' );
 			}
 		} ## end foreach my $var ( keys( %{ $rules->{'vars_tests'...}}))
+
+		#
+		# since we are done with var tests, look for any vars we've not done any tests for
+		#
+		foreach my $var (keys( %{$rules->{'vars'}})) {
+			if (!$tested_vars{$var}){
+				push(@warnings, '.vars.'.$var.' lacks any tests');
+			}
+		}
 	} ## end if ( $has_var_tests && $vars_testable )
 
 	my $results = {
