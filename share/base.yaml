@@ -24,7 +24,7 @@ vars:
   WORD: '\b\w+\b'
   NOTSPACE: '\S+'
   SPACE: '\s*'
-  DATA: '.*?'
+  DATA: '(.*)?'
   GREEDYDATA: '.*'
   QUOTEDSTRING: (?>(?<!\\)(?>"(?>\.|[^\\"]+)+"|""|(?>'(?>\\.|[^\\']+)+')|''|(?>`(?>\\.|[^\\`]+)+`)|``))
   UUID: '[A-Fa-f0-9]{8}-(?:[A-Fa-f0-9]{4}-){3}[A-Fa-f0-9]{12}'
@@ -374,6 +374,26 @@ vars_tests:
       - '  a b c%1.99> d'
       - '  a b b=1.99< d'
   USERNAME:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=1.99 d'
+        result: '1.99'
+      - string: '  a b c=1-af d'
+        result: '1-af'
+      - string: '  a b c=1+af d'
+        result: '1'
+      - string: '  a b c=a1_3 d'
+        result: 'a1_3'
+      - string: '  a b c=a130d8 d'
+        result: 'a130d8'
+      - string: '  a b c=a1.3 d'
+        result: 'a1.3'
+    negative:
+      - '  a b c a1.3 d'
+      - '  a b c=@a1.3 d'
+      - '  a b c=<a1.3> d'
+  # this is a alias to USERNAME and should work exactly the same
+  USER:
     test_template: 'c=(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '  a b c=1.99 d'
@@ -1112,3 +1132,267 @@ vars_tests:
         result: 'HTTP://foo:bar@::1/test.png?ref=derp'
     negative:
       - '  a b c= d'
+  DATA:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d e f @'
+        result: '01 d e f @'
+      - string: '  a b c=12 d'
+        result: '12 d'
+      - string: '  a b c='
+        result: ''
+    negative:
+      - '  a b c d'
+  SPACE:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c= d e f @'
+        result: ' '
+      - string: '  a b c=   d'
+        result: '   '
+      - string: '  a b c=    d'
+        result: '    '
+      - string: "  a b c=\n    d"
+        result: "\n    "
+      - string: "  a b c=\t    d"
+        result: "\t    "
+      - string: "  a b c=\t\n    d"
+        result: "\t\n    "
+    negative:
+      - '  a b c d'
+  POSINT:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=1 d'
+        result: '1'
+      - string: '  a b c=12 d'
+        result: '12'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+    negative:
+      - '  a b c d'
+      - '  a b c= d'
+      - '  a b c=01 d'
+  NONNEGINT:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d'
+        result: '01'
+      - string: '  a b c=12 d'
+        result: '12'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+    negative:
+      - '  a b c d'
+      - '  a b c= d'
+  WORD:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d'
+        result: '01'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+      - string: 'a b c=1dasd3-29384756 d'
+        result: '1dasd3'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  GREEDYDATA:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c='
+        result: ''
+      - string: '  a b c=01 d'
+        result: '01 d'
+      - string: 'a b c=129384756 d'
+        result: '129384756 d'
+      - string: "a b c=1dasd3-29384756 d\n"
+        result: "1dasd3-29384756 d"
+    negative:
+      - '  a b c d'
+  NOTSPACE:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d'
+        result: '01'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+      - string: 'a b c=1dasd3-29384756 d'
+        result: '1dasd3-29384756'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  BASE16NUM:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d'
+        result: '01'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+      - string: '  a b c=a1f d'
+        result: 'a1f'
+      - string: '  a b c=a1F d'
+        result: 'a1F'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  BASE16FLOAT:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=01 d'
+        result: '01'
+      - string: 'a b c=129384756 d'
+        result: '129384756'
+      - string: '  a b c=a1f d'
+        result: 'a1f'
+      - string: '  a b c=a1F. d'
+        result: 'a1F'
+      - string: '  a b c=a1F.3De d'
+        result: 'a1F.3De'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  BASE10NUM:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=1.99 d'
+        result: '1.99'
+      - string: '  a b c=1.9 d'
+        result: '1.9'
+      - string: '  a b c=1.3; d'
+        result: '1.3'
+      - string: '  a b c=341.0; d'
+        result: '341.0'
+      - string: '  a b c=341.2; d'
+        result: '341.2'
+      - string: '  a b c=341.393914; d'
+        result: '341.393914'
+    negative:
+      - '  a b c=A d'
+      - '  a b c= d'
+      - '  a b c=@1.1 d'
+  HOSTmaybePORT:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=192.168.1.2:2 d'
+        result: '192.168.1.2:2'
+      - string: '  a b c=192.168.1.2:2333 d'
+        result: '192.168.1.2:2333'
+      # this really needs to be fixed as it should not match
+      - string: '  a b c=::1:1 d'
+        result: '::1:1'
+      - string: '  a b c=b.a.foo.bar d'
+        result: 'b.a.foo.bar'
+      - string: '  a b c=b.a.foo.bar; d'
+        result: 'b.a.foo.bar'
+      - string: '  a b c=b.a.foo.bar; d'
+        result: 'b.a.foo.bar'
+      - string: '  a b c=a.foo.bar d'
+        result: 'a.foo.bar'
+      - string: '  a b c=a.foo.bar; d'
+        result: 'a.foo.bar'
+      - string: '  a b c=a.foo.bar; d'
+        result: 'a.foo.bar'
+      - string: '  a b c=foo.bar d'
+        result: 'foo.bar'
+      - string: '  a b c=foo.bar; d'
+        result: 'foo.bar'
+      - string: '  a b c=foo.bar; d'
+        result: 'foo.bar'
+      - string: '  a b c=bar d'
+        result: 'bar'
+      - string: '  a b c=bar; d'
+        result: 'bar'
+      - string: '  a b c=bar; d'
+        result: 'bar'
+      - string: '  a b c=127.0.0.1 d'
+        result: '127.0.0.1'
+      - string: '  a b c=127.0.0.1; d'
+        result: '127.0.0.1'
+      - string: '  a b c=192.168.1.155; d'
+        result: '192.168.1.155'
+      - string: '  a b c=::1 d'
+        result: '::1'
+      - string: '  a b c=::1; d'
+        result: '::1'
+      - string: '  a b c=fc00:bbbb:dddd:ab01::9:faca; d'
+        result: 'fc00:bbbb:dddd:ab01::9:faca'
+    negative:
+      - '  a b c= d'
+      - '  a b c=:1; d'
+  DATESTAMP:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=03/12/20-01:23:44 d'
+        result: '03/12/20-01:23:44'
+      - string: '  a b c=03/12/2022-01:23:44 d'
+        result: '03/12/2022-01:23:44'
+      - string: '  a b c=3-12-20-01:23:44.33 d'
+        result: '3-12-20-01:23:44.33'
+      - string: '  a b c=3-2-2022-01:23:44.33 d'
+        result: '3-2-2022-01:23:44.33'
+      - string: '  a b c=03/12/20-01:23:44 d'
+        result: '03/12/20-01:23:44'
+      - string: '  a b c=03/12/2022-01:23:44 d'
+        result: '03/12/2022-01:23:44'
+      - string: '  a b c=3-12-20 01:23:44.33 d'
+        result: '3-12-20 01:23:44.33'
+      - string: '  a b c=3-2-2022 01:23:44.33 d'
+        result: '3-2-2022 01:23:44.33'
+    negative:
+      - '  a b c=3-2-2022T01:23:44.33 d'
+      - '  a b c=3-2-2022@01:23:44.33 d'
+      - '  a b c=3-2-2022_01:23:44.33 d'
+      - '  a b c= d'
+      - "  a b c=\n d"
+  TIMESTAMP_ISO8601:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=2026-04-14T01:18:08Z d'
+        result: '2026-04-14T01:18:08Z'
+      - string: '  a b c=2026-04-13T13:18:08-12:00 d'
+        result: '2026-04-13T13:18:08-12:00'
+      - string: '  a b c=2026-04-13T13:18:08 12:00 d'
+        result: '2026-04-13T13:18:08'
+      - string: '  a b c=2026-04-14 01:18:08Z d'
+        result: '2026-04-14 01:18:08Z'
+      - string: '  a b c=2026-04-13 13:18:08-12:00 d'
+        result: '2026-04-13 13:18:08-12:00'
+      - string: '  a b c=2026-04-13 13:18:08 12:00 d'
+        result: '2026-04-13 13:18:08'
+    negative:
+      - '  a b c=3-2-2022T01:23:44.33 d'
+      - '  a b c=3-2-2022@01:23:44.33 d'
+      - '  a b c=2026-04-13-13:18:08 12:00 d'
+      - '  a b c= d'
+      - "  a b c=\n d"
+  DATESTAMP_RFC822:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=Mon Jan 22 2023 14:33:44 CDT d'
+        result: 'Mon Jan 22 2023 14:33:44 CDT'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  SYSLOGTIMESTAMP:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=Apr 13 22:42:13 d'
+        result: 'Apr 13 22:42:13'
+    negative:
+      - '  a b c= d'
+      - "  a b c=\n d"
+  URIPARAM:
+    test_template: 'c=(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: '  a b c=?foo d'
+        result: '?foo'
+      - string: '  a b c=?/foo/bar d'
+        result: '?/foo/bar'
+      - string: '  a b c=?/a/foo.png d'
+        result: '?/a/foo.png'
+      - string: '  a b c=?/a#()_-=&@$%:;/test.jpg d'
+        result: '?/a#()_-=&@$%:;/test.jpg'
+    negative:
+      - '  a b c= d'
+      - '  a b c=/foo d'
