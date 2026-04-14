@@ -54,6 +54,8 @@ vars:
   TZ: '(?:[APMCE][SD]T|UTC)'
   PROG: "[\x21-\x5a\x5c\x5e-\x7e]+"
 vars_templated:
+  # commonly used in logstash so template this here for people who expect USER and USERNAME to both exist
+  USER: '[% USERNAME %]'
   MAC: '(?:[% CISCOMAC %]|[% WINDOWSMAC %]|[% COMMONMAC %])'
   # does not properly handle IPv6... need to fix
   HOSTandPORT: '(?:[% HOSTNAMEorIP %]:[% POSINT %])'
