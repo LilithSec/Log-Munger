@@ -22,7 +22,17 @@ our $VERSION = '0.0.1';
 
     use Log::Munger::Degrok;
 
+    if ( defined( $opts->{'s'} ) ) {
+        print Log::Munger::Degrok->string( 'string' => $opts->{'s'} ) . "\n";
+    } elsif ( defined( $opts->{'f'} ) ) {
+        if (! -f $opts->{'f'} ){
+            die('"'.$opts->{'f'}.'" is not a file');
+        }elsif(! -r $opts->{'f'} ){
+            die('"'.$opts->{'f'}.'" is not readable');
+        }
 
+        print Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
+    }
 
 Grok uses templating in the form of "%{TEMPLATE}" and capturing templating stuff in the form
 of "%{TEMPLATE:VAR}". This is not usable with Log::Munger. This takes that and translates it
@@ -34,7 +44,19 @@ of "%{TEMPLATE:VAR}". This is not usable with Log::Munger. This takes that and t
 
 Takes a string to process and returns the translated results.
 
-    
+    - string :: The string to convert.
+        default :: undef
+
+    - max_loops :: Max number of times to loop through a string. Each loop processes a single found template var.
+        default :: 3000
+
+    my $results;
+    eval {
+        Log::Munger::Degrok->string( 'file' => $some_string ) . "\n";
+    };
+    if ($@){
+        die('Failed to process the string "'.$some_string.'"... '.$@);
+    }
 
 =cut
 
@@ -88,9 +110,22 @@ sub string {
 
 =head2 file
 
-Takes a string to process and returns the translated results.
+Takes a file to process and returns the translated results.
 
-    
+    - string :: The file to convert.
+        default :: undef
+
+    - max_loops :: Max number of times to loop through each line. Each loop processes a single found template var.
+        default :: 3000    
+
+    my $results;
+    my $file = '/tmp/some_file';
+    eval {
+        Log::Munger::Degrok->string( 'file' => $file ) . "\n";
+    };
+    if ($@){
+        die('Failed to process "'.$file.'"... '.$@);
+    }
 
 =cut
 
@@ -116,10 +151,10 @@ sub file {
 	}
 
 	my @processed_lines;
-	foreach my $line (@lines){
-		$line = Log::Munger::Degrok->string('string' => $line, 'max_loops' => $opts{'max_loops'});
-		push(@processed_lines, $line);
+	foreach my $line (@lines) {
+		$line = Log::Munger::Degrok->string( 'string' => $line, 'max_loops' => $opts{'max_loops'} );
+		push( @processed_lines, $line );
 	}
-	
-	return join('', @processed_lines);
+
+	return join( '', @processed_lines );
 } ## end sub file
