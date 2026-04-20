@@ -16,7 +16,7 @@ vars:
   POSTFIX_LOSTCONN_REASONS: '(receiving the initial server greeting|sending message body|sending end of data -- message may be sent more than once)'
   
 vars_templated_late0:
-  POSTFIX_TIME_UNIT: '[% INTorFLOAT %][smhd]'
+  POSTFIX_TIME_UNIT: '[% NUMBER %][smhd]'
   POSTFIX_KEYVALUE: '(?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])'
 
 vars_templated_late1:

@@ -8,6 +8,7 @@ use Log::Munger::WhichRuleFile ();
 use File::Slurp                qw(read_file);
 use Template;
 use Hash::Merge ();
+use Log::Munger::RulesTemplateOrder;
 
 =head1 NAME
 
@@ -58,6 +59,70 @@ Loads a munger rule file.
 =cut
 
 sub load {
+	my ( $self, %opts ) = @_;
+
+	if ( !defined( $opts{'file'} ) ) {
+		die('$opts{file} is undef');
+	} elsif ( ref( $opts{'file'} ) ne '' ) {
+		die( '$opts{file} ref is "' . ref( $opts{'file'} ) . '" and not ""' );
+	}
+
+	my $rules;
+	eval { $rules = $self->load_no_templating( 'file' => $opts{'file'} ); };
+	if ($@) {
+		die( 'Failed to call load_no_templating for "' . $opts{'file'} . '"... ' . $@ );
+	}
+
+	my $template_order = Log::Munger::RulesTemplateOrder->order_for_rules_hash( 'rules' => $rules );
+
+	my $tt = Template->new;
+
+	my $template_hash = 'vars_templated';
+	if ( defined( $rules->{$template_hash} ) ) {
+		if ( ref( $rules->{$template_hash} ) ne 'HASH' ) {
+			die(      '$rules->{'
+					. $template_hash
+					. '} exists and is of ref "'
+					. ref( $rules->{$template_hash} )
+					. '" and not HASH' );
+		}
+
+		foreach my $item ( keys( %{ $rules->{$template_hash} } ) ) {
+			if (   ( ref( $rules->{$template_hash}{$item} ) ne 'ARRAY' )
+				&& ( ref( $rules->{$template_hash}{$item} ) ne '' ) )
+			{
+				die(      '$rules->{'
+						. $template_hash . '}{'
+						. $item
+						. '} is of ref "'
+						. ref( $rules->{'vars'}{$item} )
+						. '" and not "HASH" or ""' );
+			} ## end if ( ( ref( $rules->{$template_hash}{$item...})))
+			if ( ref( $rules->{$template_hash}{$item} ) eq 'ARRAY' ) {
+				my $joined = join( '', @{ $rules->{$template_hash}{$item} } );
+				$rules->{$template_hash}{$item} = $joined;
+			}
+
+			my $results;
+			$tt->process( \$rules->{$template_hash}{$item}, $rules->{'vars'}, \$results )
+				|| die( 'Failed to process $rules->{' . $template_hash . '}{' . $item . '} ... ' . $tt->error() );
+			$rules->{'vars'}{$item} = $results;
+		} ## end foreach my $item ( keys( %{ $rules->{$template_hash...}}))
+	} ## end if ( defined( $rules->{$template_hash} ) )
+
+	return $rules;
+} ## end sub load
+
+=head2 load_no_templating
+
+Loads the rule file without processing .vars_templates .
+
+    - file :: The file to load. Required.
+        Default :: undef
+
+=cut
+
+sub load_no_templating {
 	my ( $self, %opts ) = @_;
 
 	if ( !defined( $opts{'file'} ) ) {
@@ -164,48 +229,5 @@ sub load {
 		} ## end foreach my $item ( keys( %{ $rules->{'vars'} } ...))
 	} ## end if ( defined( $rules->{'vars'} ) )
 
-	my @template_hashes         = ( 'vars_templated', 'vars_templated_late' );
-	my $vars_templated_late_int = 0;
-	while ( defined( $rules->{ 'vars_templated_late' . $vars_templated_late_int } ) ) {
-		push( @template_hashes, 'vars_templated_late' . $vars_templated_late_int );
-		$vars_templated_late_int++;
-	}
-
-	my $tt = Template->new;
-
-	foreach my $template_hash (@template_hashes) {
-		if ( defined( $rules->{$template_hash} ) ) {
-			if ( ref( $rules->{$template_hash} ) ne 'HASH' ) {
-				die(      '$rules->{'
-						. $template_hash
-						. '} exists and is of ref "'
-						. ref( $rules->{$template_hash} )
-						. '" and not HASH' );
-			}
-
-			foreach my $item ( keys( %{ $rules->{$template_hash} } ) ) {
-				if (   ( ref( $rules->{$template_hash}{$item} ) ne 'ARRAY' )
-					&& ( ref( $rules->{$template_hash}{$item} ) ne '' ) )
-				{
-					die(      '$rules->{'
-							. $template_hash . '}{'
-							. $item
-							. '} is of ref "'
-							. ref( $rules->{'vars'}{$item} )
-							. '" and not "HASH" or ""' );
-				} ## end if ( ( ref( $rules->{$template_hash}{$item...})))
-				if ( ref( $rules->{$template_hash}{$item} ) eq 'ARRAY' ) {
-					my $joined = join( '', @{ $rules->{$template_hash}{$item} } );
-					$rules->{$template_hash}{$item} = $joined;
-				}
-
-				my $results;
-				$tt->process( \$rules->{$template_hash}{$item}, $rules->{'vars'}, \$results )
-					|| die( 'Failed to process $rules->{' . $template_hash . '}{' . $item . '} ... ' . $tt->error() );
-				$rules->{'vars'}{$item} = $results;
-			} ## end foreach my $item ( keys( %{ $rules->{$template_hash...}}))
-		} ## end if ( defined( $rules->{$template_hash} ) )
-	} ## end foreach my $template_hash (@template_hashes)
-
 	return $rules;
-} ## end sub load
+} ## end sub load_no_templating

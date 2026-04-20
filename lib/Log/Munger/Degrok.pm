@@ -52,11 +52,12 @@ Takes a string to process and returns the translated results.
 
     my $results;
     eval {
-        Log::Munger::Degrok->string( 'file' => $some_string ) . "\n";
+        my $results = Log::Munger::Degrok->string( 'file' => $some_string ) . "\n";
     };
     if ($@){
         die('Failed to process the string "'.$some_string.'"... '.$@);
     }
+    print $results."\n";
 
 =cut
 
@@ -112,7 +113,7 @@ sub string {
 
 Takes a file to process and returns the translated results.
 
-    - string :: The file to convert.
+    - file :: The file to convert.
         default :: undef
 
     - max_loops :: Max number of times to loop through each line. Each loop processes a single found template var.
@@ -121,11 +122,12 @@ Takes a file to process and returns the translated results.
     my $results;
     my $file = '/tmp/some_file';
     eval {
-        Log::Munger::Degrok->string( 'file' => $file ) . "\n";
+        Log::Munger::Degrok->file( 'file' => $file ) . "\n";
     };
     if ($@){
         die('Failed to process "'.$file.'"... '.$@);
     }
+    print $results."\n";
 
 =cut
 
@@ -157,4 +159,68 @@ sub file {
 	}
 
 	return join( '', @processed_lines );
+} ## end sub file
+
+=head2 grok2vars
+
+Takes a file to process and returns the translated results.
+
+    - file :: The file to convert.
+        default :: undef
+
+    - max_loops :: Max number of times to loop through each line. Each loop processes a single found template var.
+        default :: 3000
+
+    - includes :: Rules includes to include to use. The taken value is a array.
+        default :: []
+
+    - overwrite :: Overwrite value for if something is already defined by a include.
+        values :: ...
+            - yes :: Always overwrite.
+            - no_silent :: Silently ignore overwrites.
+            - no_warn ::  Warn on overwrites.
+            - no_die :: Die on overwrites.
+        default :: no_silent
+
+    - overwrite_ignore_if_same :: If the warn/die should trigger if overwrite is set to no_warn or no_die.
+        default :: 1
+
+    my $results;
+    my $file = '/tmp/some_file';
+    eval {
+        Log::Munger::Degrok->string( 'file' => $file, incldues=>['base'], ) . "\n";
+    };
+    if ($@){
+        die('Failed to process "'.$file.'"... '.$@);
+    }
+
+=cut
+
+sub grok2rules {
+	my ( $blank, %opts ) = @_;
+
+	if ( !defined( $opts{'file'} ) ) {
+		die('$opts{file} is undef');
+	}
+
+	if ( !defined( $opts{'max_loops'} ) ) {
+		$opts{'max_loops'} = 3000;
+	} elsif ( !looks_like_number( $opts{'max_loops'} ) ) {
+		die( '$opts{max_loops} is defined, but does not look like a number... value is "' . $opts{'max_loops'} . '"' );
+	} elsif ( $opts{'max_loops'} < 1 ) {
+		die( '$opts{max_loops} is defined, but is less than 1... value is "' . $opts{'max_loops'} . '"' );
+	}
+
+	# the rules file being generated
+	my $rules = {};
+
+	
+	
+
+	my @lines;
+	eval { @lines = read_file( $opts{'file'} ); };
+	if ($@) {
+		die( 'Failed to read "' . $opts{'file'} . '"... ' . $@ );
+	}
+
 } ## end sub file

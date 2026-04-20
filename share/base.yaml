@@ -70,7 +70,6 @@ vars_templated:
   ISO8601_TIMEZONE: '(?:Z|[+-][% HOUR %](?::?[% MINUTE %]))'
   ISO8601_SECOND: '(?:60|[% SECOND %])'
   DATESTAMP_EVENTLOG: '[% YEAR %][% MONTHNUM2 %][% MONTHDAY %][% HOUR %][% MINUTE %][% SECOND %]'
-vars_templated_late:
   DATESTAMP_RFC822: '[% DAY %] [% MONTH%] [% MONTHDAY %] [% YEAR %] [% TIME %] [% TZ %]'
   DATESTAMP_OTHER: '[% DAY %] [% MONTH %] [% MONTHDAY %] [% TIME %] [% TZ %] [% YEAR %]'
   HTTPDATE: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [% INT %]'
@@ -79,7 +78,6 @@ vars_templated_late:
   DATE: '([% DATE_US %]|[% DATE_EU %])'
   DATESTAMP_RFC2822: '[% DAY %], [% MONTHDAY %] [% MONTH %] [% YEAR %] [% TIME %] [% ISO8601_TIMEZONE %]'
   SYSLOGTIMESTAMP: '[% MONTH %] +[% MONTHDAY %] [% TIME %]'
-vars_templated_late0:
   DATESTAMP: '[% DATE %][- ][% TIME %]'
 vars_tests:
   IPv6:
