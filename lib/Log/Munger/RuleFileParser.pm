@@ -168,7 +168,6 @@ sub load_no_templating {
 			my $merger = Hash::Merge->new('RIGHT_PRECEDENT');
 			my %included;
 			my $include_int = 0;
-			my %left_side   = %{$rules};
 			while ( defined( $rules->{'includes'}[$include_int] ) ) {
 				if ( ref( $rules->{'includes'}[$include_int] ) ne '' ) {
 					die(      '.includes.'
@@ -199,11 +198,12 @@ sub load_no_templating {
 						}
 					};
 
-					$rules = $merger->merge( \%left_side, $rule_include );
+					$rules = $merger->merge( $rules, $rule_include );
 				} ## end if ( !$included{ $rules->{'includes'}[$include_int...]})
 
 				$include_int++;
 			} ## end while ( defined( $rules->{'includes'}[$include_int...]))
+
 		} ## end if ( defined( $rules->{'includes'}[0] ) )
 	} ## end if ( defined( $rules->{'includes'} ) )
 

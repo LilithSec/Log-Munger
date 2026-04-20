@@ -6,7 +6,13 @@ use Log::Munger::App -command;
 use Log::Munger::Degrok;
 
 sub opt_spec {
-	return ( [ 's=s', 'A string to convert' ], [ 'f=s', 'F file to convert' ], );
+	return (
+		[ 's=s',  'A string to convert' ],
+		[ 'f=s',  'File to convert' ],
+		[ 'r',    'Convert to a rules file.' ],
+		[ 'i=s@', 'Includes to use.' ],
+		[ 'o=s',  'Overwrite setting.' ],
+	);
 }
 
 sub abstract { "Converts grok style regexp template to perl." }
@@ -34,14 +40,22 @@ sub execute {
 	if ( defined( $opts->{'s'} ) ) {
 		print Log::Munger::Degrok->string( 'string' => $opts->{'s'} ) . "\n";
 	} elsif ( defined( $opts->{'f'} ) ) {
-		if (! -f $opts->{'f'} ){
-			die('"'.$opts->{'f'}.'" is not a file');
-		}elsif(! -r $opts->{'f'} ){
-			die('"'.$opts->{'f'}.'" is not readable');
+		if ( !-f $opts->{'f'} ) {
+			die( '"' . $opts->{'f'} . '" is not a file' );
+		} elsif ( !-r $opts->{'f'} ) {
+			die( '"' . $opts->{'f'} . '" is not readable' );
 		}
 
-		print Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
-	}
+		if ( $opts->{'r'} ) {
+			print Log::Munger::Degrok->grok2rules(
+				'file'      => $opts->{'f'},
+				'includes'  => $opts->{'i'},
+				'overwrite' => $opts->{'o'}
+			) . "\n";
+		} else {
+			print Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
+		}
+	} ## end elsif ( defined( $opts->{'f'} ) )
 } ## end sub execute
 
 1;

@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use Scalar::Util qw(looks_like_number);
 use File::Slurp  qw(read_file);
+use Hash::Merge  ();
 
 =head1 NAME
 
@@ -47,9 +48,6 @@ Takes a string to process and returns the translated results.
     - string :: The string to convert.
         default :: undef
 
-    - max_loops :: Max number of times to loop through a string. Each loop processes a single found template var.
-        default :: 3000
-
     my $results;
     eval {
         my $results = Log::Munger::Degrok->string( 'file' => $some_string ) . "\n";
@@ -69,17 +67,8 @@ sub string {
 	}
 	my $string = $opts{'string'};
 
-	if ( !defined( $opts{'max_loops'} ) ) {
-		$opts{'max_loops'} = 3000;
-	} elsif ( !looks_like_number( $opts{'max_loops'} ) ) {
-		die( '$opts{max_loops} is defined, but does not look like a number... value is "' . $opts{'max_loops'} . '"' );
-	} elsif ( $opts{'max_loops'} < 1 ) {
-		die( '$opts{max_loops} is defined, but is less than 1... value is "' . $opts{'max_loops'} . '"' );
-	}
-
-	my $loop_counter  = 1;
 	my $loop_continue = 1;
-	while ( $loop_continue && ( $loop_counter < $opts{'max_loops'} ) ) {
+	while ($loop_continue) {
 		if ( $string =~ /(?<GROK>\%\{(?<VAR>[A-Za-z0-9\_]+)(\:(?<CAPTURE>[A-Za-z0-9\_]+))?\})/ ) {
 			my %found_items = %+;
 			my $replacement_string;
@@ -93,18 +82,7 @@ sub string {
 		} else {
 			$loop_continue = 0;
 		}
-
-		$loop_counter++;
-	} ## end while ( $loop_continue && ( $loop_counter < $opts...))
-	if ( $loop_counter > $opts{'max_loops'} ) {
-		die(      'Hit max_loops, '
-				. $opts{'max_loops'}
-				. ', when processing string "'
-				. $opts{'string'}
-				. '"... either number of replacements exceed '
-				. $opts{'max_loops'}
-				. ' or there is some sort of problem' );
-	}
+	} ## end while ($loop_continue)
 
 	return $string;
 } ## end sub string
@@ -115,9 +93,6 @@ Takes a file to process and returns the translated results.
 
     - file :: The file to convert.
         default :: undef
-
-    - max_loops :: Max number of times to loop through each line. Each loop processes a single found template var.
-        default :: 3000    
 
     my $results;
     my $file = '/tmp/some_file';
@@ -136,14 +111,6 @@ sub file {
 
 	if ( !defined( $opts{'file'} ) ) {
 		die('$opts{file} is undef');
-	}
-
-	if ( !defined( $opts{'max_loops'} ) ) {
-		$opts{'max_loops'} = 3000;
-	} elsif ( !looks_like_number( $opts{'max_loops'} ) ) {
-		die( '$opts{max_loops} is defined, but does not look like a number... value is "' . $opts{'max_loops'} . '"' );
-	} elsif ( $opts{'max_loops'} < 1 ) {
-		die( '$opts{max_loops} is defined, but is less than 1... value is "' . $opts{'max_loops'} . '"' );
 	}
 
 	my @lines;
@@ -167,9 +134,6 @@ Takes a file to process and returns the translated results.
 
     - file :: The file to convert.
         default :: undef
-
-    - max_loops :: Max number of times to loop through each line. Each loop processes a single found template var.
-        default :: 3000
 
     - includes :: Rules includes to include to use. The taken value is a array.
         default :: []
@@ -203,24 +167,80 @@ sub grok2rules {
 		die('$opts{file} is undef');
 	}
 
-	if ( !defined( $opts{'max_loops'} ) ) {
-		$opts{'max_loops'} = 3000;
-	} elsif ( !looks_like_number( $opts{'max_loops'} ) ) {
-		die( '$opts{max_loops} is defined, but does not look like a number... value is "' . $opts{'max_loops'} . '"' );
-	} elsif ( $opts{'max_loops'} < 1 ) {
-		die( '$opts{max_loops} is defined, but is less than 1... value is "' . $opts{'max_loops'} . '"' );
+	my $overwrite_types = {
+		'yes'       => 1,
+		'no_die'    => 1,
+		'no_warn'   => 1,
+		'no_wilent' => 1,
+	};
+
+	if ( !defined( $opts{'overwrite'} ) ) {
+		$opts{'overwrite'} = 'no_silent';
+	} elsif ( ref( $opts{'overwrite'} ) ne '' ) {
+		die( '$opts{overwrite} is specified but has a ref of "' . ref( $opts{'overwrite'} ) . '" instead of ""' );
+	} elsif ( !$overwrite_types->{ $opts{'overwrite'} } ) {
+		die(      '$opts{overwrite} has a value of "'
+				. $opts{'overwrite'}
+				. '"... expected values: '
+				. join( ', ', sort( keys( %{$overwrite_types} ) ) ) );
 	}
 
 	# the rules file being generated
 	my $rules = {};
 
-	
-	
+	my $includes = { 'vars' => {}, 'vars_templated' => {} };
+	if ( defined( $opts{'includes'} )
+		&& ( ref( $opts{'includes'} ) ne 'ARRAY' ) )
+	{
+		die( '$opts{includes} is specified but has a ref of "' . ref( $opts{'includes'} ) . '" instead of "ARRAY"' );
+	} else {
+		if ( defined( $opts{'includes'}[0] ) ) {
+			$rules->{'includes'} = [];
+
+			my $merger = Hash::Merge->new('RIGHT_PRECEDENT');
+			my $parser = Log::Munger::RuleFileParser->new;
+
+			# use a while loop instead of foreach for basically simplifying display of errors
+			my $include_int = 0;
+			while ( defined( $opts{'includes'}[$include_int] ) ) {
+				my $include = $opts{'includes'}[$include_int];
+				if ( ref($include) ne '' ) {
+					die( '$opts{includes}[' . $include_int . '] has a ref of "' . ref($include) . '" and not ""' );
+				}
+
+				push( @{ $rules->{'includes'} }, $include );
+
+				my $include_rules;
+				eval { $include_rules = $parser->load( 'file' => $include ); };
+				if ($@) {
+					die( '$opts{includes}[' . $include_int . '], "' . $include . '", could not be loaded... ' . $@ );
+				}
+
+				$includes = $merger->merge( $includes, $include_rules );
+
+				$include_int++;
+			} ## end while ( defined( $opts{'includes'}[$include_int...]))
+		} ## end if ( defined( $opts{'includes'}[0] ) )
+	} ## end else [ if ( defined( $opts{'includes'} ) && ( ref...))]
 
 	my @lines;
-	eval { @lines = read_file( $opts{'file'} ); };
+	eval { @lines = grep( !/(^#|^\w*$)/, read_file( $opts{'file'} ) ); };
 	if ($@) {
 		die( 'Failed to read "' . $opts{'file'} . '"... ' . $@ );
 	}
 
-} ## end sub file
+	foreach my $line (@lines) {
+		my ( $var, $regexp ) = split( /\w+/, $line, 2 );
+		# If we don't have $regexp, there is almost certainly something wrong with that line
+		# It is not useful and likely should be removed.
+		if ( !defined($regexp) ) {
+			die(      'The line "'
+					. $line
+					. '" could not be split via /\w+/ meaning there is likely something wrong with this line as there is no regexp for the variable'
+			);
+		}
+
+	} ## end foreach my $line (@lines)
+
+	die("test");
+} ## end sub grok2rules
