@@ -7,7 +7,7 @@ use Log::Munger::RuleFileParser;
 use YAML::XS qw(Dump);
 
 sub opt_spec {
-	return ( [ 'f=s', 'Rule file to read.', { 'default' => 'base' } ], );
+	return ( [ 'f=s', 'Rule file to read.' ], );
 }
 
 sub abstract { "Reads in the specified rule file and dumps it to stdout" }
@@ -19,11 +19,15 @@ sub validate { return 1 }
 sub execute {
 	my ( $self, $opts, $args ) = @_;
 
+	if ( !defined( $opts->{'f'} ) ) {
+		die('No rules file specified via -f');
+	}
+
 	my $parser = Log::Munger::RuleFileParser->new;
 	my $rules  = $parser->load( 'file' => $opts->{'f'} );
 
 	print Dump($rules);
 
-}
+} ## end sub execute
 
 1;
