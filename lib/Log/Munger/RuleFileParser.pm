@@ -87,7 +87,7 @@ sub load {
 					. '" and not HASH' );
 		}
 
-		foreach my $item ( keys( %{ $rules->{$template_hash} } ) ) {
+		foreach my $item ( @{ $template_order } ) {
 			if (   ( ref( $rules->{$template_hash}{$item} ) ne 'ARRAY' )
 				&& ( ref( $rules->{$template_hash}{$item} ) ne '' ) )
 			{
