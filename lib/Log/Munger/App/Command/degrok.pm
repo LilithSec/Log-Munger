@@ -46,15 +46,17 @@ sub execute {
 			die( '"' . $opts->{'f'} . '" is not readable' );
 		}
 
+		my $results;
 		if ( $opts->{'r'} ) {
-			print Log::Munger::Degrok->grok2rules(
+			$results = Log::Munger::Degrok->grok2rules(
 				'file'      => $opts->{'f'},
 				'includes'  => $opts->{'i'},
 				'overwrite' => $opts->{'o'}
 			) . "\n";
 		} else {
-			print Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
+			$results = Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
 		}
+		print $results;
 	} ## end elsif ( defined( $opts->{'f'} ) )
 } ## end sub execute
 

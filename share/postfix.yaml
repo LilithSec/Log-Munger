@@ -1,32 +1,174 @@
-%YAML 1.1
 ---
 includes:
-  - "base"
+- base
 vars:
-  POSTFIX_QUEUEID: '([0-9A-F]{6,}|[0-9a-zA-Z]{12,}|NOQUEUE)'
-  POSTFIX_STATUS_CODE: '\d{3}'
-  POSTFIX_STATUS_CODE_ENHANCED: '\d\.\d\.\d'
-  POSTFIX_ACTION: '(accept|defer|discard|filter|header-redirect|reject)'
-  POSTFIX_SMTP_STAGE: '(CONNECT|HELO|EHLO|STARTTLS|AUTH|MAIL( FROM)?|RCPT( TO)?|(end of )?DATA|RSET|UNKNOWN|END-OF-MESSAGE|VRFY|\.)'
-  POSTFIX_KEYVALUE_DATA: '[\w-]+=[^;]*'
-  POSTFIX_PS_VIOLATION: '(BARE NEWLINE|COMMAND (TIME|COUNT|LENGTH) LIMIT|COMMAND PIPELINING|DNSBL|HANGUP|NON-SMTP COMMAND|PREGREET)'
-  POSTFIX_PS_ACCESS_ACTION: '(DISCONNECT|BLACKLISTED|WHITELISTED|WHITELIST VETO|PASS NEW|PASS OLD)'
-  POSTFIX_WARNING_LEVEL: '(warning|fatal|info)'
-  POSTFIX_LOSTCONN: '(Connection timed out|No route to host|Connection refused|Network is unreachable|lost connection|timeout|SSL_accept error|-1)'
-  POSTFIX_LOSTCONN_REASONS: '(receiving the initial server greeting|sending message body|sending end of data -- message may be sent more than once)'
-  
-vars_templated_late0:
-  POSTFIX_TIME_UNIT: '[% NUMBER %][smhd]'
-  POSTFIX_KEYVALUE: '(?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])'
+  POSTFIX_ACTION: |
+    (accept|defer|discard|filter|header-redirect|reject)
+  POSTFIX_CLEANUP_PREPEND_TYPE: "(header|body)\n"
+  POSTFIX_KEYVALUE_DATA: "[\\w-]+=[^;]*\n"
+  POSTFIX_LOSTCONN: |
+    (Connection timed out|No route to host|Connection refused|Network is unreachable|lost connection|timeout|SSL_accept error|-1)
+  POSTFIX_LOSTCONN_REASONS: |
+    (receiving the initial server greeting|sending message body|sending end of data -- message may be sent more than once)
+  POSTFIX_POSTSUPER_ACTIONS: |
+    (removed|requeued|placed on hold|released from hold)
+  POSTFIX_POSTSUPER_SUMMARY_ACTIONS: |
+    (Deleted|Requeued|Placed on hold|Released from hold)
+  POSTFIX_PS_ACCESS_ACTION: |
+    (DISCONNECT|BLACKLISTED|WHITELISTED|WHITELIST VETO|PASS NEW|PASS OLD)
+  POSTFIX_PS_VIOLATION: |
+    (BARE NEWLINE|COMMAND (TIME|COUNT|LENGTH) LIMIT|COMMAND PIPELINING|DNSBL|HANGUP|NON-SMTP COMMAND|PREGREET)
+  POSTFIX_QUEUEID: |
+    ([0-9A-F]{6,}|[0-9a-zA-Z]{12,}|NOQUEUE)
+  POSTFIX_SMTP_STAGE: |
+    (CONNECT|HELO|EHLO|STARTTLS|AUTH|MAIL( FROM)?|RCPT( TO)?|(end of )?DATA|RSET|UNKNOWN|END-OF-MESSAGE|VRFY|\.)
+  POSTFIX_STATUS_CODE: "\\d{3}\n"
+  POSTFIX_STATUS_CODE_ENHANCED: "\\d\\.\\d\\.\\d\n"
+  POSTFIX_WARNING_LEVEL: "(warning|fatal|info)\n"
+vars_templated:
+  POSTFIX_ANVIL: |
+    [% POSTFIX_ANVIL_CONN_RATE %]|[% POSTFIX_ANVIL_CONN_CACHE %]|[% POSTFIX_ANVIL_CONN_COUNT %]
+  POSTFIX_ANVIL_CONN_CACHE: |
+    statistics: max cache size (?<postfix_anvil_cache_size>[% NUMBER %]) at (?<postfix_anvil_timestamp>[% SYSLOGTIMESTAMP %])
+  POSTFIX_ANVIL_CONN_COUNT: |
+    statistics: max connection count (?<postfix_anvil_conn_count>[% NUMBER %]) for \((?<postfix_service>[% DATA %]):(?<postfix_client_ip>[% IP %])\) at (?<postfix_anvil_timestamp>[% SYSLOGTIMESTAMP %])
+  POSTFIX_ANVIL_CONN_RATE: |
+    statistics: max connection rate (?<postfix_anvil_conn_rate>[% NUMBER %])/(?<postfix_anvil_conn_period>[% POSTFIX_TIME_UNIT %]) for \((?<postfix_service>[% DATA %]):(?<postfix_client_ip>[% IP %])\) at (?<postfix_anvil_timestamp>[% SYSLOGTIMESTAMP %])
+  POSTFIX_BOUNCE: |
+    [% POSTFIX_BOUNCE_NOTIFICATION %]
+  POSTFIX_BOUNCE_NOTIFICATION: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): sender (non-delivery|delivery status|delay) notification: (?<postfix_bounce_queueid>[% POSTFIX_QUEUEID %])
+  POSTFIX_CLEANUP: |
+    [% POSTFIX_CLEANUP_MESSAGEID %]|[% POSTFIX_CLEANUP_MILTER %]|[% POSTFIX_CLEANUP_PREPEND %]|[% POSTFIX_WARNING %]|[% POSTFIX_KEYVALUE %]
+  POSTFIX_CLEANUP_MESSAGEID: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): message-id=<?%{GREEDYDATA_NO_BRACKET:postfix_message-id}>?
+  POSTFIX_CLEANUP_MILTER: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): milter-(?<postfix_milter_result>[% POSTFIX_ACTION %]): (?<postfix_milter_message>[% GREEDYDATA %]); (?<postfix_keyvalue_data>[% GREEDYDATA_NO_COLON %])(: (?<postfix_milter_data>[% GREEDYDATA %]))?
+  POSTFIX_CLEANUP_PREPEND: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): prepend: (?<postfix_prepend_type>[% POSTFIX_CLEANUP_PREPEND_TYPE %]) (?<postfix_prepend_trigger>[% GREEDYDATA %]) from [% POSTFIX_CLIENT_INFO %]; (?<postfix_keyvalue_data>[% GREEDYDATA_NO_COLON %]): (?<postfix_prepend_value>[% GREEDYDATA %])
+  POSTFIX_CLIENT_INFO: |
+    (?<postfix_client_hostname>[% HOSTNAME %])?\[(?<postfix_client_ip>[% IP %])\](:(?<postfix_client_port>[% INT %]))?
+  POSTFIX_COMMAND_COUNTER_DATA: |
+    (helo=((?<postfix_cmd_helo_accepted>[% INT %])/)?(?<postfix_cmd_helo>[% INT %]) )?(ehlo=((?<postfix_cmd_ehlo_accepted>[% INT %])/)?(?<postfix_cmd_ehlo>[% INT %]) )?(starttls=((?<postfix_cmd_starttls_accepted>[% INT %])/)?(?<postfix_cmd_starttls>[% INT %]) )?(auth=((?<postfix_cmd_auth_accepted>[% INT %])/)?(?<postfix_cmd_auth>[% INT %]) )?(mail=((?<postfix_cmd_mail_accepted>[% INT %])/)?(?<postfix_cmd_mail>[% INT %]) )?(rcpt=((?<postfix_cmd_rcpt_accepted>[% INT %])/)?(?<postfix_cmd_rcpt>[% INT %]) )?(data=((?<postfix_cmd_data_accepted>[% INT %])/)?(?<postfix_cmd_data>[% INT %]) )?(rset=((?<postfix_cmd_rset_accepted>[% INT %])/)?(?<postfix_cmd_rset>[% INT %]) )?(quit=((?<postfix_cmd_quit_accepted>[% INT %])/)?(?<postfix_cmd_quit>[% INT %]) )?(unknown=((?<postfix_cmd_unknown_accepted>[% INT %])/)?(?<postfix_cmd_unknown>[% INT %]) )?commands=((?<postfix_cmd_count_accepted>[% INT %])/)?(?<postfix_cmd_count>[% INT %])
+  POSTFIX_DELAYS: |
+    (?<postfix_delay_before_qmgr>[% NUMBER %])/(?<postfix_delay_in_qmgr>[% NUMBER %])/(?<postfix_delay_conn_setup>[% NUMBER %])/(?<postfix_delay_transmission>[% NUMBER %])
+  POSTFIX_DISCARD: |
+    [% POSTFIX_DISCARD_ANY %]|[% POSTFIX_WARNING %]
+  POSTFIX_DISCARD_ANY: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]) status=(?<postfix_status>[% STATUS_WORD %]) [% GREEDYDATA %]
+  POSTFIX_DNSBLOG: |
+    [% POSTFIX_DNSBLOG_LISTING %]|[% POSTFIX_WARNING %]
+  POSTFIX_DNSBLOG_LISTING: |
+    addr (?<postfix_client_ip>[% IP %]) listed by domain (?<postfix_dnsbl_domain>[% HOSTNAME %]) as (?<postfix_dnsbl_result>[% IP %])
+  POSTFIX_DNSBL_MESSAGE: |
+    Service unavailable; .* \[(?<postfix_status_data>[% GREEDYDATA %])\] (?<postfix_status_message>[% GREEDYDATA %]);
+  POSTFIX_ERROR: "[% POSTFIX_ERROR_ANY %]\n"
+  POSTFIX_ERROR_ANY: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]), status=(?<postfix_status>[% STATUS_WORD %]) \((?<postfix_error_response>[% GREEDYDATA %])\)
+  POSTFIX_KEYVALUE: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
+  POSTFIX_LMTP: "[% POSTFIX_SMTP %]\n"
+  POSTFIX_LOCAL: |
+    [% POSTFIX_KEYVALUE %]|[% POSTFIX_WARNING %]
+  POSTFIX_MASTER: |
+    [% POSTFIX_MASTER_START %]|[% POSTFIX_MASTER_EXIT %]|[% POSTFIX_WARNING %]
+  POSTFIX_MASTER_EXIT: |
+    terminating on signal (?<postfix_termination_signal>[% INT %])
+  POSTFIX_MASTER_START: |
+    (daemon started|reload) -- version (?<postfix_version>[% DATA %]), configuration (?<postfix_config_path>[% PATH %])
+  POSTFIX_PICKUP: "[% POSTFIX_KEYVALUE %]\n"
+  POSTFIX_PIPE: "[% POSTFIX_PIPE_ANY %]\n"
+  POSTFIX_PIPE_ANY: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]), status=(?<postfix_status>[% STATUS_WORD %]) \((?<postfix_pipe_response>[% GREEDYDATA %])\)
+  POSTFIX_POSTDROP: "[% POSTFIX_WARNING %]\n"
+  POSTFIX_POSTSCREEN: |
+    [% POSTFIX_PS_CONNECT %]|[% POSTFIX_PS_ACCESS %]|[% POSTFIX_PS_NOQUEUE %]|[% POSTFIX_PS_TOOBUSY %]|[% POSTFIX_PS_CACHE %]|[% POSTFIX_PS_DNSBL %]|[% POSTFIX_PS_VIOLATIONS %]|[% POSTFIX_WARNING %]
+  POSTFIX_POSTSUPER: |
+    [% POSTFIX_POSTSUPER_ACTION %]|[% POSTFIX_POSTSUPER_SUMMARY %]
+  POSTFIX_POSTSUPER_ACTION: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_postsuper_action>[% POSTFIX_POSTSUPER_ACTIONS %])
+  POSTFIX_POSTSUPER_SUMMARY: |
+    (?<postfix_postsuper_summary_action>[% POSTFIX_POSTSUPER_SUMMARY_ACTIONS %]): (?<postfix_postsuper_summary_count>[% NUMBER %]) messages?
+  POSTFIX_PROXY_MESSAGE: |
+    ((?<postfix_proxy_status_code>[% POSTFIX_STATUS_CODE %]) )?((?<postfix_proxy_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?.*
+  POSTFIX_PS_ACCESS: |
+    (?<postfix_postscreen_access>[% POSTFIX_PS_ACCESS_ACTION %]) [% POSTFIX_CLIENT_INFO %]
+  POSTFIX_PS_CACHE: |
+    cache [% DATA %] full cleanup: retained=(?<postfix_postscreen_cache_retained>[% NUMBER %]) dropped=(?<postfix_postscreen_cache_dropped>[% NUMBER %]) entries
+  POSTFIX_PS_CONNECT: |
+    CONNECT from [% POSTFIX_CLIENT_INFO %] to \[(?<postfix_server_ip>[% IP %])\]:(?<postfix_server_port>[% INT %])
+  POSTFIX_PS_DNSBL: |
+    (?<postfix_postscreen_violation>[% POSTFIX_PS_VIOLATION %]) rank (?<postfix_postscreen_dnsbl_rank>[% INT %]) for [% POSTFIX_CLIENT_INFO %]
+  POSTFIX_PS_NOQUEUE: "[% POSTFIX_SMTPD_NOQUEUE %]\n"
+  POSTFIX_PS_TOOBUSY: |
+    NOQUEUE: reject: CONNECT from [% POSTFIX_CLIENT_INFO %]: (?<postfix_postscreen_toobusy_data>[% GREEDYDATA %])
+  POSTFIX_PS_VIOLATIONS: |
+    (?<postfix_postscreen_violation>[% POSTFIX_PS_VIOLATION %])( [% INT %])?( after (?<postfix_postscreen_violation_time>[% NUMBER %]))? from [% POSTFIX_CLIENT_INFO %](( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]))?(: (?<postfix_postscreen_data>[% GREEDYDATA %]))?| in tests (after|before) SMTP handshake)
+  POSTFIX_QMGR: |
+    [% POSTFIX_QMGR_REMOVED %]|[% POSTFIX_QMGR_ACTIVE %]|[% POSTFIX_QMGR_EXPIRED %]|[% POSTFIX_WARNING %]
+  POSTFIX_QMGR_ACTIVE: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]) \(queue active\)
+  POSTFIX_QMGR_EXPIRED: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): from=<(?<postfix_from>[% DATA %])>, status=(?<postfix_status>[% STATUS_WORD %]), returned to sender
+  POSTFIX_QMGR_REMOVED: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): removed
+  POSTFIX_RELAY_INFO: |
+    (?<postfix_relay_hostname>[% HOSTNAME %])?\[((?<postfix_relay_ip>[% IP %])|(?<postfix_relay_service>[% DATA %]))\](:(?<postfix_relay_port>[% INT %]))?|(?<postfix_relay_service>[% WORD %])
+  POSTFIX_SCACHE: |
+    [% POSTFIX_SCACHE_LOOKUPS %]|[% POSTFIX_SCACHE_SIMULTANEOUS %]|[% POSTFIX_SCACHE_TIMESTAMP %]
+  POSTFIX_SCACHE_LOOKUPS: |
+    statistics: (address|domain) lookup hits=(?<postfix_scache_hits>[% INT %]) miss=(?<postfix_scache_miss>[% INT %]) success=(?<postfix_scache_success>[% INT %])%
+  POSTFIX_SCACHE_SIMULTANEOUS: |
+    statistics: max simultaneous domains=(?<postfix_scache_domains>[% INT %]) addresses=(?<postfix_scache_addresses>[% INT %]) connection=(?<postfix_scache_connection>[% INT %])
+  POSTFIX_SCACHE_TIMESTAMP: |
+    statistics: start interval (?<postfix_scache_timestamp>[% SYSLOGTIMESTAMP %])
+  POSTFIX_SENDMAIL: "[% POSTFIX_WARNING %]\n"
+  POSTFIX_SMTP: |
+    [% POSTFIX_SMTP_DELIVERY %]|[% POSTFIX_SMTP_CONNERR %]|[% POSTFIX_SMTP_SSLCONNERR %]|[% POSTFIX_SMTP_LOSTCONN %]|[% POSTFIX_SMTP_TIMEOUT %]|[% POSTFIX_SMTP_RELAYERR %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTP_UTF8 %]|[% POSTFIX_TLSVERIFICATION %]
+  POSTFIX_SMTPD: |
+    [% POSTFIX_SMTPD_CONNECT %]|[% POSTFIX_SMTPD_DISCONNECT %]|[% POSTFIX_SMTPD_LOSTCONN %]|[% POSTFIX_SMTPD_NOQUEUE %]|[% POSTFIX_SMTPD_PIPELINING %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTPD_PROXY %]|[% POSTFIX_KEYVALUE %]
+  POSTFIX_SMTPD_CONNECT: |
+    connect from [% POSTFIX_CLIENT_INFO %]
+  POSTFIX_SMTPD_DISCONNECT: |
+    disconnect from [% POSTFIX_CLIENT_INFO %]( (?<postfix_command_counter_data>[% GREEDYDATA %]))?
+  POSTFIX_SMTPD_LOSTCONN: |
+    (?<postfix_smtpd_lostconn_data>[% POSTFIX_LOSTCONN %])( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %])( \([% INT %] bytes\))?)? from [% POSTFIX_CLIENT_INFO %](: (?<postfix_smtpd_lostconn_reason>[% GREEDYDATA %]))?
+  POSTFIX_SMTPD_NOQUEUE: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_action>[% POSTFIX_ACTION %]): (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]:( (?<postfix_status_code>[% POSTFIX_STATUS_CODE %]) (?<postfix_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?( <(?<postfix_status_data>[% DATA %])>:)? ([% POSTFIX_DNSBL_MESSAGE %]|(?<postfix_status_message>[% GREEDYDATA %]);) (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
+  POSTFIX_SMTPD_PIPELINING: |
+    improper command pipelining after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]: (?<postfix_improper_pipelining_data>[% GREEDYDATA %])
+  POSTFIX_SMTPD_PROXY: |
+    proxy-(?<postfix_proxy_result>[% POSTFIX_ACTION %]): ((?<postfix_proxy_smtp_stage>[% POSTFIX_SMTP_STAGE %])): (?<postfix_proxy_message>[% POSTFIX_PROXY_MESSAGE %]); (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
+  POSTFIX_SMTP_CONNERR: |
+    connect to [% POSTFIX_RELAY_INFO %]: (?<postfix_smtp_lostconn_data>[% POSTFIX_LOSTCONN %])
+  POSTFIX_SMTP_DELIVERY: |
+    [% POSTFIX_KEYVALUE %] status=(?<postfix_status>[% STATUS_WORD %])( \((?<postfix_smtp_response>[% GREEDYDATA %])\))?
+  POSTFIX_SMTP_LOSTCONN: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_smtp_lostconn_data>[% POSTFIX_LOSTCONN %]) with [% POSTFIX_RELAY_INFO %]( while (?<postfix_smtp_lostconn_reason>[% POSTFIX_LOSTCONN_REASONS %]))?
+  POSTFIX_SMTP_RELAYERR: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): host [% POSTFIX_RELAY_INFO %] said: (?<postfix_smtp_response>[% GREEDYDATA %]) \(in reply to (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) command\)
+  POSTFIX_SMTP_SSLCONNERR: |
+    SSL_connect error to [% POSTFIX_RELAY_INFO %]: (?<postfix_smtp_lostconn_data>[% POSTFIX_LOSTCONN %])
+  POSTFIX_SMTP_TIMEOUT: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): conversation with [% POSTFIX_RELAY_INFO %] timed out( while (?<postfix_smtp_lostconn_reason>[% POSTFIX_LOSTCONN_REASONS %]))?
+  POSTFIX_SMTP_UTF8: |
+    host [% POSTFIX_RELAY_INFO %] offers SMTPUTF8 support, but not 8BITMIME
+  POSTFIX_TIME_UNIT: "[% NUMBER %][smhd]\n"
+  POSTFIX_TLSCONN: |
+    (Anonymous|Trusted|Untrusted|Verified) TLS connection established (to [% POSTFIX_RELAY_INFO %]|from [% POSTFIX_CLIENT_INFO %]): (?<postfix_tls_version>[% DATA %]) with cipher (?<postfix_tls_cipher>[% DATA %]) \((?<postfix_tls_cipher_size>[% DATA %]) bits\)
+  POSTFIX_TLSMGR: "[% POSTFIX_WARNING %]\n"
+  POSTFIX_TLSPROXY: |
+    [% POSTFIX_TLSPROXY_CONN %]|[% POSTFIX_WARNING %]
+  POSTFIX_TLSPROXY_CONN: |
+    (DIS)?CONNECT( from)? [% POSTFIX_CLIENT_INFO %]
+  POSTFIX_TLSVERIFICATION: |
+    certificate verification failed for [% POSTFIX_RELAY_INFO %]: (?<postfix_tls_error>[% GREEDYDATA %])
+  POSTFIX_TRIVIAL_REWRITE: "[% POSTFIX_WARNING %]\n"
+  POSTFIX_VIRTUAL: "[% POSTFIX_SMTP_DELIVERY %]\n"
+  POSTFIX_WARNING: |
+    [% POSTFIX_WARNING_WITH_KV %]|[% POSTFIX_WARNING_WITHOUT_KV %]
+  POSTFIX_WARNING_WITHOUT_KV: |
+    ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_message_level>[% POSTFIX_WARNING_LEVEL %]): ([% POSTFIX_CLIENT_INFO %]: )?(?<postfix_message>[% GREEDYDATA %])
+  POSTFIX_WARNING_WITH_KV: |
+    ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_message_level>[% POSTFIX_WARNING_LEVEL %]): ([% POSTFIX_CLIENT_INFO %]: )?(?<postfix_message>[% GREEDYDATA %]); (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
 
-vars_templated_late1:
-  POSTFIX_CLIENT_INFO: '(?<postfix_client_hostname>[% HOSTNAME %])?\[(?<postfix_client_ip>[% IP %])\](:(?<postfix_client_port>[% INT %]))?'
-  POSTFIX_RELAY_INFO: '(?<postfix_relay_hostname>[% HOSTNAME %])?\[((?<postfix_relay_ip>[% IP %])|(?<postfix_relay_service>[% DATA %]))\](:(?<postfix_relay_port>INT %]))?|(?<postfix_relay_service>[% WORD %])'
-  POSTFIX_DNSBL_MESSAGE: 'Service unavailable; .* \[(?<postfix_status_data>[% GREEDYDATA %])\] (?<postfix_status_message>[% GREEDYDATA %]);'
-  POSTFIX_DELAYS: '(?<postfix_delay_before_qmgr>[% NUMBER %])/(?<postfix_delay_in_qmgr>[% NUMBER %])/(?<postfix_delay_conn_setup>[% NUMBER %])/(?<postfix_delay_transmission>[% NUMBER %])'
-  POSTFIX_PROXY_MESSAGE: '((?<postfix_proxy_status_code>[% POSTFIX_STATUS_CODE %]) )?((?<postfix_proxy_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?.*'
-  POSTFIX_COMMAND_COUNTER_DATA: (helo=(%{INT:postfix_cmd_helo_accepted}/)?%{INT:postfix_cmd_helo} )?(ehlo=(%{INT:postfix_cmd_ehlo_accepted}/)?%{INT:postfix_cmd_ehlo} )?(starttls=(%{INT:postfix_cmd_starttls_accepted}/)?%{INT:postfix_cmd_starttls} )?(auth=(%{INT:postfix_cmd_auth_accepted}/)?%{INT:postfix_cmd_auth} )?(mail=(%{INT:postfix_cmd_mail_accepted}/)?%{INT:postfix_cmd_mail} )?(rcpt=(%{INT:postfix_cmd_rcpt_accepted}/)?%{INT:postfix_cmd_rcpt} )?(data=(%{INT:postfix_cmd_data_accepted}/)?%{INT:postfix_cmd_data} )?(rset=(%{INT:postfix_cmd_rset_accepted}/)?%{INT:postfix_cmd_rset} )?(quit=(%{INT:postfix_cmd_quit_accepted}/)?%{INT:postfix_cmd_quit} )?(unknown=(%{INT:postfix_cmd_unknown_accepted}/)?%{INT:postfix_cmd_unknown} )?commands=(%{INT:postfix_cmd_count_accepted}/)?%{INT:postfix_cmd_count}
-  
-vars_templated_late2:
-  POSTFIX_TLSCONN: '(Anonymous|Trusted|Untrusted|Verified) TLS connection established (to [% POSTFIX_RELAY_INFO %]|from [% POSTFIX_CLIENT_INFO %]): (?<postfix_tls_version>[% DATA %]) with cipher (?<postfix_tls_cipher>[% DATA %]) \((?<postfix_tls_cipher_size>[% DATA %]) bits\)'
-  POSTFIX_TLSVERIFICATION: 'certificate verification failed for [% POSTFIX_RELAY_INFO %]: (?<postfix_tls_error>[% GREEDYDATA %])'

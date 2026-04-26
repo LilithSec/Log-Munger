@@ -6,6 +6,7 @@ use warnings;
 use Scalar::Util qw(looks_like_number);
 use File::Slurp  qw(read_file);
 use Hash::Merge  ();
+use YAML::XS qw(Dump);
 
 =head1 NAME
 
@@ -128,7 +129,7 @@ sub file {
 	return join( '', @processed_lines );
 } ## end sub file
 
-=head2 grok2vars
+=head2 grok2rules
 
 Takes a file to process and returns the translated results.
 
@@ -144,19 +145,21 @@ Takes a file to process and returns the translated results.
             - no_silent :: Silently ignore overwrites.
             - no_warn ::  Warn on overwrites.
             - no_die :: Die on overwrites.
-        default :: no_silent
+        default :: no_warn
 
     - overwrite_ignore_if_same :: If the warn/die should trigger if overwrite is set to no_warn or no_die.
         default :: 1
 
+    use YAML::XS;
     my $results;
     my $file = '/tmp/some_file';
     eval {
-        Log::Munger::Degrok->string( 'file' => $file, incldues=>['base'], ) . "\n";
+        $results = Log::Munger::Degrok->string( 'file' => $file, incldues=>['base'], ) . "\n";
     };
     if ($@){
         die('Failed to process "'.$file.'"... '.$@);
     }
+    print Dumper($results);
 
 =cut
 
@@ -175,7 +178,7 @@ sub grok2rules {
 	};
 
 	if ( !defined( $opts{'overwrite'} ) ) {
-		$opts{'overwrite'} = 'no_silent';
+		$opts{'overwrite'} = 'no_warn';
 	} elsif ( ref( $opts{'overwrite'} ) ne '' ) {
 		die( '$opts{overwrite} is specified but has a ref of "' . ref( $opts{'overwrite'} ) . '" instead of ""' );
 	} elsif ( !$overwrite_types->{ $opts{'overwrite'} } ) {
@@ -230,7 +233,7 @@ sub grok2rules {
 	}
 
 	foreach my $line (@lines) {
-		my ( $var, $regexp ) = split( /\w+/, $line, 2 );
+		my ( $var, $regexp ) = split( /[\ \t]+/, $line, 2 );
 		# If we don't have $regexp, there is almost certainly something wrong with that line
 		# It is not useful and likely should be removed.
 		if ( !defined($regexp) ) {
@@ -240,7 +243,46 @@ sub grok2rules {
 			);
 		}
 
+		my $process_line = 1;
+		if (   ( ( $opts{'overwrite'} ne 'yes' ) && ( $opts{'overwrite'} ne 'no_silent' ) )
+			&& ( defined( $includes->{'vars'}{$var} ) || defined( $includes->{'vars_templated'}{$var} ) ) )
+		{
+			if ( defined( $includes->{'vars'}{$var} ) ) {
+				if ( $opts{'overwrite'} eq 'no_warn' ) {
+					warn( '".var.' . $var . '" is already defined in one of the includes... skipping...' );
+					$process_line = 0;
+				} elsif ( $opts{'overwrite'} eq 'no_die' ) {
+					die( '".var.' . $var . '" is already defined in one of the includes' );
+				}
+			} elsif ( defined( $includes->{'vars_templated'}{$var} ) ) {
+				if ( $opts{'overwrite'} eq 'no_warn' ) {
+					warn( '".var_templated.' . $var . '" is already defined in one of the includes... skipping...' );
+					$process_line = 0;
+				} elsif ( $opts{'overwrite'} eq 'no_die' ) {
+					die( '".var_templated.' . $var . '" is already defined in one of the includes' );
+				}
+			}
+		} elsif ( ( $opts{'overwrite'} eq 'no_silent' )
+			&& ( defined( $includes->{'vars'}{$var} ) || defined( $includes->{'vars_templated'}{$var} ) ) )
+		{
+			$process_line = 0;
+		}
+
+		if ($process_line){
+			if ( $regexp =~ /(?<GROK>\%\{(?<VAR>[A-Za-z0-9\_]+)(\:(?<CAPTURE>[A-Za-z0-9\_]+))?\})/ ) {
+				eval {
+					$regexp = Log::Munger::Degrok->string('string' => $regexp);
+				};
+				if ($@) {
+					die( 'Failed to process line "' . $line . '"... ' . $@ );
+				}
+				$rules->{'vars_templated'}{$var} = $regexp;
+			}else{
+				$rules->{'vars'}{$var} = $regexp;
+			}
+		}
+
 	} ## end foreach my $line (@lines)
 
-	die("test");
+	return Dump($rules);
 } ## end sub grok2rules
