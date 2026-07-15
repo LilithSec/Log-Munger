@@ -3,11 +3,11 @@ package Log::Munger;
 use 5.006;
 use strict;
 use warnings;
-use YAML::XS;
+use Log::Munger::LogProcessor ();
 
 =head1 NAME
 
-Log::Munger - Extracts info from 
+Log::Munger - Extracts info from
 
 =head1 VERSION
 
@@ -28,23 +28,46 @@ our $VERSION = '0.0.1';
 
 =head2 new
 
+Creates a new muncher. Rule files may be supplied up front and/or added later
+via L</load>.
+
+    my $munger = Log::Munger->new( 'rules' => [ 'base', 'postfix' ] );
+    my $munger = Log::Munger->new( 'rules' => ['postfix'], 'geoip' => '/path/to/GeoLite2-City.mmdb' );
+
+    - rules :: Rule files to load. The taken value is an array.
+        Default :: undef
+
+    - geoip :: Path to a MaxMind .mmdb database. When set, rules that flag
+        captured fields with a C<geoip:> list have those looked up, with the
+        result stored under C<< $result->{geoip}{$field} >>.
+        Default :: undef (geoip disabled)
+
 =cut
 
 sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		'order'      => [],
-		'mungers'    => {},
+		'rule_files' => [],
+		'processor'  => undef,
+		'geoip'      => $opts{'geoip'},
 	};
 	bless $self;
+
+	if ( defined( $opts{'rules'} ) ) {
+		if ( ref( $opts{'rules'} ) ne 'ARRAY' ) {
+			die( '$opts{rules} has a ref of "' . ref( $opts{'rules'} ) . '" and not "ARRAY"' );
+		}
+		push( @{ $self->{'rule_files'} }, @{ $opts{'rules'} } );
+		$self->_build_processor;
+	}
 
 	return $self;
 } ## end sub new
 
 =head2 load
 
-Loads a munger rule file.
+Loads an additional munger rule file and rebuilds the processor.
 
     - file :: The file to load. Required.
         Default :: undef
@@ -56,26 +79,72 @@ sub load {
 
 	if ( !defined( $opts{'file'} ) ) {
 		die('$opts{file} is undef');
-	} elsif ( ref( $opts{'file'} ) eq '' ) {
+	} elsif ( ref( $opts{'file'} ) ne '' ) {
 		die( '$opts{file} ref is "' . ref( $opts{'file'} ) . '" and not ""' );
 	}
 
-	my $file_location = $self->rule_file_location( 'file' => $opts{'file'} );
-	if ( !defined($file_location) ) {
-		die( 'Unable to locate the location of the file "' . $opts{'file'} . '"' );
-	}
+	push( @{ $self->{'rule_files'} }, $opts{'file'} );
+	$self->_build_processor;
 
-	
+	return 1;
 } ## end sub load
 
 =head2 process_item
+
+Runs a decoded log record through the loaded rules and returns the named
+captures of the first matching rule, or undef if nothing matched (or no rules
+have been loaded).
+
+    - item :: The decoded log record (a hash ref), or a bare string. A bare
+        string is treated as a raw log line and matched as the C<MESSAGE> field.
+        Default :: undef
+
+    my $fields = $munger->process_item( 'item' => $json );
+    my $fields = $munger->process_item( 'item' => $raw_access_log_line );
 
 =cut
 
 sub process_item {
 	my ( $self, %opts ) = @_;
 
-}
+	if ( !defined( $self->{'processor'} ) ) {
+		return undef;
+	}
+
+	return $self->{'processor'}->process_item(%opts);
+} ## end sub process_item
+
+=head2 explain_item
+
+Like L</process_item> but returns match metadata (which rule/pattern fired plus
+the fields) instead of just the fields. See
+L<Log::Munger::LogProcessor/explain_item>.
+
+    my $why = $munger->explain_item( 'item' => $json );
+
+=cut
+
+sub explain_item {
+	my ( $self, %opts ) = @_;
+
+	if ( !defined( $self->{'processor'} ) ) {
+		return { 'matched' => 0 };
+	}
+
+	return $self->{'processor'}->explain_item(%opts);
+} ## end sub explain_item
+
+# (re)builds the LogProcessor from the currently loaded rule file names
+sub _build_processor {
+	my ($self) = @_;
+
+	my %args = ( 'rules' => $self->{'rule_files'} );
+	$args{'geoip'} = $self->{'geoip'} if ( defined( $self->{'geoip'} ) );
+
+	$self->{'processor'} = Log::Munger::LogProcessor->new(%args);
+
+	return $self->{'processor'};
+} ## end sub _build_processor
 
 =head1 AUTHOR
 

@@ -25,6 +25,10 @@ my %WriteMakefileArgs = (
 		'YAML::XS'                           => '0',
 		'JSON'                               => '0',
 		'File::ShareDir'                     => '0',
+		'File::Slurp'                        => '0',
+		'Template'                           => '0',
+		'Hash::Merge'                        => '0',
+		'App::Cmd'                           => '0',
 		'Algorithm::Dependency::Source::HoA' => '0',
 		'Algorithm::Dependency::Ordered'     => '0',
 	},
@@ -37,6 +41,12 @@ my %WriteMakefileArgs = (
 				type => 'git',
 				url  => 'git@github.com:LilithSec/Log-Munger.git',
 				web  => 'https://github.com/LilithSec/Log-Munger',
+			},
+		},
+		prereqs => {
+			runtime => {
+				# optional: only needed for the geoip enrichment feature
+				recommends => { 'IP::Geolocation::MMDB' => '0', },
 			},
 		},
 	}

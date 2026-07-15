@@ -1,0 +1,141 @@
+---
+# Generic PAM (pam_unix) log enrichment.
+#
+# pam_unix lines are emitted under MANY syslog programs (sshd, su, sudo, cron,
+# login, ...), so this file is GATELESS: the rule has no gate and instead relies
+# on being anchored (each pattern must match the whole MESSAGE) plus the leading
+# "pam_" literal so that only genuine pam_unix lines match.  First match wins.
+#
+# Every capture is namespaced with pam_ .
+#
+# Two shapes are handled:
+#   * the authentication-failure line, e.g.
+#       pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root
+#     The trailing "logname= uid= euid= tty= ruser= rhost= user=" blob is
+#     captured whole as pam_kv and then split into pam_logname / pam_uid /
+#     pam_euid / pam_tty / pam_ruser / pam_rhost / pam_user by the file-level
+#     decompose (kv, field_split ' ').
+#   * the session open/close line, e.g.
+#       pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)
+includes:
+- base
+vars_templated:
+  # authentication-failure line -- module/service/type header, then the whole
+  # "logname= uid= ..." blob captured as pam_kv for the decompose step below.
+  # NOTE: pam_module uses USERNAME rather than WORD because base WORD is
+  # '\b\w+\b' and the leading \b cannot match immediately after the "pam_"
+  # literal ("_u" is not a word boundary), so [% WORD %] would never match here.
+  PAM_AUTH_FAILURE: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): authentication failure; (?<pam_kv>logname=[% GREEDYDATA %])'
+  # session open/close line.
+  PAM_SESSION: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): session (?<pam_session_action>opened|closed) for user (?<pam_user>[% USERNAME %])(?:\(uid=(?<pam_uid>[% INT %])\))?(?: by (?:(?<pam_by_user>[% USERNAME %]))?\(uid=(?<pam_by_uid>[% INT %])\))?'
+vars_tests:
+  PAM_AUTH_FAILURE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+        result: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+      - string: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+        result: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+    negative:
+      - 'pam_unix(sshd:session): session closed for user kitsune'
+  PAM_SESSION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+        result: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+        result: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+      - string: 'pam_unix(sshd:session): session closed for user kitsune'
+        result: 'pam_unix(sshd:session): session closed for user kitsune'
+    negative:
+      - 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+# file-level default: geoip the remote host from auth failures (empty rhost is
+# skipped by the geoip step)
+geoip:
+- pam_rhost
+# file-level default: coerce uids to integers at runtime.  pam_uid appears both
+# in the decomposed kv blob (auth failures) and in the session pattern.
+convert:
+  pam_uid: int
+  pam_euid: int
+  pam_by_uid: int
+# file-level default: split the "logname= uid= euid= tty= ruser= rhost= user="
+# blob (captured as pam_kv) into per-key fields, namespaced with pam_ .  Empty
+# values (e.g. logname= / rhost=) yield empty-string fields.
+decompose:
+  - field: pam_kv
+    type: kv
+    field_split: ' '
+    prefix: 'pam_'
+    remove: true
+    tests:
+      - input: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+        result:
+          pam_logname: ''
+          pam_uid: '0'
+          pam_euid: '0'
+          pam_tty: 'ssh'
+          pam_ruser: ''
+          pam_rhost: '203.0.113.7'
+          pam_user: 'root'
+      - input: 'logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+        result:
+          pam_logname: 'kitsune'
+          pam_uid: '1000'
+          pam_euid: '0'
+          pam_tty: 'pts/0'
+          pam_ruser: 'kitsune'
+          pam_rhost: ''
+          pam_user: 'root'
+rules:
+  - name: pam
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - PAM_AUTH_FAILURE
+      - PAM_SESSION
+    tests:
+      positive:
+        # auth-failure lines -- decompose does NOT run in rule-tests, so the
+        # result is the raw pattern captures (header + whole pam_kv blob).
+        - string: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+          result:
+            pam_module: 'unix'
+            pam_service: 'sshd'
+            pam_type: 'auth'
+            pam_kv: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+        - string: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+          result:
+            pam_module: 'unix'
+            pam_service: 'su'
+            pam_type: 'auth'
+            pam_kv: 'logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+        # session lines
+        - string: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+          result:
+            pam_module: 'unix'
+            pam_service: 'su'
+            pam_type: 'session'
+            pam_session_action: 'opened'
+            pam_user: 'root'
+            pam_uid: '0'
+            pam_by_user: 'kitsune'
+            pam_by_uid: '1000'
+        - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+          result:
+            pam_module: 'unix'
+            pam_service: 'cron'
+            pam_type: 'session'
+            pam_session_action: 'opened'
+            pam_user: 'root'
+            pam_uid: '0'
+            pam_by_uid: '0'
+        - string: 'pam_unix(sshd:session): session closed for user kitsune'
+          result:
+            pam_module: 'unix'
+            pam_service: 'sshd'
+            pam_type: 'session'
+            pam_session_action: 'closed'
+            pam_user: 'kitsune'
+      negative:
+        - 'this is not a pam line at all'

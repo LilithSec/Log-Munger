@@ -1,0 +1,95 @@
+---
+# sudo command / session log enrichment.
+#
+# Gates on the syslog PROGRAM field being "sudo".  Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins.  Every capture is
+# namespaced with sudo_ .
+#
+# Two shapes are handled:
+#   * the classic command line:
+#       <user> : TTY=... ; PWD=... ; USER=... ; COMMAND=...
+#     The "KEY=VALUE ; KEY=VALUE" blob is captured whole as sudo_kv and then
+#     split into sudo_TTY / sudo_PWD / sudo_USER / sudo_COMMAND by the
+#     file-level decompose (kv, field_split ' ; ').
+#   * the pam_unix session line:
+#       pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)
+includes:
+- base
+vars_templated:
+  # classic sudo command line -- the invoking user, then the KEY=VALUE ; ...
+  # blob (captured whole for the decompose step below).
+  SUDO_COMMAND: '(?<sudo_user>[% USERNAME %]) : (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  # pam_unix session open/close line.
+  SUDO_SESSION: 'pam_unix\(sudo:session\): session (?<sudo_session_action>opened|closed) for user (?<sudo_target_user>[% USERNAME %])(?:\(uid=(?<sudo_target_uid>[% INT %])\))?(?: by (?<sudo_by_user>[% USERNAME %])\(uid=(?<sudo_by_uid>[% INT %])\))?'
+vars_tests:
+  SUDO_COMMAND:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+        result: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - string: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+        result: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+    negative:
+      - 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+  SUDO_SESSION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+        result: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - string: 'pam_unix(sudo:session): session closed for user root'
+        result: 'pam_unix(sudo:session): session closed for user root'
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+# file-level default: coerce the session uids to integers at runtime
+convert:
+  sudo_target_uid: int
+  sudo_by_uid: int
+# file-level default: split the classic "KEY=VALUE ; KEY=VALUE" command blob
+# (captured as sudo_kv) into per-key fields, namespaced with sudo_ .
+decompose:
+  - field: sudo_kv
+    type: kv
+    field_split: ' ; '
+    prefix: 'sudo_'
+    remove: true
+    tests:
+      - input: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+        result:
+          sudo_TTY: 'pts/0'
+          sudo_PWD: '/home/kitsune'
+          sudo_USER: 'root'
+          sudo_COMMAND: '/bin/ls -la'
+rules:
+  - name: sudo
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^sudo$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - SUDO_COMMAND
+      - SUDO_SESSION
+    tests:
+      positive:
+        - string: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+          result:
+            sudo_user: 'kitsune'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+        - string: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+          result:
+            sudo_user: 'www-data'
+            sudo_kv: 'TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+        - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+          result:
+            sudo_session_action: 'opened'
+            sudo_target_user: 'root'
+            sudo_target_uid: '0'
+            sudo_by_user: 'kitsune'
+            sudo_by_uid: '1000'
+        - string: 'pam_unix(sudo:session): session closed for user root'
+          result:
+            sudo_session_action: 'closed'
+            sudo_target_user: 'root'
+      negative:
+        - 'this is not a valid sudo line at all'

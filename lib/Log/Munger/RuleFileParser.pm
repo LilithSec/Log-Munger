@@ -102,10 +102,17 @@ sub load {
 				my $joined = join( '', @{ $rules->{$template_hash}{$item} } );
 				$rules->{$template_hash}{$item} = $joined;
 			}
+			# strip trailing newlines off the template source so a block-scalar
+			# terminator does not survive into the composed pattern
+			$rules->{$template_hash}{$item} =~ s/[\r\n]+\z//;
 
 			my $results;
 			$tt->process( \$rules->{$template_hash}{$item}, $rules->{'vars'}, \$results )
 				|| die( 'Failed to process $rules->{' . $template_hash . '}{' . $item . '} ... ' . $tt->error() );
+			# strip before writing back to the stash: dependency ordering means
+			# this value may be interpolated into a later var, and an embedded
+			# newline mid-pattern would keep it from matching single-line logs
+			$results =~ s/[\r\n]+\z//;
 			$rules->{'vars'}{$item} = $results;
 		} ## end foreach my $item ( keys( %{ $rules->{$template_hash...}}))
 	} ## end if ( defined( $rules->{$template_hash} ) )
@@ -226,6 +233,10 @@ sub load_no_templating {
 				my $joined = join( '', @{ $rules->{'vars'}{$item} } );
 				$rules->{'vars'}{$item} = $joined;
 			}
+			# every plain var feeds the Template Toolkit stash; strip trailing
+			# newlines (YAML "|" block-scalar terminators) so they cannot leak
+			# into the middle of a composed pattern during templating
+			$rules->{'vars'}{$item} =~ s/[\r\n]+\z//;
 		} ## end foreach my $item ( keys( %{ $rules->{'vars'} } ...))
 	} ## end if ( defined( $rules->{'vars'} ) )
 

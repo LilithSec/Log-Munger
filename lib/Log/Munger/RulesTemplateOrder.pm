@@ -49,6 +49,12 @@ sub order_for_rules_hash {
 		@vars = keys( %{ $rules->{'vars'} } );
 	}
 
+	# nothing to order (a rules-only file with no vars/vars_templated); return
+	# an empty schedule rather than letting Algorithm::Dependency die on it
+	if ( !@vars && !keys( %{$depends_info} ) ) {
+		return [];
+	}
+
 	# need to do this or Algorithm::Dependency::Ordered will error
 	foreach my $var (@vars) {
 		$depends_info->{$var} = [];

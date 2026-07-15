@@ -1,0 +1,97 @@
+---
+# cron / crond job execution and session log enrichment.
+#
+# Gates on the syslog PROGRAM field being "cron", "crond" or "CRON".  Patterns
+# are anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# capture is namespaced with cron_ .
+#
+# Three shapes are handled:
+#   * the CMD line -- "(user) CMD (command ...)"
+#   * the pam_unix session open/close line
+#   * the informational lines -- "(user) INFO|RELOAD|STARTUP|LIST (...)"
+includes:
+- base
+vars_templated:
+  # "(root) CMD (/usr/bin/foo --flag)"
+  CRON_CMD: '\((?<cron_user>[% USERNAME %])\) CMD \((?<cron_command>[% GREEDYDATA %])\)'
+  # pam_unix session open/close line.
+  CRON_SESSION: 'pam_unix\(cron:session\): session (?<cron_session_action>opened|closed) for user (?<cron_user>[% USERNAME %])(?:\(uid=(?<cron_uid>[% INT %])\))?(?: by (?:(?<cron_by_user>[% USERNAME %]))?\(uid=(?<cron_by_uid>[% INT %])\))?'
+  # "(CRON) INFO (Running @reboot jobs)" / "(*system*) RELOAD (/etc/crontab)".
+  # NOTSPACE is used for the user field so "(*system*)" matches.
+  CRON_INFO: '\((?<cron_user>[% NOTSPACE %])\) (?<cron_info_type>INFO|RELOAD|STARTUP|LIST) \((?<cron_info>[% GREEDYDATA %])\)'
+vars_tests:
+  CRON_CMD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(root) CMD (/usr/bin/foo --flag)'
+        result: '(root) CMD (/usr/bin/foo --flag)'
+      - string: '(kitsune) CMD (command_name)'
+        result: '(kitsune) CMD (command_name)'
+    negative:
+      - 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+  CRON_SESSION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+        result: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+      - string: 'pam_unix(cron:session): session closed for user root'
+        result: 'pam_unix(cron:session): session closed for user root'
+    negative:
+      - '(root) CMD (/usr/bin/foo --flag)'
+  CRON_INFO:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(CRON) INFO (Running @reboot jobs)'
+        result: '(CRON) INFO (Running @reboot jobs)'
+      - string: '(*system*) RELOAD (/etc/crontab)'
+        result: '(*system*) RELOAD (/etc/crontab)'
+    negative:
+      - 'pam_unix(cron:session): session closed for user root'
+# file-level default: coerce the session uids to integers at runtime
+convert:
+  cron_uid: int
+  cron_by_uid: int
+rules:
+  - name: cron
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^(?:cron|crond|CRON)$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - CRON_CMD
+      - CRON_SESSION
+      - CRON_INFO
+    tests:
+      positive:
+        - string: '(root) CMD (/usr/bin/foo --flag)'
+          result:
+            cron_user: 'root'
+            cron_command: '/usr/bin/foo --flag'
+        - string: '(kitsune) CMD (command_name)'
+          result:
+            cron_user: 'kitsune'
+            cron_command: 'command_name'
+        - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+          result:
+            cron_session_action: 'opened'
+            cron_user: 'root'
+            cron_uid: '0'
+            cron_by_uid: '0'
+        - string: 'pam_unix(cron:session): session closed for user root'
+          result:
+            cron_session_action: 'closed'
+            cron_user: 'root'
+        - string: '(CRON) INFO (Running @reboot jobs)'
+          result:
+            cron_user: 'CRON'
+            cron_info_type: 'INFO'
+            cron_info: 'Running @reboot jobs'
+        - string: '(*system*) RELOAD (/etc/crontab)'
+          result:
+            cron_user: '*system*'
+            cron_info_type: 'RELOAD'
+            cron_info: '/etc/crontab'
+      negative:
+        - 'this is not a valid cron line at all'

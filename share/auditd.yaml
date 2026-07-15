@@ -1,0 +1,93 @@
+---
+# Linux auditd (/var/log/audit/audit.log) record enrichment.
+#
+# auditd records are: type=X msg=audit(<epoch>:<serial>): <k=v ...> and, on
+# USER_* records, a nested single-quoted msg='<k=v ...>' sub-record whose values
+# are themselves quoted. This file is gateless + anchored (auditd writes its own
+# file, so feed raw lines with process_item(item => $line)); the anchored
+# pattern peels off the type, the audit() id, the outer field blob, and the
+# optional nested msg, then two quote-aware kv decomposes split the two blobs.
+#
+# Per-record only -- correlating the several records of one event (same audit
+# id, separate lines) is a stateful concern left to the consumer.
+includes:
+- base
+vars_templated:
+  # '' is a literal single quote inside this single-quoted YAML scalar
+  AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+geoip:
+  - audit_msg_addr
+convert:
+  audit_serial: int
+  audit_pid: int
+  audit_ppid: int
+  audit_uid: int
+  audit_auid: int
+  audit_gid: int
+  audit_euid: int
+  audit_ses: int
+  audit_exit: int
+  audit_epoch: float
+decompose:
+  # outer fields (quote-aware: comm="ls", key="watch exec", ...)
+  - field: audit_fields
+    type: kv
+    quoted: true
+    prefix: 'audit_'
+    remove: true
+    tests:
+      - input: 'pid=1234 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
+        result:
+          audit_pid: '1234'
+          audit_uid: '0'
+          audit_comm: 'ls'
+          audit_exe: '/usr/bin/ls'
+          audit_key: 'watch exec'
+  # nested USER_* sub-record (single-quoted blob, double-quoted values inside)
+  - field: audit_msg
+    type: kv
+    quoted: true
+    prefix: 'audit_msg_'
+    remove: true
+    tests:
+      - input: 'op=PAM:authentication acct="root" exe="/usr/sbin/sshd" addr=203.0.113.7 res=failed'
+        result:
+          audit_msg_op: 'PAM:authentication'
+          audit_msg_acct: 'root'
+          audit_msg_exe: '/usr/sbin/sshd'
+          audit_msg_addr: '203.0.113.7'
+          audit_msg_res: 'failed'
+vars_tests:
+  AUDITD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=SYSCALL msg=audit(1626345600.123:456): arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
+        result: 'type=SYSCALL msg=audit(1626345600.123:456): arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
+      - string: 'type=USER_AUTH msg=audit(1626345600.123:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'''
+        result: 'type=USER_AUTH msg=audit(1626345600.123:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'''
+    negative:
+      - 'this is not an auditd record'
+rules:
+  - name: auditd
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - AUDITD
+    tests:
+      positive:
+        - string: 'type=SYSCALL msg=audit(1626345600.123:456): arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
+          result:
+            audit_type: 'SYSCALL'
+            audit_epoch: '1626345600.123'
+            audit_serial: '456'
+            audit_fields: 'arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
+        - string: 'type=USER_AUTH msg=audit(1626345600.123:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'''
+          result:
+            audit_type: 'USER_AUTH'
+            audit_epoch: '1626345600.123'
+            audit_serial: '457'
+            audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
+            audit_msg: 'op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'
+      negative:
+        - 'this is not an auditd record'
+        - 'Jul 15 10:00:00 host sshd[1]: Accepted publickey for x'

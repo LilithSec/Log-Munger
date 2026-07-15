@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use Template;
 use Log::Munger::RuleFileParser;
+use Log::Munger::LogProcessor ();
 
 =head1 NAME
 
@@ -78,7 +79,7 @@ sub test {
 			$opts{'hash'} = $parser->load( 'file' => $opts{'file'} );
 		};
 		if ($@) {
-			my $results = {
+			return {
 				'fatal'    => '"' . $opts{'file'} . '" could not be loaded... ' . $@,
 				'errors'   => [],
 				'warnings' => [],
@@ -369,6 +370,108 @@ sub test {
 		}
 	} ## end if ( $has_var_tests && $vars_testable )
 
+	##
+	## lint every resolved var value for problems that break matching
+	##
+	if ( $vars_testable ) {
+		foreach my $var ( sort keys( %{ $rules->{'vars'} } ) ) {
+			my $value = $rules->{'vars'}{$var};
+			next if ( ref($value) ne '' );    # ref problems already reported above
+			push( @errors, __lint_regexp_string( '.vars.' . $var, $value ) );
+		}
+	}
+
+	##
+	## process everything under .rules
+	##
+	if ( defined( $rules->{'rules'} ) ) {
+		if ( ref( $rules->{'rules'} ) ne 'ARRAY' ) {
+			push( @errors, '.rules has a ref of "' . ref( $rules->{'rules'} ) . '" and not "ARRAY"' );
+		} else {
+			my $vars = ( ref( $rules->{'vars'} ) eq 'HASH' ) ? $rules->{'vars'} : {};
+
+			my $rule_int = 0;
+			foreach my $rule ( @{ $rules->{'rules'} } ) {
+				my $where = '.rules.' . $rule_int;
+				if ( ref($rule) ne 'HASH' ) {
+					push( @errors, $where . ' has a ref of "' . ref($rule) . '" and not "HASH"' );
+					$rule_int++;
+					next;
+				}
+
+				# a pattern that references a name absent from vars is silently
+				# treated as an inline regexp by the engine; an all-caps name is
+				# almost certainly a typo'd var reference, so flag it loudly
+				if ( ref( $rule->{'patterns'} ) eq 'ARRAY' ) {
+					my $pattern_int = 0;
+					foreach my $pattern ( @{ $rule->{'patterns'} } ) {
+						if (   ( ref($pattern) eq '' )
+							&& ( $pattern =~ /^[A-Z][A-Z0-9_]*\z/ )
+							&& ( !exists( $vars->{$pattern} ) ) )
+						{
+							push( @errors,
+									  $where
+									. '.patterns.'
+									. $pattern_int
+									. ' looks like a var reference ("'
+									. $pattern
+									. '") but no such var exists' );
+						}
+						$pattern_int++;
+					}
+				} ## end if ( ref( $rule->{'patterns'...}))
+
+				# compile the rule exactly as the engine does; a failure here is
+				# what surfaces un-degrokked grok and illegal capture names
+				my $compiled;
+				eval { $compiled = Log::Munger::LogProcessor->_compile_rule( 'rule' => $rule, 'vars' => $vars ); };
+				if ($@) {
+					push( @errors, $where . ' failed to compile... ' . $@ );
+					$rule_int++;
+					next;
+				}
+
+				#
+				# run the rule's embedded tests
+				#
+				if ( !defined( $rule->{'tests'} ) ) {
+					push( @warnings, $where . ' lacks any tests' );
+				} elsif ( ref( $rule->{'tests'} ) ne 'HASH' ) {
+					push( @errors,
+						$where . '.tests has a ref of "' . ref( $rule->{'tests'} ) . '" and not "HASH"' );
+				} else {
+					__test_rule_positive( $where, $rule, $compiled, \@errors );
+					__test_rule_negative( $where, $rule, $compiled, \@errors );
+				}
+
+				# a rule may carry its own decompose entries
+				if ( defined( $rule->{'decompose'} ) ) {
+					__test_decompose( $rule->{'decompose'}, $vars, \@errors, \@warnings, $where . '.decompose' );
+				}
+
+				$rule_int++;
+			} ## end foreach my $rule ( @{ $rules->{'rules'} } )
+		} ## end else [ if ( ref( $rules->{'rules'...}))]
+	} ## end if ( defined( $rules->{'rules'} ) )
+
+	##
+	## a file-level decompose is shared by every rule, so test it once here
+	##
+	if ( defined( $rules->{'decompose'} ) ) {
+		my $vars = ( ref( $rules->{'vars'} ) eq 'HASH' ) ? $rules->{'vars'} : {};
+		__test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
+	}
+
+	##
+	## validate a file-level convert map (bad types are a load-time error)
+	##
+	if ( defined( $rules->{'convert'} ) ) {
+		eval { Log::Munger::LogProcessor->_compile_convert( $rules->{'convert'} ); };
+		if ($@) {
+			push( @errors, '.convert is invalid... ' . $@ );
+		}
+	}
+
 	my $results = {
 		'fatal'    => undef,
 		'errors'   => \@errors,
@@ -377,3 +480,229 @@ sub test {
 
 	return $results;
 } ## end sub test
+
+# Lint one resolved regexp string (a var value or pattern). Returns a list of
+# error strings (possibly empty). Checks for leftover grok, illegal named
+# captures, interior newlines, and qr// compile failures.
+sub __lint_regexp_string {
+	my ( $where, $value ) = @_;
+
+	my @errors;
+
+	if ( $value =~ /%\{[^}]*\}/ ) {
+		push( @errors, $where . ' contains un-degrokked grok "%{...}"' );
+	}
+
+	# validate every (?<name> ... capture name; Perl allows [A-Za-z_]\w* only.
+	# the (?![=!]) guard skips lookbehind assertions (?<= and (?<!
+	while ( $value =~ /\(\?<(?![=!])([^>]*)>/g ) {
+		my $name = $1;
+		if ( $name !~ /^[A-Za-z_]\w*\z/ ) {
+			push( @errors, $where . ' has an illegal named-capture "' . $name . '" (must match [A-Za-z_]\\w*)' );
+		}
+	}
+
+	if ( $value =~ /\n/ ) {
+		push( @errors, $where . ' contains an embedded newline and cannot match a single-line log' );
+	}
+
+	my $compiled;
+	eval {
+		# this is a deliberate trial compile of possibly-bad input; keep any
+		# regexp warnings out of the caller's stderr
+		local $SIG{'__WARN__'} = sub { };
+		$compiled = qr/$value/;
+	};
+	if ($@) {
+		push( @errors, $where . ' does not compile as a regexp... ' . $@ );
+	}
+
+	return @errors;
+} ## end sub __lint_regexp_string
+
+# Run a rule's positive tests: each {string, result} must match a pattern and
+# the captured named groups must deep-equal result.
+sub __test_rule_positive {
+	my ( $where, $rule, $compiled, $errors ) = @_;
+
+	my $positive = $rule->{'tests'}{'positive'};
+	if ( !defined($positive) ) {
+		push( @{$errors}, $where . '.tests.positive is undef' );
+		return;
+	} elsif ( ref($positive) ne 'ARRAY' ) {
+		push( @{$errors}, $where . '.tests.positive has a ref of "' . ref($positive) . '" and not "ARRAY"' );
+		return;
+	}
+
+	my $test_int = 0;
+	foreach my $test ( @{$positive} ) {
+		my $twhere = $where . '.tests.positive.' . $test_int;
+		if ( ref($test) ne 'HASH' ) {
+			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not "HASH"' );
+			$test_int++;
+			next;
+		}
+		if ( !defined( $test->{'string'} ) || ref( $test->{'string'} ) ne '' ) {
+			push( @{$errors}, $twhere . '.string is undef or not a string' );
+			$test_int++;
+			next;
+		}
+		my $expected = defined( $test->{'result'} ) ? $test->{'result'} : {};
+		if ( ref($expected) ne 'HASH' ) {
+			push( @{$errors}, $twhere . '.result has a ref of "' . ref($expected) . '" and not "HASH"' );
+			$test_int++;
+			next;
+		}
+
+		my $got;
+		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+			if ( $test->{'string'} =~ $pattern ) {
+				my %captures = %+;
+				$got = \%captures;
+				last;
+			}
+		}
+
+		if ( !defined($got) ) {
+			push( @{$errors}, $twhere . ' did not match any pattern... string="' . $test->{'string'} . '"' );
+		} else {
+			my $diff = __capture_diff( $expected, $got );
+			if ( defined($diff) ) {
+				push( @{$errors}, $twhere . ' captures differ from expected: ' . $diff . ' string="' . $test->{'string'} . '"' );
+			}
+		}
+
+		$test_int++;
+	} ## end foreach my $test ( @{$positive} )
+
+	return;
+} ## end sub __test_rule_positive
+
+# Run a rule's negative tests: each string must NOT match any pattern.
+sub __test_rule_negative {
+	my ( $where, $rule, $compiled, $errors ) = @_;
+
+	my $negative = $rule->{'tests'}{'negative'};
+	if ( !defined($negative) ) {
+		push( @{$errors}, $where . '.tests.negative is undef' );
+		return;
+	} elsif ( ref($negative) ne 'ARRAY' ) {
+		push( @{$errors}, $where . '.tests.negative has a ref of "' . ref($negative) . '" and not "ARRAY"' );
+		return;
+	}
+
+	my $test_int = 0;
+	foreach my $test ( @{$negative} ) {
+		my $twhere = $where . '.tests.negative.' . $test_int;
+		if ( ref($test) ne '' ) {
+			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not ""' );
+			$test_int++;
+			next;
+		}
+		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+			if ( $test =~ $pattern ) {
+				push( @{$errors}, $twhere . ' matched a pattern but should not have... string="' . $test . '"' );
+				last;
+			}
+		}
+		$test_int++;
+	} ## end foreach my $test ( @{$negative} )
+
+	return;
+} ## end sub __test_rule_negative
+
+# Compare expected vs got flat capture hashes. Returns undef if equal, else a
+# human-readable description of the first difference found.
+sub __capture_diff {
+	my ( $expected, $got ) = @_;
+
+	foreach my $key ( sort keys( %{$expected} ) ) {
+		if ( !exists( $got->{$key} ) ) {
+			return 'expected key "' . $key . '" not captured';
+		}
+		if ( $expected->{$key} ne $got->{$key} ) {
+			return 'key "' . $key . '" expected "' . $expected->{$key} . '" but got "' . $got->{$key} . '"';
+		}
+	}
+	foreach my $key ( sort keys( %{$got} ) ) {
+		if ( !exists( $expected->{$key} ) ) {
+			return 'unexpected key "' . $key . '" captured as "' . $got->{$key} . '"';
+		}
+	}
+
+	return undef;
+} ## end sub __capture_diff
+
+# Test a decompose list (file-level or rule-level). Each entry may carry a
+# `tests: [{input, result}]` block; the entry is applied on its own to the
+# captures hash { field => input } and the resulting captures must equal result
+# (which reflects the entry's remove: setting).
+sub __test_decompose {
+	my ( $list, $vars, $errors, $warnings, $where ) = @_;
+
+	if ( ref($list) ne 'ARRAY' ) {
+		push( @{$errors}, $where . ' has a ref of "' . ref($list) . '" and not "ARRAY"' );
+		return;
+	}
+
+	my $int = 0;
+	foreach my $entry ( @{$list} ) {
+		my $ewhere = $where . '.' . $int;
+
+		# compile just this entry (surfaces bad type / grok / regexp)
+		my $compiled;
+		eval { $compiled = Log::Munger::LogProcessor->_compile_decompose( [$entry], $vars ); };
+		if ($@) {
+			push( @{$errors}, $ewhere . ' failed to compile... ' . $@ );
+			$int++;
+			next;
+		}
+
+		if ( !defined( $entry->{'tests'} ) ) {
+			push( @{$warnings}, $ewhere . ' lacks any tests' );
+			$int++;
+			next;
+		} elsif ( ref( $entry->{'tests'} ) ne 'ARRAY' ) {
+			push( @{$errors}, $ewhere . '.tests has a ref of "' . ref( $entry->{'tests'} ) . '" and not "ARRAY"' );
+			$int++;
+			next;
+		}
+
+		my $rule = { 'decompose' => $compiled };
+		my $test_int = 0;
+		foreach my $test ( @{ $entry->{'tests'} } ) {
+			my $twhere = $ewhere . '.tests.' . $test_int;
+			if ( ref($test) ne 'HASH' ) {
+				push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not "HASH"' );
+				$test_int++;
+				next;
+			}
+			if ( !defined( $test->{'input'} ) || ref( $test->{'input'} ) ne '' ) {
+				push( @{$errors}, $twhere . '.input is undef or not a string' );
+				$test_int++;
+				next;
+			}
+			my $expected = defined( $test->{'result'} ) ? $test->{'result'} : {};
+			if ( ref($expected) ne 'HASH' ) {
+				push( @{$errors}, $twhere . '.result has a ref of "' . ref($expected) . '" and not "HASH"' );
+				$test_int++;
+				next;
+			}
+
+			my %captures = ( $entry->{'field'} => $test->{'input'} );
+			Log::Munger::LogProcessor->_decompose( $rule, \%captures );
+
+			my $diff = __capture_diff( $expected, \%captures );
+			if ( defined($diff) ) {
+				push( @{$errors},
+					$twhere . ' decompose output differs: ' . $diff . ' input="' . $test->{'input'} . '"' );
+			}
+
+			$test_int++;
+		} ## end foreach my $test ( @{ $entry->{'tests'} } )
+
+		$int++;
+	} ## end foreach my $entry ( @{$list} )
+
+	return;
+} ## end sub __test_decompose

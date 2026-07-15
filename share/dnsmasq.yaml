@@ -1,0 +1,92 @@
+---
+# dnsmasq DNS query/reply log enrichment.
+#
+# Gates on the syslog PROGRAM field being "dnsmasq".  Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# namespaced with dnsmasq_ .
+includes:
+- base
+vars_templated:
+  # "query[A] example.com from 192.0.2.5"
+  DNSMASQ_QUERY: 'query\[(?<dnsmasq_query_type>[% WORD %])\] (?<dnsmasq_name>[% NOTSPACE %]) from (?<dnsmasq_client_ip>[% IP %])'
+  # "forwarded example.com to 8.8.8.8"
+  DNSMASQ_FORWARDED: 'forwarded (?<dnsmasq_name>[% NOTSPACE %]) to (?<dnsmasq_server_ip>[% IP %])'
+  # "reply example.com is 93.184.216.34"
+  DNSMASQ_REPLY: 'reply (?<dnsmasq_name>[% NOTSPACE %]) is (?<dnsmasq_result>[% NOTSPACE %])'
+  # "cached example.com is 93.184.216.34"
+  DNSMASQ_CACHED: 'cached (?<dnsmasq_name>[% NOTSPACE %]) is (?<dnsmasq_result>[% NOTSPACE %])'
+vars_tests:
+  DNSMASQ_QUERY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'query[A] example.com from 192.0.2.5'
+        result: 'query[A] example.com from 192.0.2.5'
+      - string: 'query[AAAA] test.org from 198.51.100.9'
+        result: 'query[AAAA] test.org from 198.51.100.9'
+    negative:
+      - 'forwarded example.com to 8.8.8.8'
+  DNSMASQ_FORWARDED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'forwarded example.com to 8.8.8.8'
+        result: 'forwarded example.com to 8.8.8.8'
+    negative:
+      - 'query[A] example.com from 192.0.2.5'
+  DNSMASQ_REPLY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'reply example.com is 93.184.216.34'
+        result: 'reply example.com is 93.184.216.34'
+    negative:
+      - 'cached example.com is 93.184.216.34'
+  DNSMASQ_CACHED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'cached example.com is 93.184.216.34'
+        result: 'cached example.com is 93.184.216.34'
+    negative:
+      - 'reply example.com is 93.184.216.34'
+# file-level default: geoip lookup on the query client IP (only used when the
+# munger is built with a geoip database)
+geoip:
+  - dnsmasq_client_ip
+rules:
+  - name: dnsmasq
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^dnsmasq$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - DNSMASQ_QUERY
+      - DNSMASQ_FORWARDED
+      - DNSMASQ_REPLY
+      - DNSMASQ_CACHED
+    tests:
+      positive:
+        - string: 'query[A] example.com from 192.0.2.5'
+          result:
+            dnsmasq_query_type: 'A'
+            dnsmasq_name: 'example.com'
+            dnsmasq_client_ip: '192.0.2.5'
+        - string: 'query[AAAA] test.org from 198.51.100.9'
+          result:
+            dnsmasq_query_type: 'AAAA'
+            dnsmasq_name: 'test.org'
+            dnsmasq_client_ip: '198.51.100.9'
+        - string: 'forwarded example.com to 8.8.8.8'
+          result:
+            dnsmasq_name: 'example.com'
+            dnsmasq_server_ip: '8.8.8.8'
+        - string: 'reply example.com is 93.184.216.34'
+          result:
+            dnsmasq_name: 'example.com'
+            dnsmasq_result: '93.184.216.34'
+        - string: 'cached example.com is 93.184.216.34'
+          result:
+            dnsmasq_name: 'example.com'
+            dnsmasq_result: '93.184.216.34'
+      negative:
+        - 'this is not a dnsmasq line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

@@ -1,0 +1,69 @@
+---
+# Squid access.log enrichment for the native "logformat squid" layout:
+#   <time.msec> <elapsed> <client_ip> <result_code>/<status> <bytes> \
+#     <method> <url> <user> <hierarchy>/<peer> <content_type>
+#
+# The rule is gateless and anchored: it matches the whole MESSAGE field, so it
+# works both for raw access-log lines fed straight in
+# (process_item(item => $line)) and for syslog-delivered squid logs.
+includes:
+- base
+vars_templated:
+  SQUID_ACCESS: '(?<squid_timestamp>[% NUMBER %]) +(?<squid_elapsed>[% INT %]) (?<squid_client_ip>[% IP %]) (?<squid_result_code>[% NOTSPACE %])/(?<squid_status>[% INT %]) (?<squid_bytes>[% INT %]) (?<squid_method>[% WORD %]) (?<squid_url>[% NOTSPACE %]) (?<squid_user>[% NOTSPACE %]) (?<squid_hierarchy>[% NOTSPACE %])/(?<squid_peer>[% NOTSPACE %]) (?<squid_content_type>[% NOTSPACE %])'
+vars_tests:
+  SQUID_ACCESS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
+        result: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
+      - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
+        result: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
+    negative:
+      - 'this is not a squid access log line'
+geoip:
+- squid_client_ip
+convert:
+  squid_elapsed: int
+  squid_status: int
+  squid_bytes: int
+rules:
+  - name: squid_access
+    field: MESSAGE
+    anchored: true
+    geoip:
+      - squid_client_ip
+    patterns:
+      - SQUID_ACCESS
+    tests:
+      positive:
+        - string: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
+          result:
+            squid_timestamp: '1626345600.123'
+            squid_elapsed: '234'
+            squid_client_ip: '192.0.2.5'
+            squid_result_code: 'TCP_MISS'
+            squid_status: '200'
+            squid_bytes: '1234'
+            squid_method: 'GET'
+            squid_url: 'http://example.com/'
+            squid_user: '-'
+            squid_hierarchy: 'DIRECT'
+            squid_peer: '93.184.216.34'
+            squid_content_type: 'text/html'
+        - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
+          result:
+            squid_timestamp: '1626345601.000'
+            squid_elapsed: '5'
+            squid_client_ip: '198.51.100.9'
+            squid_result_code: 'TCP_DENIED'
+            squid_status: '403'
+            squid_bytes: '210'
+            squid_method: 'GET'
+            squid_url: 'http://blocked.example/'
+            squid_user: 'kitsune'
+            squid_hierarchy: 'NONE'
+            squid_peer: '-'
+            squid_content_type: 'text/html'
+      negative:
+        - 'this is not a squid access log line at all'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'

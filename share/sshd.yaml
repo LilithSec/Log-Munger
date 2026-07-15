@@ -1,0 +1,142 @@
+---
+# OpenSSH (sshd) authentication / connection log enrichment.
+#
+# Gates on the syslog PROGRAM field being "sshd" or "sshd-session" (newer
+# OpenSSH splits the per-connection worker into an "sshd-session" program).
+# Patterns are anchored (each must match the whole MESSAGE) and first-match
+# wins.  Every capture is namespaced with ssh_ .
+includes:
+- base
+vars_templated:
+  # Accepted publickey/password/keyboard-interactive.  For publickey OpenSSH
+  # appends the key type + fingerprint ("ssh2: RSA SHA256:...").
+  SSH_ACCEPTED: 'Accepted (?<ssh_method>publickey|password|keyboard-interactive) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2(?::? (?<ssh_key_type>[% WORD %]) (?<ssh_key_fingerprint>[% NOTSPACE %]))?)?'
+  # Failed password/publickey, optionally "for invalid user X".
+  SSH_FAILED: 'Failed (?<ssh_method>publickey|password|keyboard-interactive) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  # "Invalid user oracle from 203.0.113.7 port 40000"
+  SSH_INVALID_USER: 'Invalid user (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "Connection closed by 192.0.2.5 port 40000 [preauth]" and the
+  # "authenticating user root" variant.
+  SSH_CONN_CLOSED: 'Connection closed by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # "Disconnected from ..." and "Received disconnect from ...".
+  SSH_DISCONNECT: '(?:Disconnected|Received disconnect) from (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?::[% GREEDYDATA %]| [% GREEDYDATA %])?'
+vars_tests:
+  SSH_ACCEPTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+        result: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+      - string: 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+        result: 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+    negative:
+      - 'Failed password for root from 203.0.113.7 port 44444 ssh2'
+  SSH_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
+        result: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
+      - string: 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2'
+        result: 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_INVALID_USER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Invalid user oracle from 203.0.113.7 port 40000'
+        result: 'Invalid user oracle from 203.0.113.7 port 40000'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_CONN_CLOSED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+        result: 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+      - string: 'Connection closed by authenticating user root 203.0.113.7 port 44444 [preauth]'
+        result: 'Connection closed by authenticating user root 203.0.113.7 port 44444 [preauth]'
+    negative:
+      - 'Disconnected from 198.51.100.9 port 40000'
+  SSH_DISCONNECT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Disconnected from 198.51.100.9 port 40000'
+        result: 'Disconnected from 198.51.100.9 port 40000'
+      - string: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
+        result: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
+    negative:
+      - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+# file-level default: geoip lookup on the source IP (only used when the munger
+# is built with a geoip database)
+geoip:
+  - ssh_src_ip
+# file-level default: coerce the source port to an integer at runtime
+convert:
+  ssh_src_port: int
+rules:
+  - name: sshd
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^sshd(?:-session)?$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - SSH_ACCEPTED
+      - SSH_FAILED
+      - SSH_INVALID_USER
+      - SSH_CONN_CLOSED
+      - SSH_DISCONNECT
+    tests:
+      positive:
+        - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+          result:
+            ssh_method: 'publickey'
+            ssh_user: 'kitsune'
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '54321'
+            ssh_key_type: 'RSA'
+            ssh_key_fingerprint: 'SHA256:AbCdEf0123456789'
+        - string: 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+          result:
+            ssh_method: 'password'
+            ssh_user: 'alice'
+            ssh_src_ip: '198.51.100.9'
+            ssh_src_port: '40000'
+        - string: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
+          result:
+            ssh_method: 'password'
+            ssh_user: 'root'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2'
+          result:
+            ssh_invalid: 'invalid'
+            ssh_method: 'password'
+            ssh_user: 'admin'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Invalid user oracle from 203.0.113.7 port 40000'
+          result:
+            ssh_user: 'oracle'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '40000'
+        - string: 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+          result:
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '40000'
+        - string: 'Connection closed by authenticating user root 203.0.113.7 port 44444 [preauth]'
+          result:
+            ssh_conn_state: 'authenticating'
+            ssh_user: 'root'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Disconnected from 198.51.100.9 port 40000'
+          result:
+            ssh_src_ip: '198.51.100.9'
+            ssh_src_port: '40000'
+        - string: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+      negative:
+        - 'this is not an sshd line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

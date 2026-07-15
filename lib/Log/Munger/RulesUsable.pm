@@ -3,7 +3,6 @@ package Log::Munger::RulesUsable;
 use 5.006;
 use strict;
 use warnings;
-use Log::Munger::RulesUsable;
 
 =head1 NAME
 

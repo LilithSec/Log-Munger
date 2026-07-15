@@ -1,0 +1,74 @@
+---
+# Netfilter / iptables / ufw kernel firewall log enrichment.
+#
+# The kernel logs firewall events as one big "KEY=VALUE" blob (space
+# separated), usually preceded by a human-readable action prefix such as
+# "[UFW BLOCK]" or "IPTABLES-DROP:". The whole enrichment is:
+#   1. match a thin pattern that captures the optional prefix (nf_action)
+#      and the "IN=..." blob (nf_kv), and
+#   2. kv-decompose the blob into nf_* fields.
+#
+# Flag tokens that have no "=" (DF, SYN, URGP=0 aside) are naturally skipped
+# by the kv splitter, which is fine.
+includes:
+- base
+vars_templated:
+  NETFILTER: '(?:(?<nf_action>[% GREEDYDATA %]) )?(?<nf_kv>IN=[% GREEDYDATA %])'
+vars_tests:
+  NETFILTER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        result: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+      - string: 'IPTABLES-DROP: IN=eth0 OUT= SRC=198.51.100.9 DST=192.0.2.1 LEN=28 TTL=64 ID=0 PROTO=UDP SPT=53 DPT=1234 LEN=8'
+        result: 'IPTABLES-DROP: IN=eth0 OUT= SRC=198.51.100.9 DST=192.0.2.1 LEN=28 TTL=64 ID=0 PROTO=UDP SPT=53 DPT=1234 LEN=8'
+    negative:
+      - 'martian source 203.0.113.7 from 198.51.100.9, on dev eth0'
+geoip:
+  - nf_SRC
+convert:
+  nf_SPT: int
+  nf_DPT: int
+  nf_LEN: int
+  nf_TTL: int
+  nf_ID: int
+decompose:
+  - field: nf_kv
+    type: kv
+    prefix: 'nf_'
+    remove: true
+    tests:
+      - input: 'IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TTL=54 ID=1234 PROTO=TCP SPT=44444 DPT=22'
+        result:
+          nf_IN: 'eth0'
+          nf_OUT: ''
+          nf_SRC: '203.0.113.7'
+          nf_DST: '192.0.2.1'
+          nf_LEN: '60'
+          nf_TTL: '54'
+          nf_ID: '1234'
+          nf_PROTO: 'TCP'
+          nf_SPT: '44444'
+          nf_DPT: '22'
+rules:
+  - name: netfilter
+    gate:
+      - field: PROGRAM
+        values:
+          - kernel
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - NETFILTER
+    tests:
+      positive:
+        - string: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+          result:
+            nf_action: '[UFW BLOCK]'
+            nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        - string: 'IPTABLES-DROP: IN=eth0 OUT= SRC=198.51.100.9 DST=192.0.2.1 LEN=28 TTL=64 ID=0 PROTO=UDP SPT=53 DPT=1234 LEN=8'
+          result:
+            nf_action: 'IPTABLES-DROP:'
+            nf_kv: 'IN=eth0 OUT= SRC=198.51.100.9 DST=192.0.2.1 LEN=28 TTL=64 ID=0 PROTO=UDP SPT=53 DPT=1234 LEN=8'
+      negative:
+        - 'martian source 203.0.113.7 from 198.51.100.9, on dev eth0'

@@ -1,0 +1,85 @@
+---
+# Dovecot (IMAP/POP3) login-line enrichment.
+#
+# Dovecot's login processes emit lines of the shape:
+#   <service>-login: <Event>: key=value, key=value, ...
+# where <service> is imap/pop3/etc, <Event> is Login/Disconnected/etc, and the
+# tail is a ", "-separated key=value list. Some values are wrapped in <...>
+# (user, session) and some tokens are bare flags (TLS, secured) with no "=".
+#
+# The rule gates on the "dovecot" PROGRAM, matches the whole MESSAGE, captures
+# the service/event/kv blob, then the file-level decompose kv-splits the blob
+# into dovecot_user, dovecot_method, dovecot_rip, dovecot_lip, dovecot_mpid,
+# dovecot_session, etc. dovecot_rip (the remote IP) is fed to geoip and
+# dovecot_mpid is converted to an int.
+includes:
+- base
+vars_templated:
+  DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %]): (?<dovecot_kv>[% GREEDYDATA %])'
+vars_tests:
+  DOVECOT_LOGIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+        result: 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+      - string: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
+        result: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
+    negative:
+      - 'this is not a dovecot login line at all'
+# file-level default: after a rule matches, the remote IP captured as
+# dovecot_rip gets a geoip lookup (only used when built with a geoip database).
+geoip:
+  - dovecot_rip
+# file-level default: the process id parsed out of the kv blob is numeric.
+convert:
+  dovecot_mpid: int
+# file-level default: break the captured key=value blob into individual
+# dovecot_* fields. Values wrapped in <...> are unwrapped via trim; bare flag
+# tokens without "=" (TLS, secured) are skipped.
+decompose:
+  - field: dovecot_kv
+    type: kv
+    field_split: ', '
+    value_split: '='
+    trim: '<>'
+    prefix: 'dovecot_'
+    remove: true
+    tests:
+      - input: 'user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+        result:
+          dovecot_user: 'kitsune'
+          dovecot_method: 'PLAIN'
+          dovecot_rip: '203.0.113.7'
+          dovecot_lip: '192.0.2.1'
+          dovecot_mpid: '1234'
+          dovecot_session: 'AbC123'
+rules:
+  - name: dovecot
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^dovecot$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - DOVECOT_LOGIN
+    tests:
+      positive:
+        - string: 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+          result:
+            dovecot_service: 'imap'
+            dovecot_event: 'Login'
+            dovecot_kv: 'user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+        - string: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_event: 'Disconnected'
+            dovecot_kv: 'user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
+        - string: 'imap-login: Login: user=<alice@example.com>, method=PLAIN, rip=192.0.2.9, lip=192.0.2.1, mpid=99, secured, session=<q>'
+          result:
+            dovecot_service: 'imap'
+            dovecot_event: 'Login'
+            dovecot_kv: 'user=<alice@example.com>, method=PLAIN, rip=192.0.2.9, lip=192.0.2.1, mpid=99, secured, session=<q>'
+      negative:
+        - 'this is not a dovecot login line at all'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'
