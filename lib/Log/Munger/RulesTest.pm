@@ -54,7 +54,7 @@ should not die.
             print "Errors:\n".join("\n", @{ $results->{'errors'}[0] })."\n\n";
         }
         if (defined($results->{'warnings'}[0])) {
-            print "Warnings:\n".join("\n", @{ $results->{'Warnings'}[0] })."\n\n";
+            print "Warnings:\n".join("\n", @{ $results->{'warnings'}[0] })."\n\n";
         }
     }
 
@@ -143,7 +143,7 @@ sub test {
 						) || die( $tt->error() );
 					};
 					if ($@) {
-						push( @errors, '.vars_tests.' . $var . 'test_template could not be templated...' . $@ );
+						push( @errors, '.vars_tests.' . $var . '.test_template could not be templated...' . $@ );
 					} else {
 						#
 						# handle positive tests
@@ -160,16 +160,10 @@ sub test {
 									. '.positive has a ref of "'
 									. ref( $rules->{'vars_tests'}{$var}{'positive'} )
 									. '" and not "ARRAY"' );
-						} elsif ( defined( $rules->{'vars_tests'}{$var}{'positive'} )
-							&& ( ref( $rules->{'vars_tests'}{$var}{'positive'} ) ne 'ARRAY' )
-							&& defined( $rules->{'vars_tests'}{$var}{'positive'}[0] ) )
+						} elsif ( ( ref( $rules->{'vars_tests'}{$var}{'positive'} ) eq 'ARRAY' )
+							&& !defined( $rules->{'vars_tests'}{$var}{'positive'}[0] ) )
 						{
-							push( @errors,
-									  '.vars_tests.'
-									. $var
-									. '.positive has a ref of "'
-									. ref( $rules->{'vars_tests'}{$var}{'positive'} )
-									. '" and not "ARRAY"' );
+							push( @errors, '.vars_tests.' . $var . '.positive is empty and has no tests' );
 						} else {
 							# any tests that prevent the positive section from being processed should come before now
 							#
@@ -188,19 +182,19 @@ sub test {
 											. '" and not "HASH"' );
 								} elsif ( !defined( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} ) ) {
 									push( @errors,
-										'.vars_tests.' . $var . 'positive.' . $test_int . '.string is undef' );
+										'.vars_tests.' . $var . '.positive.' . $test_int . '.string is undef' );
 								} elsif ( ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} ) ne '' ) {
 									push( @errors,
 											  '.vars_tests.'
 											. $var
-											. 'positive.'
+											. '.positive.'
 											. $test_int
 											. '.string has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} )
 											. '" and not ""' );
 								} elsif ( !defined( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} ) ) {
 									push( @errors,
-										'.vars_tests.' . $var . 'positive.' . $test_int . '.result is undef' );
+										'.vars_tests.' . $var . '.positive.' . $test_int . '.result is undef' );
 								} elsif ( ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} ) ne '' ) {
 									push( @errors,
 											  '.vars_tests.'
@@ -217,7 +211,7 @@ sub test {
 										my %found_items = %+;
 										if ( !defined( $found_items{'TEST'} ) ) {
 											push( @errors,
-													  '.var_tests.'
+													  '.vars_tests.'
 													. $var
 													. '.positive.'
 													. $test_int
@@ -232,7 +226,7 @@ sub test {
 											$rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} )
 										{
 											push( @errors,
-													  '.var_tests.'
+													  '.vars_tests.'
 													. $var
 													. '.positive.'
 													. $test_int
@@ -248,7 +242,7 @@ sub test {
 										} ## end elsif ( $found_items{'TEST'} ne $rules->{'vars_tests'...})
 									} else {
 										push( @errors,
-												  '.var_tests.'
+												  '.vars_tests.'
 												. $var
 												. '.positive.'
 												. $test_int
@@ -300,7 +294,7 @@ sub test {
 										my %found_items = %+;
 										if ( !defined( $found_items{'TEST'} ) ) {
 											push( @warnings,
-													  '.var_tests.'
+													  '.vars_tests.'
 													. $var
 													. '.negative.'
 													. $test_int
@@ -311,7 +305,7 @@ sub test {
 													. '"' );
 										} else {
 											push( @errors,
-													  '.var_tests.'
+													  '.vars_tests.'
 													. $var
 													. '.negative.'
 													. $test_int

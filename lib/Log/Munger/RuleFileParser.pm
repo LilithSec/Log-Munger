@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use YAML::XS                   qw(Load);
 use Log::Munger::WhichRuleFile ();
+use File::ShareDir             ();
 use File::Slurp                qw(read_file);
 use Template;
 use Hash::Merge ();
@@ -95,7 +96,7 @@ sub load {
 						. $template_hash . '}{'
 						. $item
 						. '} is of ref "'
-						. ref( $rules->{'vars'}{$item} )
+						. ref( $rules->{$template_hash}{$item} )
 						. '" and not "HASH" or ""' );
 			} ## end if ( ( ref( $rules->{$template_hash}{$item...})))
 			if ( ref( $rules->{$template_hash}{$item} ) eq 'ARRAY' ) {
@@ -168,7 +169,7 @@ sub load_no_templating {
 			die(      '.includes in "'
 					. $file_location
 					. '" is of ref "'
-					. ref( $rules->{'incudes'} )
+					. ref( $rules->{'includes'} )
 					. '" and not "ARRAY"' );
 		}
 		if ( defined( $rules->{'includes'}[0] ) ) {
@@ -189,6 +190,13 @@ sub load_no_templating {
 
 					my $include_location = Log::Munger::WhichRuleFile->rule_file_location(
 						'file' => $rules->{'includes'}[$include_int] );
+					if ( !defined($include_location) ) {
+						die(      '.includes.'
+								. $include_int
+								. ', "'
+								. $rules->{'includes'}[$include_int]
+								. '", could not be found by Log::Munger::WhichRuleFile->rule_file_location' );
+					}
 					my $rule_include;
 					eval {
 						my $raw_rules_include = read_file($include_location);
@@ -204,6 +212,14 @@ sub load_no_templating {
 									. '" and not "HASH"' );
 						}
 					};
+					if ($@) {
+						die(      '.includes.'
+								. $include_int
+								. ', "'
+								. $rules->{'includes'}[$include_int]
+								. '", could not be loaded... '
+								. $@ );
+					}
 
 					$rules = $merger->merge( $rules, $rule_include );
 				} ## end if ( !$included{ $rules->{'includes'}[$include_int...]})

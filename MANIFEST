@@ -54,6 +54,7 @@ t/cli.t
 t/convert.t
 t/daemon_rules.t
 t/decompose.t
+t/degrok.t
 t/dns_misc_rules.t
 t/geoip.t
 t/http_access.t
@@ -66,3 +67,5 @@ t/manifest.t
 t/pod-coverage.t
 t/pod.t
 t/rules_test.t
+t/rules_usable.t
+t/template_order.t

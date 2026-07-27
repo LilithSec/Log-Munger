@@ -48,4 +48,4 @@ sub usable {
 	}
 
 	return 1;
-} ## end sub string
+} ## end sub usable
