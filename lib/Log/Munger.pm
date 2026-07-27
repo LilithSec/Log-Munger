@@ -97,10 +97,31 @@ have been loaded).
 
     - item :: The decoded log record (a hash ref), or a bare string. A bare
         string is treated as a raw log line and matched as the C<MESSAGE> field.
+        If given, C<item> takes precedence over the field args below.
+        Default :: undef
+
+    - message :: The raw log message, assembled into C<< { MESSAGE => ... } >>.
+        Default :: undef
+
+    - program :: Optional C<PROGRAM> field (the usual daemon-rule gate).
+        Default :: undef
+
+    - priority :: Optional C<PRIORITY> field.
+        Default :: undef
+
+    - facility :: Optional C<FACILITY> field.
         Default :: undef
 
     my $fields = $munger->process_item( 'item' => $json );
     my $fields = $munger->process_item( 'item' => $raw_access_log_line );
+
+    # from a syslog reader that already has the fields split out (e.g. baphomet):
+    my $fields = $munger->process_item(
+        'message'  => $message,
+        'program'  => $program,
+        'priority' => $priority,
+        'facility' => $facility,
+    );
 
 =cut
 

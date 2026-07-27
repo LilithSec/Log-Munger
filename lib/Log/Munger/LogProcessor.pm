@@ -165,11 +165,33 @@ sub new {
 Runs an item through the compiled rules and returns the named captures of the
 first matching rule.
 
+The item may be given directly with C<item>, or assembled from the individual
+syslog fields with C<message> (plus the optional C<program> / C<priority> /
+C<facility>). This lets a caller that already has the fields split out (a syslog
+reader, C<baphomet>, etc.) hand them over without building the record hash
+itself.
+
     - item :: The decoded log record (a hash ref), or a bare string. A bare
         string is treated as a raw log line and matched as the C<MESSAGE> field,
         so callers feeding whole log lines (e.g. apache/nginx access logs) need
-        not wrap them.
+        not wrap them. If given, C<item> takes precedence and the C<message> /
+        C<program> / C<priority> / C<facility> args below are ignored.
         default :: undef
+
+    - message :: The raw log message; assembled into C<< { MESSAGE => ... } >>.
+        default :: undef
+
+    - program :: Adds a C<PROGRAM> field (the usual gate for daemon rule files).
+        default :: undef
+
+    - priority :: Adds a C<PRIORITY> field.
+        default :: undef
+
+    - facility :: Adds a C<FACILITY> field.
+        default :: undef
+
+    my $fields = $processor->process_item( 'item' => $decoded_hashref );
+    my $fields = $processor->process_item( 'message' => $line, 'program' => 'sshd' );
 
 Returns a hash ref of the winning pattern's named captures on a match (which may
 be an empty hash ref if the pattern had no named captures), or C<undef> if no rule
@@ -181,14 +203,16 @@ C<undef> so a single log line can never cost the caller.
 sub process_item {
 	my ( $self, %opts ) = @_;
 
-	my $match = $self->_run( $opts{'item'} );
+	my $match = $self->_run( $self->_item_from_opts(%opts) );
 	return $match->{'matched'} ? $match->{'fields'} : undef;
 } ## end sub process_item
 
 =head2 explain_item
 
 Like L</process_item> but returns match metadata instead of just the fields,
-for tooling that needs to know I<which> rule fired. Returns a hash ref:
+for tooling that needs to know I<which> rule fired. Accepts the same arguments as
+L</process_item> (C<item>, or C<message> plus optional C<program> / C<priority> /
+C<facility>). Returns a hash ref:
 
     { matched => 0 }                                         # nothing matched
     { matched => 1, rule => <name>, pattern => <index>,
@@ -201,8 +225,37 @@ Never dies.
 sub explain_item {
 	my ( $self, %opts ) = @_;
 
-	return $self->_run( $opts{'item'} );
+	return $self->_run( $self->_item_from_opts(%opts) );
 } ## end sub explain_item
+
+=head2 _item_from_opts
+
+Internal. Resolves the item to run from the caller's arguments. An explicit
+C<item> (hash ref or bare string) is returned as-is for backward compatibility.
+Otherwise, when C<message> is given, a record hash is assembled from it plus any
+of the optional C<program> / C<priority> / C<facility> fields (mapped to the
+syslog-ng-style upper-case keys C<PROGRAM> / C<PRIORITY> / C<FACILITY> that rule
+gates match on). Returns C<undef> when neither C<item> nor C<message> is given
+(which C<_run> treats as a non-match).
+
+=cut
+
+sub _item_from_opts {
+	my ( $self, %opts ) = @_;
+
+	# an explicit item wins, preserving the original hashref/bare-string behavior
+	return $opts{'item'} if ( exists( $opts{'item'} ) );
+
+	# nothing to assemble
+	return undef if ( !defined( $opts{'message'} ) );
+
+	my $item = { 'MESSAGE' => $opts{'message'} };
+	$item->{'PROGRAM'}  = $opts{'program'}  if ( defined( $opts{'program'} ) );
+	$item->{'PRIORITY'} = $opts{'priority'} if ( defined( $opts{'priority'} ) );
+	$item->{'FACILITY'} = $opts{'facility'} if ( defined( $opts{'facility'} ) );
+
+	return $item;
+} ## end sub _item_from_opts
 
 =head2 _run
 

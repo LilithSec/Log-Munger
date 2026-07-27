@@ -183,4 +183,37 @@ $r = $pm->process_item(
 );
 is( $r, undef, 'anchored rule rejects a message with trailing garbage' );
 
+#
+# message/program/priority/facility convenience args: a caller with the syslog
+# fields split out (e.g. baphomet) can pass them directly instead of building
+# the record hash. These assemble the same { PROGRAM => ..., MESSAGE => ... }.
+#
+my $sm  = Log::Munger->new( 'rules' => ['sshd'] );
+my $line = 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2';
+
+# message + program is equivalent to the hand-built item
+my $via_args = $sm->process_item( 'message' => $line, 'program' => 'sshd' );
+my $via_hash = $sm->process_item( 'item' => { PROGRAM => 'sshd', MESSAGE => $line } );
+is_deeply( $via_args, $via_hash, 'process_item(message,program) == process_item(item => {...})' );
+is( $via_args->{'ssh_src_ip'}, '203.0.113.7', 'message/program args: capture came through' );
+
+# priority + facility are carried onto the record too (available as gate fields)
+my $why = $sm->explain_item( 'message' => $line, 'program' => 'sshd', 'priority' => 'info', 'facility' => 'auth' );
+is( $why->{'matched'}, 1,      'explain_item via message/program/priority/facility matched' );
+is( $why->{'rule'},    'sshd', 'explain_item via args: correct rule' );
+
+# without the program the PROGRAM gate cannot pass => no match (not a die)
+is( $sm->process_item( 'message' => $line ), undef, 'message alone does not satisfy a PROGRAM-gated rule' );
+
+# an explicit item wins over the convenience args (backward compatible)
+my $prec = $sm->process_item(
+	'item'    => { PROGRAM => 'sshd', MESSAGE => $line },
+	'message' => 'ignored',
+	'program' => 'ignored',
+);
+is( $prec->{'ssh_src_ip'}, '203.0.113.7', 'item takes precedence over message/program args' );
+
+# no item and no message => undef (never dies)
+is( $sm->process_item(), undef, 'no item and no message => undef' );
+
 done_testing();
