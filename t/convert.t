@@ -16,12 +16,14 @@ my $yaml = <<'YAML';
 includes:
 - base
 vars_templated:
-  LINE: '(?<who>[% WORD %]) port=(?<port>[% INT %]) load=(?<load>[% NUMBER %]) blob=(?<blob>[% NOTSPACE %])'
+  LINE: '(?<who>[% WORD %]) port=(?<port>[% INT %]) load=(?<load>[% NUMBER %]) verdict=(?<verdict>[% WORD %]) shout=(?<shout>[% WORD %]) blob=(?<blob>[% NOTSPACE %])'
 convert:
   port: int
   load: float
   who: int
   b_x: int
+  verdict: lc
+  shout: uc
 decompose:
   - field: blob
     type: kv
@@ -37,8 +39,8 @@ rules:
     patterns: [LINE]
     tests:
       positive:
-        - string: 'host port=022 load=0.50 blob=x=5'
-          result: { who: 'host', port: '022', load: '0.50', blob: 'x=5' }
+        - string: 'host port=022 load=0.50 verdict=DENIED shout=quiet blob=x=5'
+          result: { who: 'host', port: '022', load: '0.50', verdict: 'DENIED', shout: 'quiet', blob: 'x=5' }
       negative: ['nope']
 YAML
 
@@ -52,7 +54,7 @@ is( scalar( @{ $res->{'errors'} } ), 0, 'convert file tests clean' )
 	or diag( join( "\n", @{ $res->{'errors'} } ) );
 
 my $m = Log::Munger->new( 'rules' => [$file] );
-my $r = $m->process_item( 'item' => { MESSAGE => 'host port=022 load=0.50 blob=x=5' } );
+my $r = $m->process_item( 'item' => { MESSAGE => 'host port=022 load=0.50 verdict=DENIED shout=quiet blob=x=5' } );
 
 # numeric coercion
 ok( looks_like_number( $r->{'port'} ), 'port is numeric' );
@@ -68,12 +70,31 @@ ok( !exists( $r->{'blob'} ), 'kv source removed' );
 is( $r->{'b_x'}, 5, 'decomposed field coerced to int' );
 ok( looks_like_number( $r->{'b_x'} ), 'decomposed field is numeric' );
 
+# case folding: lc/uc normalize a captured token whose case varies between the
+# sources that produce it (SELinux "denied" vs AppArmor "DENIED")
+is( $r->{'verdict'}, 'denied', 'lc folds the captured value down' );
+is( $r->{'shout'},   'QUIET',  'uc folds the captured value up' );
+
+# the case folds must not be gated on looks_like_number the way int/float are
+my $folded = { 'convert' => { 'v' => 'lc' } };
+my $compiled_fold = Log::Munger::LogProcessor->_compile_convert( $folded->{'convert'} );
+my %fold_captures = ( 'v' => 'MiXeD' );
+Log::Munger::LogProcessor->_convert( { 'convert' => $compiled_fold }, \%fold_captures );
+is( $fold_captures{'v'}, 'mixed', 'lc applies to a non-numeric string' );
+
+# the documented aliases resolve to the same two folds
+is_deeply(
+	Log::Munger::LogProcessor->_compile_convert( { 'a' => 'lower', 'b' => 'LOWERCASE', 'c' => 'Upper', 'd' => 'uppercase' } ),
+	{ 'a' => 'lc', 'b' => 'lc', 'c' => 'uc', 'd' => 'uc' },
+	'lc/uc aliases normalize'
+);
+
 # an unknown convert type is a load-time error
 eval {
 	my $bad = { 'convert' => { 'x' => 'stringy' }, 'rules' => [] };
 	Log::Munger::LogProcessor->_compile_convert( $bad->{'convert'} );
 };
-like( $@, qr/unknown \(expected int or float\)/, 'unknown convert type dies at compile' );
+like( $@, qr/unknown \(expected int, float, lc, or uc\)/, 'unknown convert type dies at compile' );
 
 # RulesTest reports a bad file-level convert map
 my $badres = Log::Munger::RulesTest->test(

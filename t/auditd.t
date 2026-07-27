@@ -58,6 +58,63 @@ is( $u->{'audit_msg_res'},     'failed',             'auditd: nested res' );
 ok( !exists( $u->{'audit_msg'} ),    'auditd: nested blob removed' );
 ok( !exists( $u->{'audit_fields'} ), 'auditd: outer blob removed on user record' );
 
+# ---- audit_id: the lossless correlation key ----
+# audit_epoch is converted to a float, which cannot round-trip ".100"/".000",
+# so the raw "<epoch>:<serial>" pair is captured separately. Without it there is
+# no way to tie an AVC record to the SYSCALL/PATH records of the same event.
+my $id = $m->process_item(
+	'item' => 'type=SYSCALL msg=audit(1700000000.100:456): arch=c000003e pid=1 uid=0' );
+is( $id->{'audit_id'},    '1700000000.100:456', 'auditd: audit_id keeps the raw epoch:serial' );
+is( $id->{'audit_epoch'}, 1700000000.1,         'auditd: audit_epoch is still the float' );
+
+# ---- AppArmor: the other in-tree LSM writing to audit.log ----
+# it does not use SELinux' "avc:  denied  { perms } for" prose, it writes a k=v
+# blob whose first key is apparmor=
+my $aa = $m->process_item(
+	'item' => 'type=AVC msg=audit(1700000012.000:468): apparmor="DENIED" operation="open" '
+		. 'profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" '
+		. 'requested_mask="r" denied_mask="r" fsuid=0 ouid=0' );
+is( $aa->{'audit_type'},      'AVC',          'auditd: apparmor type' );
+is( $aa->{'audit_apparmor'},  'DENIED',       'auditd: apparmor native verdict' );
+is( $aa->{'mac_result'},      'denied',       'auditd: apparmor verdict normalized into mac_result' );
+is( $aa->{'audit_operation'}, 'open',         'auditd: apparmor operation from the outer kv' );
+is( $aa->{'audit_profile'},   '/usr/bin/foo', 'auditd: apparmor profile' );
+is( $aa->{'audit_name'},      '/etc/shadow',  'auditd: apparmor name' );
+ok( looks_like_number( $aa->{'audit_fsuid'} ), 'auditd: apparmor fsuid is numeric' );
+ok( !exists( $aa->{'audit_fields'} ), 'auditd: apparmor outer blob removed' );
+
+# the same normalized field carries the SELinux verdict, lowercased from the
+# same source text -- one field to test regardless of which LSM is in use
+my $selinux = $m->process_item(
+	'item' => 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  '
+		. 'pid=4444 comm="httpd" scontext=system_u:system_r:httpd_t:s0 '
+		. 'tcontext=system_u:object_r:shadow_t:s0 tclass=file' );
+is( $selinux->{'mac_result'},       'denied', 'auditd: selinux verdict in the same mac_result' );
+is( $selinux->{'audit_avc_action'}, 'denied', 'auditd: audit_avc_action kept for compat' );
+
+# AppArmor records that carry no operation= at all (profile load failures), which
+# is the shape the kernel-side pattern used to drop
+my $status = $m->process_item(
+	'item' => 'type=APPARMOR_STATUS msg=audit(1700000013.000:469): apparmor="STATUS" '
+		. 'info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"' );
+is( $status->{'audit_apparmor'}, 'STATUS',                   'auditd: apparmor STATUS record' );
+is( $status->{'audit_info'},     'failed to unpack profile', 'auditd: quoted info with spaces' );
+is( $status->{'audit_error'},    -71,                        'auditd: negative error converted' );
+
+# AppArmor dbus mediation arrives from dbus-daemon as USER_AVC, so the AppArmor
+# blob is inside the nested msg='...' rather than the outer one
+my $dbus = $m->process_item(
+	'item' => q{type=USER_AVC msg=audit(1700000014.000:470): pid=1 uid=0 ses=3 }
+		. q{msg='apparmor="DENIED" operation="dbus_method_call" bus="system" member="StartUnit" }
+		. q{pid=2222 label="snap.foo.bar" peer_pid=1 peer_label="unconfined" exe="/usr/bin/dbus-daemon" sauid=0'} );
+is( $dbus->{'audit_type'},           'USER_AVC',         'auditd: dbus apparmor type' );
+is( $dbus->{'mac_result'},           'denied',           'auditd: dbus apparmor verdict normalized' );
+is( $dbus->{'audit_msg_apparmor'},   'DENIED',           'auditd: dbus apparmor native verdict' );
+is( $dbus->{'audit_msg_operation'},  'dbus_method_call', 'auditd: dbus operation from nested blob' );
+is( $dbus->{'audit_msg_peer_label'}, 'unconfined',       'auditd: dbus peer label' );
+is( $dbus->{'audit_uid'},            0,                  'auditd: dbus outer uid' );
+ok( looks_like_number( $dbus->{'audit_msg_pid'} ), 'auditd: nested pid is numeric too' );
+
 # non-auditd line
 is( $m->process_item( 'item' => 'not an audit record' ), undef, 'auditd: non-record => undef' );
 

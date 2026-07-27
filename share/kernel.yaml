@@ -21,29 +21,52 @@ includes:
 - base
 vars_templated:
   # ==================================================================
+  # The printk uptime, shared by every Linux pattern below.
+  # ==================================================================
+  # rsyslog's kernel reader leaves the ring-buffer uptime at the head of the
+  # message: "[ 1234.567890] audit: type=1400 ...". Whether it is there is a
+  # property of the READER, not of the message -- rsyslog's imklog keeps it,
+  # journald's kmsg reader strips it -- and since either may have written the
+  # file being tailed, both shapes have to match. Anchored patterns that did
+  # not lead with this matched only the stripped shape, and on a stock Debian
+  # or Ubuntu the stripped shape is the rarer of the two.
+  #
+  # The fragment carries its own "?" and its own trailing space, so a pattern
+  # needs only to lead with it. Every KERNEL_LINUX_* pattern does.
+  #
+  # It is deliberately NOT captured. The value is the monotonic boot clock,
+  # which the syslog timestamp already covers for ordering, so capturing it
+  # would hang a field off every enriched kernel line to no end. A kernel
+  # built without CONFIG_PRINTK_TIME emits no prefix at all, which is the
+  # same case as a reader that stripped it.
+  #
+  # The FreeBSD patterns further down do NOT carry it: FreeBSD's syslogd
+  # writes kernel messages with no such prefix.
+  KERNEL_PRINTK: '(?:\[ *[% INT %]\.[% INT %]\] +)?'
+  # ==================================================================
   # Linux kernel messages (KERNEL_LINUX_*).
   # ==================================================================
   # OOM killer (newer format): "Out of memory: Killed process 1234 (mysqld)
   # total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999
   # pgtables:1kB oom_score_adj:0"
-  KERNEL_LINUX_OOM: 'Out of memory: Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
+  KERNEL_LINUX_OOM: '[% KERNEL_PRINTK %]Out of memory: Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
   # OOM killer (older format, no "Out of memory:" prefix): "Killed process 1234
   # (mysqld) total-vm:100kB, anon-rss:50kB, ..."
-  KERNEL_LINUX_OOM_OLD: 'Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
+  KERNEL_LINUX_OOM_OLD: '[% KERNEL_PRINTK %]Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
   # segfault: "php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in
   # libc-2.31.so[7f00+1c000]"
-  KERNEL_LINUX_SEGV: '(?<kernel_segv_comm>[% NOTSPACE %])\[(?<kernel_segv_pid>[% INT %])\]: segfault at (?<kernel_segv_addr>[% NOTSPACE %]) ip (?<kernel_segv_ip>[% NOTSPACE %]) sp (?<kernel_segv_sp>[% NOTSPACE %]) error (?<kernel_segv_error>[% INT %])(?: in [% GREEDYDATA %])?'
+  KERNEL_LINUX_SEGV: '[% KERNEL_PRINTK %](?<kernel_segv_comm>[% NOTSPACE %])\[(?<kernel_segv_pid>[% INT %])\]: segfault at (?<kernel_segv_addr>[% NOTSPACE %]) ip (?<kernel_segv_ip>[% NOTSPACE %]) sp (?<kernel_segv_sp>[% NOTSPACE %]) error (?<kernel_segv_error>[% INT %])(?: in [% GREEDYDATA %])?'
   # general protection / traps: "traps: nginx[1234] general protection ip:...
   # sp:... error:0 in ..."
-  KERNEL_LINUX_TRAP: 'traps: (?<kernel_trap_comm>[% NOTSPACE %])\[(?<kernel_trap_pid>[% INT %])\] (?<kernel_trap_detail>[% GREEDYDATA %])'
+  KERNEL_LINUX_TRAP: '[% KERNEL_PRINTK %]traps: (?<kernel_trap_comm>[% NOTSPACE %])\[(?<kernel_trap_pid>[% INT %])\] (?<kernel_trap_detail>[% GREEDYDATA %])'
   # ext4/ext3/ext2 filesystem error: "EXT4-fs error (device sda1):
   # ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0"
-  KERNEL_LINUX_EXT_FS: '(?<kernel_fs>EXT[234]-fs) error \(device (?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
+  KERNEL_LINUX_EXT_FS: '[% KERNEL_PRINTK %](?<kernel_fs>EXT[234]-fs) error \(device (?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
   # XFS filesystem error: "XFS (sda1): ..."
-  KERNEL_LINUX_XFS: '(?<kernel_fs>XFS) \((?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
+  KERNEL_LINUX_XFS: '[% KERNEL_PRINTK %](?<kernel_fs>XFS) \((?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
   # block I/O error: "blk_update_request: I/O error, dev sda, sector 12345678 op
   # 0x0:(READ) flags 0x0 phys_seg 1 prio class 0"
-  KERNEL_LINUX_BLK_IO: 'blk_update_request: I/O error, dev (?<kernel_io_dev>[% NOTSPACE %]), sector (?<kernel_io_sector>[% INT %])(?: [% GREEDYDATA %])?'
+  KERNEL_LINUX_BLK_IO: '[% KERNEL_PRINTK %]blk_update_request: I/O error, dev (?<kernel_io_dev>[% NOTSPACE %]), sector (?<kernel_io_sector>[% INT %])(?: [% GREEDYDATA %])?'
   # AppArmor denial: "audit: type=1400 audit(...): apparmor=\"DENIED\"
   # operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234
   # comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0". The
@@ -51,10 +74,35 @@ vars_templated:
   # kernel_apparmor_mode; the remaining quoted k=v tail is captured as
   # kernel_apparmor_kv and quote-aware kv-decomposed into kernel_apparmor_*
   # fields (operation/profile/name/comm/...).
-  KERNEL_LINUX_APPARMOR: 'audit: type=1400 audit\([% GREEDYDATA %]\): apparmor="(?<kernel_apparmor_mode>[% WORD %])" (?<kernel_apparmor_kv>operation=[% GREEDYDATA %])'
+  #
+  # This is the same event share/auditd.yaml handles, arriving by the other
+  # route: straight off the kernel ring buffer when auditd is not running (or
+  # not the only consumer), so it is prefixed "audit: type=<n>" instead of
+  # "type=<name>". Three things it must NOT assume:
+  #
+  #   - that the tail starts with operation=. Profile-load failures and
+  #     disconnected-path denials put info= first and have no operation= at all:
+  #       apparmor="STATUS" info="failed to unpack profile" error=-71 profile=...
+  #     Requiring operation= dropped those records on the floor entirely.
+  #   - that the numeric type is 1400. AppArmor also emits the 1500-range
+  #     APPARMOR_* types; the apparmor=" token is the real discriminator, so the
+  #     type is captured rather than hardcoded (a SELinux 1400 has "avc:" here
+  #     and still will not match).
+  #   - that the audit(<epoch>:<serial>) id is noise. It is the key that ties
+  #     this record to its SYSCALL/PATH siblings and to the same event as seen
+  #     via auditd.yaml, so it is captured -- verbatim as kernel_audit_id (a
+  #     float conversion cannot round-trip .100/.000) and split out as
+  #     kernel_audit_epoch/kernel_audit_serial.
+  #
+  # mac_result is the normalized, LSM-agnostic verdict shared with the AVC and
+  # AppArmor patterns in share/auditd.yaml -- lowercased by convert, so
+  # "mac_result eq 'denied'" holds whether the record came from SELinux or
+  # AppArmor and whether it arrived via auditd or via the ring buffer.
+  # kernel_apparmor_mode keeps the raw value for the existing consumers.
+  KERNEL_LINUX_APPARMOR: '[% KERNEL_PRINTK %]audit: type=(?<kernel_audit_type>[% INT %]) audit\((?<kernel_audit_id>(?<kernel_audit_epoch>[% NUMBER %]):(?<kernel_audit_serial>[% INT %]))\): apparmor="(?<mac_result>(?<kernel_apparmor_mode>[% WORD %]))"(?: +(?<kernel_apparmor_kv>[% GREEDYDATA %]))?'
   # USB device attach: "usb 1-1: new high-speed USB device number 5 using
   # ehci-hcd"
-  KERNEL_LINUX_USB: 'usb (?<kernel_usb>[% NOTSPACE %]): new [% GREEDYDATA %]'
+  KERNEL_LINUX_USB: '[% KERNEL_PRINTK %]usb (?<kernel_usb>[% NOTSPACE %]): new [% GREEDYDATA %]'
   # ==================================================================
   # FreeBSD kernel messages (additive). These arrive with PROGRAM=kernel
   # exactly like the Linux ones above and share the //^kernel$// gate.
@@ -111,6 +159,26 @@ vars_templated:
   # "Fatal trap 12: page fault while in kernel mode".
   KERNEL_FBSD_FATAL_TRAP: 'Fatal trap (?<kernel_trap_num>[% INT %]): (?<kernel_trap_desc>[% GREEDYDATA %])'
 vars_tests:
+  # ---- the shared printk prefix ----
+  # The whole fragment is optional, so under an anchored ^...$ template a
+  # string it cannot consume entirely is a negative: no dot in the uptime, no
+  # trailing space, or an ordinary message with no prefix to begin with.
+  KERNEL_PRINTK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[ 9134.220118] '
+        result: '[ 9134.220118] '
+      - string: '[    0.000000] '
+        result: '[    0.000000] '
+      - string: '[12345.678901]  '
+        result: '[12345.678901]  '
+    negative:
+      # no fractional part
+      - '[1234] '
+      # the trailing space is part of the fragment
+      - '[ 9134.220118]'
+      # an ordinary message, prefix or no prefix
+      - 'audit: type=1400'
   # ---- Linux vars_tests (KERNEL_LINUX_*) ----
   KERNEL_LINUX_OOM:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -182,8 +250,24 @@ vars_tests:
         result: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
       - string: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
         result: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
+      # no operation= at all: a profile-load failure, which the old pattern
+      # requiring "operation=" right after the mode did not match
+      - string: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+        result: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+      # info= ahead of profile= on a disconnected-path denial, likewise dropped
+      - string: 'audit: type=1400 audit(1700000000.000:101): apparmor="DENIED" info="Failed name lookup - disconnected path" error=-13 profile="snap.foo" name="/" pid=1 comm="foo"'
+        result: 'audit: type=1400 audit(1700000000.000:101): apparmor="DENIED" info="Failed name lookup - disconnected path" error=-13 profile="snap.foo" name="/" pid=1 comm="foo"'
+      # the 1500-range APPARMOR_* numeric types, not just 1400
+      - string: 'audit: type=1502 audit(1700000000.000:102): apparmor="DENIED" operation="mkdir" profile="/usr/bin/foo" name="/tmp/x" pid=77 comm="foo" requested_mask="c" denied_mask="c" fsuid=0 ouid=0'
+        result: 'audit: type=1502 audit(1700000000.000:102): apparmor="DENIED" operation="mkdir" profile="/usr/bin/foo" name="/tmp/x" pid=77 comm="foo" requested_mask="c" denied_mask="c" fsuid=0 ouid=0'
+      # carrying the printk uptime rsyslog's imklog leaves on, which is the
+      # shape a Debian or Ubuntu kern.log actually holds
+      - string: '[ 9134.220118] audit: type=1400 audit(1700000000.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        result: '[ 9134.220118] audit: type=1400 audit(1700000000.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
     negative:
       - 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+      # a SELinux AVC on the same ring buffer is not AppArmor's
+      - 'audit: type=1400 audit(1700000000.000:103): avc:  denied  { read } for  pid=4444 comm="httpd" tclass=file'
   KERNEL_LINUX_USB:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -356,6 +440,17 @@ convert:
   kernel_trap_pid: int
   kernel_io_sector: int
   kernel_apparmor_pid: int
+  kernel_apparmor_fsuid: int
+  kernel_apparmor_ouid: int
+  kernel_apparmor_error: int
+  kernel_apparmor_capability: int
+  kernel_apparmor_peer_pid: int
+  kernel_audit_serial: int
+  kernel_audit_type: int
+  kernel_audit_epoch: float
+  # normalized LSM verdict, shared with share/auditd.yaml: AppArmor writes
+  # "DENIED" where SELinux writes "denied", so fold the case
+  mac_result: lc
   # FreeBSD numeric top-level captures
   kernel_pid: int
   kernel_uid: int
@@ -477,12 +572,53 @@ rules:
         # [Linux] KERNEL_LINUX_APPARMOR
         - string: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
           result:
+            kernel_audit_type: '1400'
+            kernel_audit_id: '1626345600.123:456'
+            kernel_audit_epoch: '1626345600.123'
+            kernel_audit_serial: '456'
+            mac_result: 'DENIED'
+            kernel_apparmor_mode: 'DENIED'
+            kernel_apparmor_kv: 'operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        # [Linux] KERNEL_LINUX_APPARMOR, profile-load failure: no operation=,
+        # which the previous pattern required and therefore never matched
+        - string: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+          result:
+            kernel_audit_type: '1400'
+            kernel_audit_id: '1700000000.000:100'
+            kernel_audit_epoch: '1700000000.000'
+            kernel_audit_serial: '100'
+            mac_result: 'STATUS'
+            kernel_apparmor_mode: 'STATUS'
+            kernel_apparmor_kv: 'info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+        # [Linux] KERNEL_LINUX_APPARMOR wearing the printk uptime. The captures
+        # and the decompose have to come out identical to the stripped shape
+        # above... the prefix is noise the pattern steps over, not data.
+        - string: '[ 9134.220118] audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+          result:
+            kernel_audit_type: '1400'
+            kernel_audit_id: '1626345600.123:456'
+            kernel_audit_epoch: '1626345600.123'
+            kernel_audit_serial: '456'
+            mac_result: 'DENIED'
             kernel_apparmor_mode: 'DENIED'
             kernel_apparmor_kv: 'operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
         # [Linux] KERNEL_LINUX_USB
         - string: 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
           result:
             kernel_usb: '1-1'
+        # [Linux] the prefix is not the AppArmor pattern's business alone... it
+        # rides in front of any Linux ring-buffer message, so one more type
+        # proves it is handled file-wide
+        - string: '[ 1234.567890] Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+          result:
+            kernel_oom_pid: '1234'
+            kernel_oom_process: 'mysqld'
+            kernel_oom_total_vm: '100kB'
+            kernel_oom_anon_rss: '50kB'
+        - string: '[ 1234.567890] blk_update_request: I/O error, dev sda, sector 12345678 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'
+          result:
+            kernel_io_dev: 'sda'
+            kernel_io_sector: '12345678'
         # -- FreeBSD message types --
         # [FreeBSD] KERNEL_FBSD_SIGEXIT
         - string: 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
@@ -606,6 +742,10 @@ rules:
       negative:
         - 'this is not a kernel line at all'
         - '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        # the same firewall line wearing the printk uptime. Now that every
+        # Linux pattern here leads with an optional prefix, the two files could
+        # have started colliding on exactly this shape... they do not.
+        - '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
         # FreeBSD firewall lines (start with "ipfw:") are owned by
         # share/ipfw.yaml and must NOT match any kernel pattern here.
         - 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'

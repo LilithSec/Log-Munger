@@ -13,8 +13,36 @@
 includes:
 - base
 vars_templated:
-  NETFILTER: '(?:(?<nf_action>[% GREEDYDATA %]) )?(?<nf_kv>IN=[% GREEDYDATA %])'
+  # The printk uptime rsyslog's kernel reader leaves at the head of a ring
+  # buffer line, "[ 1234.567890] ". Same fragment and same reasoning as the one
+  # in share/kernel.yaml (which see): whether it is present is a property of
+  # the READER, not of the message, so both shapes have to match, and it is
+  # stepped over rather than captured.
+  #
+  # It has to be consumed EXPLICITLY rather than left to nf_action's greedy
+  # [% GREEDYDATA %]. Without it the pattern still matched, but the prefix was
+  # swallowed into the action, so a ufw drop on a stock Debian came back as
+  # nf_action="[ 1234.567890] [UFW BLOCK]" where the same event elsewhere came
+  # back "[UFW BLOCK]"... a field quietly differing between two hosts logging
+  # the same thing, which is worse than a miss.
+  KERNEL_PRINTK: '(?:\[ *[% INT %]\.[% INT %]\] +)?'
+  NETFILTER: '[% KERNEL_PRINTK %](?:(?<nf_action>[% GREEDYDATA %]) )?(?<nf_kv>IN=[% GREEDYDATA %])'
 vars_tests:
+  # an all-optional fragment under an anchored template, so anything it cannot
+  # consume whole is a negative
+  KERNEL_PRINTK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[ 1234.567890] '
+        result: '[ 1234.567890] '
+      - string: '[    0.000000] '
+        result: '[    0.000000] '
+    negative:
+      # no fractional part
+      - '[1234] '
+      # the trailing space is part of the fragment
+      - '[ 1234.567890]'
+      - '[UFW BLOCK] IN=eth0'
   NETFILTER:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -40,6 +68,9 @@ vars_tests:
       # UDP with a MAC= field and a LEN=.
       - string: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=198.51.100.9 DST=192.0.2.1 LEN=32 TTL=64 ID=0 PROTO=UDP SPT=68 DPT=67'
         result: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=198.51.100.9 DST=192.0.2.1 LEN=32 TTL=64 ID=0 PROTO=UDP SPT=68 DPT=67'
+      # carrying the printk uptime, the shape a Debian or Ubuntu kern.log holds
+      - string: '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        result: '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
     negative:
       - 'martian source 203.0.113.7 from 198.51.100.9, on dev eth0'
 geoip:
@@ -166,5 +197,18 @@ rules:
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=198.51.100.9 DST=192.0.2.1 LEN=32 TTL=64 ID=0 PROTO=UDP SPT=68 DPT=67'
+        # the printk uptime is stepped over, not swallowed: nf_action comes out
+        # "[UFW BLOCK]" exactly as it does on a host whose reader stripped it.
+        # This is the assertion the old pattern failed... it came back
+        # "[ 1234.567890] [UFW BLOCK]".
+        - string: '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+          result:
+            nf_action: '[UFW BLOCK]'
+            nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        # the same, with no action prefix... only the uptime, which must not
+        # become the action
+        - string: '[ 1234.567890] IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=5 DPT=80'
+          result:
+            nf_kv: 'IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=5 DPT=80'
       negative:
         - 'martian source 203.0.113.7 from 198.51.100.9, on dev eth0'

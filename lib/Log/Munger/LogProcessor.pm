@@ -627,8 +627,15 @@ sub _json_flatten {
 =head2 _compile_convert
 
 Internal. Validates a C<convert:> map (field => type) and returns a normalized
-copy (type is one of C<int> or C<float>; C<integer>/C<num>/C<number> are
-accepted as aliases). Dies on an unknown type.
+copy (type is one of C<int>, C<float>, C<lc>, or C<uc>; C<integer> is accepted as
+an alias for C<int>, C<num>/C<number> for C<float>, and
+C<lower>/C<lowercase>/C<upper>/C<uppercase> for the two case folds). Dies on an
+unknown type.
+
+C<lc>/C<uc> exist so a rule file can normalize a captured token whose case varies
+between the log sources that produce it -- SELinux writes C<avc: denied> while
+AppArmor writes C<apparmor="DENIED"> for the same verdict, and a consumer should
+not have to care which one it is looking at.
 
 =cut
 
@@ -649,8 +656,12 @@ sub _compile_convert {
 			$normalized{$field} = 'int';
 		} elsif ( $type =~ /\A(?:float|num|number)\z/i ) {
 			$normalized{$field} = 'float';
+		} elsif ( $type =~ /\A(?:lc|lower|lowercase)\z/i ) {
+			$normalized{$field} = 'lc';
+		} elsif ( $type =~ /\A(?:uc|upper|uppercase)\z/i ) {
+			$normalized{$field} = 'uc';
 		} else {
-			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int or float)' );
+			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, or uc)' );
 		}
 	}
 
@@ -659,9 +670,10 @@ sub _compile_convert {
 
 =head2 _convert
 
-Internal. Coerces the rule's convert fields in the captures hash to numbers so
-they serialize as JSON numbers rather than strings. A value that is not present
-or does not look like a number is left untouched. Never dies.
+Internal. Coerces the rule's convert fields in the captures hash: C<int>/C<float>
+to numbers so they serialize as JSON numbers rather than strings, C<lc>/C<uc> to
+a case-folded string. A value that is not present is left untouched, as is a
+numeric conversion of something that does not look like a number. Never dies.
 
 =cut
 
@@ -672,14 +684,27 @@ sub _convert {
 		next if ( !exists( $captures->{$field} ) );
 		my $value = $captures->{$field};
 		next if ( !defined($value) || ref($value) ne '' );
+
+		my $type = $rule->{'convert'}{$field};
+
+		# the case folds apply to any string, so they sit ahead of the
+		# looks-like-a-number guard the numeric conversions need
+		if ( $type eq 'lc' ) {
+			$captures->{$field} = lc($value);
+			next;
+		} elsif ( $type eq 'uc' ) {
+			$captures->{$field} = uc($value);
+			next;
+		}
+
 		next if ( !looks_like_number($value) );
 
-		if ( $rule->{'convert'}{$field} eq 'int' ) {
+		if ( $type eq 'int' ) {
 			$captures->{$field} = int( $value + 0 );
 		} else {
 			$captures->{$field} = $value + 0;
 		}
-	}
+	} ## end foreach my $field ( keys( %{ $rule->{'convert'...}}))
 
 	return;
 } ## end sub _convert
@@ -704,7 +729,8 @@ logstash C<< ^...$ >> grok) rather than any substring.
 
 A rule (or a file-level default) may carry a C<decompose:> list to break
 captured fields down further at match time -- see L</_compile_decompose> -- and a
-C<convert:> map (field => C<int>|C<float>) to coerce captured fields to numbers.
+C<convert:> map (field => C<int>|C<float>|C<lc>|C<uc>) to coerce captured fields
+to numbers or to a case-folded string.
 C<geoip:>, C<decompose:>, and C<convert:> may each be given per-rule or once at
 the top of the file as a default for every rule. They run in order
 decompose -> geoip -> convert, so geoip can look up a field a decompose step

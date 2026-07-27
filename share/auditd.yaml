@@ -9,23 +9,37 @@
 # optional nested msg, then two quote-aware kv decomposes split the two blobs.
 #
 # Ahead of the generic catch-all AUDITD var sit type-specific patterns that
-# recognise the common USER_*, cred, user/group management, SELinux AVC and
-# anomaly records via their "type=XXX" token. To stay drop-in compatible with the
-# existing consumers (and t/auditd.t) every pattern captures into the SAME field
-# names -- audit_type / audit_epoch / audit_serial and the two k=v blobs
-# audit_fields (outer) + audit_msg (nested single-quoted sub-record). Those two
-# blobs are broken up by the quote-aware kv decomposes below into audit_* /
-# audit_msg_* fields (acct, exe, hostname, addr, terminal, res, ...). Because
-# decompose only ever runs on fields that were actually captured, one shared
-# decompose list serves every pattern. Genuinely new, AVC-only captures are
-# audit_avc_action and audit_avc_perms.
+# recognise the common USER_*, cred, user/group management, SELinux AVC, AppArmor
+# and anomaly records via their "type=XXX" token. To stay drop-in compatible with
+# the existing consumers (and t/auditd.t) every pattern captures into the SAME
+# field names -- audit_type / audit_epoch / audit_serial / audit_id and the two
+# k=v blobs audit_fields (outer) + audit_msg (nested single-quoted sub-record).
+# Those two blobs are broken up by the quote-aware kv decomposes below into
+# audit_* / audit_msg_* fields (acct, exe, hostname, addr, terminal, res, ...).
+# Because decompose only ever runs on fields that were actually captured, one
+# shared decompose list serves every pattern. The captures that only some
+# patterns produce are audit_avc_action + audit_avc_perms (SELinux),
+# audit_apparmor / audit_msg_apparmor (AppArmor), and the LSM-agnostic
+# mac_result, which carries the verdict for both and is lowercased by convert.
 #
 # Per-record only -- correlating the several records of one event (same audit
-# id, separate lines) is a stateful concern left to the consumer.
+# id, separate lines) is a stateful concern left to the consumer, but audit_id
+# gives it the lossless key to correlate on.
 includes:
 - base
 vars_templated:
   # '' is a literal single quote inside this single-quoted YAML scalar
+  #
+  # The audit() event id, shared by every pattern below. audit_epoch and
+  # audit_serial are captured individually (and converted to numbers), and the
+  # two are ALSO captured together, verbatim, as audit_id. audit_id is what
+  # correlates the several records of one event -- an AVC/APPARMOR denial and
+  # its SYSCALL/PATH/CWD siblings all carry the same "<epoch>:<serial>" -- and
+  # it has to be the raw string because "audit_epoch: float" cannot round-trip
+  # (1700000000.100 becomes 1700000000.1, .000 becomes an integer). Correlating
+  # the records themselves is still a stateful concern left to the consumer;
+  # this only makes sure the key survives.
+  AUDITD_ID: 'msg=audit\((?<audit_id>(?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %]))\)'
   #
   # --- type-specific patterns (matched BEFORE the generic AUDITD below) ---
   #
@@ -33,30 +47,69 @@ vars_templated:
   # USER_END: an outer pid/uid/auid/ses blob followed by a nested single-quoted
   # msg='...' sub-record carrying op/acct/exe/hostname/addr/terminal/res. The
   # nested blob is decomposed into audit_msg_* (acct/exe/hostname/addr/res).
-  AUDITD_USER_AUTH: 'type=(?<audit_type>USER_AUTH|USER_ACCT|CRED_ACQ|CRED_DISP|CRED_REFR|USER_START|USER_END) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_AUTH: 'type=(?<audit_type>USER_AUTH|USER_ACCT|CRED_ACQ|CRED_DISP|CRED_REFR|USER_START|USER_END) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
   # USER_LOGIN: an outer pid/uid/auid/ses(/res) blob plus a nested msg='...' that
   # carries op/acct/addr/terminal (and often res). uid/auid/ses/res come from the
   # outer blob (audit_*), acct/addr/terminal from the nested one (audit_msg_*).
-  AUDITD_USER_LOGIN: 'type=(?<audit_type>USER_LOGIN) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_LOGIN: 'type=(?<audit_type>USER_LOGIN) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
   # USER_CMD: a privileged command (sudo et al). The nested msg='...' holds the
   # cmd (usually hex-encoded), cwd, terminal and res.
-  AUDITD_USER_CMD: 'type=(?<audit_type>USER_CMD) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_CMD: 'type=(?<audit_type>USER_CMD) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
   # ADD_USER / DEL_USER / ADD_GROUP / DEL_GROUP / USER_MGMT / GRP_MGMT: account
   # and group lifecycle. The nested msg='...' carries op= (the operation) and the
   # acct/grp being touched, plus exe/hostname/addr/res.
-  AUDITD_USER_MGMT: 'type=(?<audit_type>ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_MGMT: 'type=(?<audit_type>ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
   # AVC: SELinux access-vector-cache decisions. The message body starts with
   #   avc:  denied  { read write } for  pid=.. comm=".." scontext=.. tcontext=..
   # capture the action (denied/granted) and the { perms }, then hand the trailing
   # pid=.. comm=.. scontext=.. tcontext=.. blob to the outer kv decompose.
-  AUDITD_AVC: 'type=(?<audit_type>AVC|USER_AVC|SELINUX_ERR) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): avc: +(?<audit_avc_action>denied|granted) +\{ (?<audit_avc_perms>[^}]*) \} +for +(?<audit_fields>.*)'
+  # audit_avc_action is kept for the existing consumers; the same text is also
+  # captured as the cross-LSM mac_result (see the AppArmor patterns below).
+  AUDITD_AVC: 'type=(?<audit_type>AVC|USER_AVC|SELINUX_ERR) [% AUDITD_ID %]: avc: +(?<mac_result>(?<audit_avc_action>denied|granted)) +\{ (?<audit_avc_perms>[^}]*) \} +for +(?<audit_fields>.*)'
+  #
+  # --- AppArmor ---
+  #
+  # AppArmor is the other in-tree LSM writing to audit.log, and it does NOT use
+  # the "avc:  denied  { perms } for" prose above: it writes an ordinary k=v blob
+  # whose first key is apparmor=, under type=AVC (1400) or, on newer kernels, a
+  # type=APPARMOR_* name. These records used to fall through to the generic
+  # AUDITD catch-all -- which happened to split them correctly, since the body is
+  # well-formed k=v, but left them untested and left the verdict reachable only
+  # under a different field name than SELinux uses.
+  #
+  #   type=AVC msg=audit(..): apparmor="DENIED" operation="open" profile="/usr/bin/foo" \
+  #     name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+  #
+  # The verdict is captured twice: as audit_apparmor (the AppArmor-native name,
+  # matching what the generic catch-all produced before, so this stays drop-in)
+  # and as mac_result. mac_result is the normalized, LSM-agnostic verdict shared
+  # with AUDITD_AVC above and with kernel_* AppArmor records in kernel.yaml; it is
+  # lowercased by "convert" so that an alert can test mac_result eq 'denied'
+  # without caring whether SELinux ("denied") or AppArmor ("DENIED") produced it.
+  # Note that the two vocabularies still differ on the permit side -- SELinux says
+  # granted, AppArmor says allowed -- only the denial verdict is common to both.
+  # Everything after the verdict is the usual k=v blob and goes to the outer
+  # decompose as audit_* (operation, profile, name, comm, requested_mask, info,
+  # error, capability, peer, target, ...).
+  AUDITD_APPARMOR: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: apparmor="(?<mac_result>(?<audit_apparmor>[% WORD %]))"(?: +(?<audit_fields>[% GREEDYDATA %]))?'
+  # AppArmor dbus/mediation denials arrive from dbus-daemon as USER_AVC, so the
+  # AppArmor blob is inside the nested single-quoted msg='...' instead of the
+  # outer one:
+  #
+  #   type=USER_AVC msg=audit(..): pid=1 uid=0 auid=.. ses=.. \
+  #     msg='apparmor="DENIED" operation="dbus_method_call" bus="system" ... exe="/usr/bin/dbus-daemon" ...'
+  #
+  # The outer blob is still the pid/uid/auid/ses one (audit_*), the nested blob
+  # decomposes to audit_msg_* exactly as it did under the catch-all, and the
+  # verdict lands in audit_msg_apparmor plus the shared mac_result.
+  AUDITD_APPARMOR_DBUS: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: (?<audit_fields>.*?) msg=''apparmor="(?<mac_result>(?<audit_msg_apparmor>[% WORD %]))"(?: +(?<audit_msg>[^'']*))?'''
   # ANOM_* / anomaly + integrity records (ANOM_LOGIN_FAILURES, ANOM_ABEND,
   # ANOM_PROMISCUOUS, INTEGRITY_*, SECCOMP, ...): recognise the type and let the
   # outer kv decompose (and, when present, the nested one) handle the k=v blobs.
-  AUDITD_ANOM: 'type=(?<audit_type>(?:ANOM_|INTEGRITY_)[A-Z_]+|SECCOMP|MAC_STATUS|MAC_POLICY_LOAD) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_ANOM: 'type=(?<audit_type>(?:ANOM_|INTEGRITY_)[A-Z_]+|SECCOMP|MAC_STATUS|MAC_POLICY_LOAD) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
   #
-  # --- generic catch-all (UNCHANGED; must stay LAST in the patterns list) ---
-  AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  # --- generic catch-all (must stay LAST in the patterns list) ---
+  AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
 geoip:
   - audit_msg_addr
   - audit_addr
@@ -71,6 +124,21 @@ convert:
   audit_ses: int
   audit_exit: int
   audit_epoch: float
+  # normalized LSM verdict: SELinux writes "denied", AppArmor writes "DENIED",
+  # so fold the case and let a consumer test one field for both
+  mac_result: lc
+  # numerics common to AppArmor records (and to file-system records generally)
+  audit_fsuid: int
+  audit_ouid: int
+  audit_suid: int
+  audit_capability: int
+  audit_error: int
+  audit_peer_pid: int
+  # the nested USER_*/USER_AVC sub-record had no conversions at all, so its pid
+  # came back a string while the outer audit_pid came back a number
+  audit_msg_pid: int
+  audit_msg_peer_pid: int
+  audit_msg_sauid: int
 decompose:
   # outer fields (quote-aware: comm="ls", key="watch exec", ...)
   - field: audit_fields
@@ -137,6 +205,17 @@ decompose:
           audit_msg_terminal: 'pts/0'
           audit_msg_res: 'success'
 vars_tests:
+  AUDITD_ID:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'msg=audit(1700000000.123:456)'
+        result: 'msg=audit(1700000000.123:456)'
+      - string: 'msg=audit(1626345600:1)'
+        result: 'msg=audit(1626345600:1)'
+    negative:
+      - 'msg=audit(1700000000.123)'
+      - 'msg=audit(:456)'
+      - 'this is not an audit id'
   AUDITD_USER_AUTH:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -187,6 +266,31 @@ vars_tests:
     negative:
       - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
       - 'this is not an auditd record'
+  AUDITD_APPARMOR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=AVC msg=audit(1700000012.000:468): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        result: 'type=AVC msg=audit(1700000012.000:468): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+      # profile load status record: no operation=, and the whole tail is optional
+      - string: 'type=APPARMOR_STATUS msg=audit(1700000013.000:469): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+        result: 'type=APPARMOR_STATUS msg=audit(1700000013.000:469): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+    negative:
+      # SELinux AVC prose is AUDITD_AVC's, not AppArmor's
+      - 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  pid=4444 comm="httpd" tclass=file'
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_APPARMOR_DBUS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=USER_AVC msg=audit(1700000014.000:470): pid=1 uid=0 auid=4294967295 ses=4294967295 msg=''apparmor="DENIED" operation="dbus_method_call" bus="system" path="/org/freedesktop/systemd1" interface="org.freedesktop.systemd1.Manager" member="StartUnit" mask="send" name="org.freedesktop.systemd1" pid=2222 label="snap.foo.bar" peer_pid=1 peer_label="unconfined" exe="/usr/bin/dbus-daemon" sauid=0 hostname=? addr=? terminal=?'''
+        result: 'type=USER_AVC msg=audit(1700000014.000:470): pid=1 uid=0 auid=4294967295 ses=4294967295 msg=''apparmor="DENIED" operation="dbus_method_call" bus="system" path="/org/freedesktop/systemd1" interface="org.freedesktop.systemd1.Manager" member="StartUnit" mask="send" name="org.freedesktop.systemd1" pid=2222 label="snap.foo.bar" peer_pid=1 peer_label="unconfined" exe="/usr/bin/dbus-daemon" sauid=0 hostname=? addr=? terminal=?'''
+      - string: 'type=USER_AVC msg=audit(1700000015.000:471): pid=1 uid=0 msg=''apparmor="ALLOWED" operation="dbus_signal" bus="session" exe="/usr/bin/dbus-daemon" terminal=?'''
+        result: 'type=USER_AVC msg=audit(1700000015.000:471): pid=1 uid=0 msg=''apparmor="ALLOWED" operation="dbus_signal" bus="session" exe="/usr/bin/dbus-daemon" terminal=?'''
+    negative:
+      # the AppArmor blob in the OUTER field is AUDITD_APPARMOR's, not this one's
+      - 'type=AVC msg=audit(1700000012.000:468): apparmor="DENIED" operation="open" profile="/usr/bin/foo" pid=1234'
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0 msg=''op=PAM:authentication acct="root" res=failed'''
+      - 'this is not an auditd record'
   AUDITD_ANOM:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -216,6 +320,8 @@ rules:
       - AUDITD_USER_CMD
       - AUDITD_USER_MGMT
       - AUDITD_AVC
+      - AUDITD_APPARMOR
+      - AUDITD_APPARMOR_DBUS
       - AUDITD_ANOM
       - AUDITD
     tests:
@@ -223,12 +329,14 @@ rules:
         - string: 'type=SYSCALL msg=audit(1626345600.123:456): arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
           result:
             audit_type: 'SYSCALL'
+            audit_id: '1626345600.123:456'
             audit_epoch: '1626345600.123'
             audit_serial: '456'
             audit_fields: 'arch=c000003e syscall=59 success=yes exit=0 pid=5678 uid=0 comm="ls" exe="/usr/bin/ls" key="watch exec"'
         - string: 'type=USER_AUTH msg=audit(1626345600.123:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'''
           result:
             audit_type: 'USER_AUTH'
+            audit_id: '1626345600.123:457'
             audit_epoch: '1626345600.123'
             audit_serial: '457'
             audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
@@ -237,6 +345,7 @@ rules:
         - string: 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
           result:
             audit_type: 'USER_AUTH'
+            audit_id: '1700000000.123:456'
             audit_epoch: '1700000000.123'
             audit_serial: '456'
             audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
@@ -245,6 +354,7 @@ rules:
         - string: 'type=CRED_ACQ msg=audit(1700000001.500:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:setcred grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
           result:
             audit_type: 'CRED_ACQ'
+            audit_id: '1700000001.500:457'
             audit_epoch: '1700000001.500'
             audit_serial: '457'
             audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
@@ -253,6 +363,7 @@ rules:
         - string: 'type=USER_LOGIN msg=audit(1700000003.000:459): pid=999 uid=0 auid=0 ses=1 msg=''op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'''
           result:
             audit_type: 'USER_LOGIN'
+            audit_id: '1700000003.000:459'
             audit_epoch: '1700000003.000'
             audit_serial: '459'
             audit_fields: 'pid=999 uid=0 auid=0 ses=1'
@@ -261,6 +372,7 @@ rules:
         - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
           result:
             audit_type: 'USER_CMD'
+            audit_id: '1700000004.000:460'
             audit_epoch: '1700000004.000'
             audit_serial: '460'
             audit_fields: 'pid=2222 uid=1000 auid=1000 ses=3'
@@ -269,23 +381,61 @@ rules:
         - string: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''
           result:
             audit_type: 'ADD_USER'
+            audit_id: '1700000006.000:462'
             audit_epoch: '1700000006.000'
             audit_serial: '462'
             audit_fields: 'pid=3333 uid=0 auid=0 ses=2'
             audit_msg: 'op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'
-        # AVC: action + perms captured directly; the rest goes to the outer kv
+        # AVC: action + perms captured directly; the rest goes to the outer kv.
+        # The verdict is also captured as the LSM-agnostic mac_result (raw here,
+        # lowercased by convert at match time).
         - string: 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
           result:
             audit_type: 'AVC'
+            audit_id: '1700000008.000:464'
             audit_epoch: '1700000008.000'
             audit_serial: '464'
+            mac_result: 'denied'
             audit_avc_action: 'denied'
             audit_avc_perms: 'read'
             audit_fields: 'pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
+        # AppArmor file denial: same mac_result field as the SELinux AVC above,
+        # the AppArmor-native audit_apparmor alongside it, rest to the outer kv
+        - string: 'type=AVC msg=audit(1700000012.000:468): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+          result:
+            audit_type: 'AVC'
+            audit_id: '1700000012.000:468'
+            audit_epoch: '1700000012.000'
+            audit_serial: '468'
+            mac_result: 'DENIED'
+            audit_apparmor: 'DENIED'
+            audit_fields: 'operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        # AppArmor profile-load failure: no operation=, tail starts with info=
+        - string: 'type=APPARMOR_STATUS msg=audit(1700000013.000:469): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+          result:
+            audit_type: 'APPARMOR_STATUS'
+            audit_id: '1700000013.000:469'
+            audit_epoch: '1700000013.000'
+            audit_serial: '469'
+            mac_result: 'STATUS'
+            audit_apparmor: 'STATUS'
+            audit_fields: 'info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+        # AppArmor dbus mediation: the AppArmor blob is the NESTED sub-record
+        - string: 'type=USER_AVC msg=audit(1700000014.000:470): pid=1 uid=0 auid=4294967295 ses=4294967295 msg=''apparmor="DENIED" operation="dbus_method_call" bus="system" member="StartUnit" mask="send" name="org.freedesktop.systemd1" pid=2222 label="snap.foo.bar" peer_pid=1 peer_label="unconfined" exe="/usr/bin/dbus-daemon" sauid=0 hostname=? addr=? terminal=?'''
+          result:
+            audit_type: 'USER_AVC'
+            audit_id: '1700000014.000:470'
+            audit_epoch: '1700000014.000'
+            audit_serial: '470'
+            mac_result: 'DENIED'
+            audit_msg_apparmor: 'DENIED'
+            audit_fields: 'pid=1 uid=0 auid=4294967295 ses=4294967295'
+            audit_msg: 'operation="dbus_method_call" bus="system" member="StartUnit" mask="send" name="org.freedesktop.systemd1" pid=2222 label="snap.foo.bar" peer_pid=1 peer_label="unconfined" exe="/usr/bin/dbus-daemon" sauid=0 hostname=? addr=? terminal=?'
         # ANOM_ABEND: outer blob only (no nested msg)
         - string: 'type=ANOM_ABEND msg=audit(1700000010.000:466): auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'
           result:
             audit_type: 'ANOM_ABEND'
+            audit_id: '1700000010.000:466'
             audit_epoch: '1700000010.000'
             audit_serial: '466'
             audit_fields: 'auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'

@@ -41,6 +41,48 @@ cmp_ok( $n->{'nf_DPT'}, '==', 22, 'netfilter: DPT value' );
 ok( looks_like_number( $n->{'nf_SPT'} ), 'netfilter: SPT is numeric (convert)' );
 ok( !exists( $n->{'nf_kv'} ), 'netfilter: kv blob removed' );
 
+# kernel: AppArmor off the ring buffer (the same events share/auditd.yaml sees
+# via audit.log, arriving as "audit: type=<n>" instead of "type=<name>")
+my $kern = Log::Munger->new( 'rules' => ['kernel'] );
+my $aa   = $kern->process_item(
+	'item' => { PROGRAM => 'kernel',
+		MESSAGE => 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" '
+			. 'profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" '
+			. 'requested_mask="r" denied_mask="r" fsuid=0 ouid=0' } );
+is( $aa->{'kernel_apparmor_mode'},    'DENIED',             'kernel: apparmor raw verdict' );
+is( $aa->{'mac_result'},              'denied',             'kernel: apparmor verdict normalized into mac_result' );
+is( $aa->{'kernel_apparmor_profile'}, '/usr/bin/foo',       'kernel: apparmor profile from kv' );
+is( $aa->{'kernel_audit_id'},         '1626345600.123:456', 'kernel: audit event id captured verbatim' );
+ok( looks_like_number( $aa->{'kernel_apparmor_fsuid'} ), 'kernel: apparmor fsuid is numeric (convert)' );
+ok( !exists( $aa->{'kernel_apparmor_kv'} ),              'kernel: apparmor kv blob removed' );
+
+# AppArmor records with no operation= at all. The pattern used to require
+# "operation=" immediately after the verdict, so profile-load failures and
+# disconnected-path denials matched nothing and were dropped outright.
+my $aa_status = $kern->process_item(
+	'item' => { PROGRAM => 'kernel',
+		MESSAGE => 'audit: type=1400 audit(1700000000.100:99): apparmor="STATUS" '
+			. 'info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"' } );
+is( $aa_status->{'kernel_apparmor_mode'},  'STATUS',                   'kernel: apparmor profile-load record matches' );
+is( $aa_status->{'kernel_apparmor_info'},  'failed to unpack profile', 'kernel: quoted info with spaces' );
+is( $aa_status->{'kernel_apparmor_error'}, -71,                        'kernel: negative error converted' );
+is( $aa_status->{'kernel_audit_id'},       '1700000000.100:99',        'kernel: event id survives the float convert' );
+
+# the 1500-range APPARMOR_* numeric types, not just 1400
+my $aa_1500 = $kern->process_item(
+	'item' => { PROGRAM => 'kernel',
+		MESSAGE => 'audit: type=1502 audit(1700000000.000:97): apparmor="ALLOWED" operation="capable" '
+			. 'profile="/usr/sbin/nginx" pid=4321 comm="nginx" capability=12 capname="net_admin"' } );
+is( $aa_1500->{'mac_result'},              'allowed',   'kernel: 1500-range apparmor type matches' );
+is( $aa_1500->{'kernel_apparmor_capname'}, 'net_admin', 'kernel: capname from kv' );
+cmp_ok( $aa_1500->{'kernel_apparmor_capability'}, '==', 12, 'kernel: capability converted' );
+
+# a SELinux AVC on the same ring buffer is not AppArmor's to claim
+is( $kern->process_item(
+		'item' => { PROGRAM => 'kernel',
+			MESSAGE => 'audit: type=1400 audit(1700000000.000:96): avc:  denied  { read } for  pid=1 comm="x" tclass=file' } ),
+	undef, 'kernel: selinux avc is not matched as apparmor' );
+
 # dovecot: kv decompose (comma sep, <> trim) + int coercion
 my $dc = Log::Munger->new( 'rules' => ['dovecot'] );
 my $d  = $dc->process_item(
