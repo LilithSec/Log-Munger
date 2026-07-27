@@ -9,6 +9,10 @@
 includes:
 - base
 vars_templated:
+  # a systemd unit token: a non-space name ending in a known unit-type suffix.
+  # Used to optionally split the newer "<verb> <unit> - <description>" format
+  # (systemd v248+) into the unit name and the human description.
+  SYSTEMD_UNIT: '[% NOTSPACE %]\.(?:service|socket|target|mount|automount|swap|timer|path|slice|scope|device)'
   # "<unit>.service: Main process exited, code=exited, status=1/FAILURE"
   SYSTEMD_MAIN_PROC_EXITED: '(?<systemd_unit>[% NOTSPACE %]): Main process exited, code=(?<systemd_code>[% WORD %]), status=(?<systemd_status>[% INT %])/(?<systemd_status_text>[% WORD %])(?: [% GREEDYDATA %])?'
   # "<unit>.service: Failed with result 'exit-code'."
@@ -19,19 +23,30 @@ vars_templated:
   SYSTEMD_DEACTIVATED: '(?<systemd_unit>[% NOTSPACE %]): Deactivated successfully\.(?: [% GREEDYDATA %])?'
   # "Reached target multi-user.target."
   SYSTEMD_REACHED_TARGET: 'Reached target (?<systemd_target>[% GREEDYDATA %])\.'
-  # "Failed to start My Service."
-  SYSTEMD_FAILED_TO_START: 'Failed to start (?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Failed to start <unit> - <desc>." (unit prefix optional on older systemd)
+  SYSTEMD_FAILED_TO_START: 'Failed to start (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
   # "Reloading." and "Reloading finished in 12 ms."
   SYSTEMD_RELOADING: 'Reloading(?: [% GREEDYDATA %])?\.?'
-  # "Starting My Service..."
-  SYSTEMD_STARTING: 'Starting (?<systemd_desc>[% GREEDYDATA %])\.\.\.'
-  # "Stopping My Service..."
-  SYSTEMD_STOPPING: 'Stopping (?<systemd_desc>[% GREEDYDATA %])\.\.\.'
-  # "Started Session 3 of user kitsune."
-  SYSTEMD_STARTED: 'Started (?<systemd_desc>[% GREEDYDATA %])\.'
-  # "Stopped My Service."
-  SYSTEMD_STOPPED: 'Stopped (?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Starting <unit> - <desc>..." / "Starting <desc>..."
+  SYSTEMD_STARTING: 'Starting (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.\.\.'
+  # "Stopping <unit> - <desc>..." / "Stopping <desc>..."
+  SYSTEMD_STOPPING: 'Stopping (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.\.\.'
+  # "Started <unit> - <desc>." / "Started Session 3 of user kitsune."
+  SYSTEMD_STARTED: 'Started (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Stopped <unit> - <desc>." / "Stopped <desc>."
+  SYSTEMD_STOPPED: 'Stopped (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Finished <unit> - <desc>." (oneshot unit completion)
+  SYSTEMD_FINISHED: 'Finished (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
 vars_tests:
+  SYSTEMD_UNIT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'cape_utils_eve.service'
+        result: 'cape_utils_eve.service'
+      - string: 'logrotate.timer'
+        result: 'logrotate.timer'
+    negative:
+      - 'notaunit'
   SYSTEMD_MAIN_PROC_EXITED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -98,8 +113,8 @@ vars_tests:
   SYSTEMD_STARTING:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Starting nginx - A high performance web server...'
-        result: 'Starting nginx - A high performance web server...'
+      - string: 'Starting cape_utils_eve.service - Process CAPE eve.json via cape_utils eve...'
+        result: 'Starting cape_utils_eve.service - Process CAPE eve.json via cape_utils eve...'
       - string: 'Starting Daily apt download activities...'
         result: 'Starting Daily apt download activities...'
     negative:
@@ -107,8 +122,8 @@ vars_tests:
   SYSTEMD_STOPPING:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Stopping nginx - A high performance web server...'
-        result: 'Stopping nginx - A high performance web server...'
+      - string: 'Stopping nginx.service - A high performance web server...'
+        result: 'Stopping nginx.service - A high performance web server...'
       - string: 'Stopping User Manager for UID 1000...'
         result: 'Stopping User Manager for UID 1000...'
     negative:
@@ -118,19 +133,28 @@ vars_tests:
     positive:
       - string: 'Started Session 3 of user kitsune.'
         result: 'Started Session 3 of user kitsune.'
-      - string: 'Started nginx - A high performance web server.'
-        result: 'Started nginx - A high performance web server.'
+      - string: 'Started nginx.service - A high performance web server.'
+        result: 'Started nginx.service - A high performance web server.'
     negative:
       - 'Starting nginx - A high performance web server...'
   SYSTEMD_STOPPED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Stopped nginx - A high performance web server.'
-        result: 'Stopped nginx - A high performance web server.'
+      - string: 'Stopped nginx.service - A high performance web server.'
+        result: 'Stopped nginx.service - A high performance web server.'
       - string: 'Stopped Session 3 of user kitsune.'
         result: 'Stopped Session 3 of user kitsune.'
     negative:
       - 'Stopping nginx - A high performance web server...'
+  SYSTEMD_FINISHED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Finished cape_utils_eve.service - Process CAPE eve.json via cape_utils eve.'
+        result: 'Finished cape_utils_eve.service - Process CAPE eve.json via cape_utils eve.'
+      - string: 'Finished Rotate log files.'
+        result: 'Finished Rotate log files.'
+    negative:
+      - 'Starting nginx - A high performance web server...'
 # file-level default: coerce numeric captures to integers at runtime
 convert:
   systemd_status: int
@@ -155,6 +179,7 @@ rules:
       - SYSTEMD_STOPPING
       - SYSTEMD_STARTED
       - SYSTEMD_STOPPED
+      - SYSTEMD_FINISHED
     tests:
       positive:
         - string: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
@@ -180,25 +205,34 @@ rules:
         - string: 'Reached target multi-user.target.'
           result:
             systemd_target: 'multi-user.target'
-        - string: 'Failed to start nginx - A high performance web server.'
+        - string: 'Failed to start cape_utils_eve.service - Process CAPE eve.json via cape_utils eve.'
           result:
-            systemd_desc: 'nginx - A high performance web server'
+            systemd_unit: 'cape_utils_eve.service'
+            systemd_desc: 'Process CAPE eve.json via cape_utils eve'
         - string: 'Reloading.'
           result: {}
         - string: 'Reloading finished in 12 ms.'
           result: {}
-        - string: 'Starting nginx - A high performance web server...'
+        # newer systemd: "<verb> <unit> - <description>" -> unit split out
+        - string: 'Starting cape_utils_eve.service - Process CAPE eve.json via cape_utils eve...'
           result:
-            systemd_desc: 'nginx - A high performance web server'
+            systemd_unit: 'cape_utils_eve.service'
+            systemd_desc: 'Process CAPE eve.json via cape_utils eve'
+        - string: 'Finished cape_utils_eve.service - Process CAPE eve.json via cape_utils eve.'
+          result:
+            systemd_unit: 'cape_utils_eve.service'
+            systemd_desc: 'Process CAPE eve.json via cape_utils eve'
+        # older / unit-less form: no " - <unit>" prefix, whole thing is the desc
         - string: 'Stopping User Manager for UID 1000...'
           result:
             systemd_desc: 'User Manager for UID 1000'
         - string: 'Started Session 3 of user kitsune.'
           result:
             systemd_desc: 'Session 3 of user kitsune'
-        - string: 'Stopped nginx - A high performance web server.'
+        - string: 'Stopped nginx.service - A high performance web server.'
           result:
-            systemd_desc: 'nginx - A high performance web server'
+            systemd_unit: 'nginx.service'
+            systemd_desc: 'A high performance web server'
       negative:
         - 'this is not a systemd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

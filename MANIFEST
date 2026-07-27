@@ -34,6 +34,7 @@ share/dnsmasq.yaml
 share/dovecot.yaml
 share/exim.yaml
 share/fail2ban.yaml
+share/hostapd.yaml
 share/http_access_logs.yaml
 share/http_error_logs.yaml
 share/ipfw.yaml
