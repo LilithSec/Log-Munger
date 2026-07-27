@@ -63,8 +63,8 @@ is( $u->{'sudo_COMMAND'}, '/bin/ls -la', 'sudo: command from kv' );
 # geoip on the flagged source fields (skipped without the reader/db)
 SKIP: {
 	my $mmdb = 't/mmdb/GeoLite2-Country-Test.mmdb';
-	skip 'IP::Geolocation::MMDB not installed', 3 unless eval { require IP::Geolocation::MMDB; 1; };
-	skip "test db $mmdb not found",             3 unless -f $mmdb;
+	skip 'IP::Geolocation::MMDB not installed', 4 unless eval { require IP::Geolocation::MMDB; 1; };
+	skip "test db $mmdb not found",             4 unless -f $mmdb;
 
 	my $line = 'Failed password for root from 81.2.69.142 port 22 ssh2';
 	my $gs   = Log::Munger->new( 'rules' => ['sshd'], 'geoip' => $mmdb )->process_item( 'item' => { PROGRAM => 'sshd', MESSAGE => $line } );
@@ -77,6 +77,12 @@ SKIP: {
 	my $gd = Log::Munger->new( 'rules' => ['dovecot'], 'geoip' => $mmdb )->process_item(
 		'item' => { PROGRAM => 'dovecot', MESSAGE => 'imap-login: Login: user=<x>, method=PLAIN, rip=81.2.69.142, lip=192.0.2.1, session=<s>' } );
 	is( $gd->{'geoip'}{'dovecot_rip'}{'country'}{'iso_code'}, 'GB', 'dovecot: geoip on dovecot_rip' );
+
+	# mongodb: json-flatten attr.remote -> split ip:port -> geoip the address
+	my $gm = Log::Munger->new( 'rules' => ['mongodb'], 'geoip' => $mmdb )->process_item(
+		'item' => { PROGRAM => 'mongodb',
+			MESSAGE => '{"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"81.2.69.142:52111","connectionId":7}}' } );
+	is( $gm->{'geoip'}{'mongo_attr_remote_ip'}{'country'}{'iso_code'}, 'GB', 'mongodb: geoip on split mongo_attr_remote_ip' );
 }
 
 done_testing();

@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Test::More;
 use File::Temp qw(tempfile);
+use Scalar::Util qw(looks_like_number);
 
 BEGIN {
 	use_ok('Log::Munger') || print "Bail out!\n";
@@ -99,5 +100,96 @@ is( $k->{'x_b'}, 'two', 'kv trim of quotes' );
 is( $k->{'who'}, 'bob', 'existing capture not clobbered by kv (x_who added instead)' );
 is( $k->{'x_who'}, 'nope', 'kv writes to prefixed key, leaving the original who intact' );
 ok( !exists( $k->{'kvdata'} ), 'kv source removed' );
+
+#
+# the "json" decompose type: decode a JSON blob captured from MESSAGE and flatten
+# it into prefixed keys (the MongoDB structured-logging use case).
+#
+my ( $jfh, $jfile ) = tempfile( 'lm_json_XXXXXX', SUFFIX => '.yaml', TMPDIR => 1, UNLINK => 1 );
+print {$jfh} <<'YAML';
+---
+includes:
+- base
+vars_templated:
+  MONGO_JSON: '(?<mongo_json>\{.*\})'
+rules:
+  - name: mongo
+    gate:
+      - field: PROGRAM
+        values: [ '//^mongod?$//' ]
+    field: MESSAGE
+    anchored: true
+    patterns: [MONGO_JSON]
+    decompose:
+      - field: mongo_json
+        type: json
+        prefix: 'mongo_'
+        remove: true
+    tests:
+      positive:
+        - string: '{"s":"I","c":"NETWORK","id":22943,"msg":"conn"}'
+          result:
+            mongo_s: 'I'
+            mongo_c: 'NETWORK'
+            mongo_id: 22943
+            mongo_msg: 'conn'
+      negative: ['not json at all']
+YAML
+close($jfh);
+
+my $jm = Log::Munger->new( 'rules' => [$jfile] );
+my $j  = $jm->process_item(
+	'item' => {
+		PROGRAM => 'mongod',
+		MESSAGE => '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"WTCHKPT","id":22430,'
+			. '"ctx":"Checkpointer","msg":"WiredTiger message",'
+			. '"attr":{"message":{"category":"WT_VERB_CHECKPOINT_PROGRESS","verbose_level_id":1,"debug":true,"note":null}}}'
+	}
+);
+is( $j->{'mongo_s'},   'I',        'json: top-level scalar (s)' );
+is( $j->{'mongo_c'},   'WTCHKPT',  'json: top-level scalar (c)' );
+is( $j->{'mongo_ctx'}, 'Checkpointer', 'json: top-level scalar (ctx)' );
+is( $j->{'mongo_t'}, '2026-07-27T02:49:30.131+00:00', 'json: MongoDB $date collapsed to the scalar' );
+is( $j->{'mongo_attr_message_category'}, 'WT_VERB_CHECKPOINT_PROGRESS', 'json: nested key flattened with prefix+path' );
+is( $j->{'mongo_attr_message_debug'}, 1, 'json: boolean true normalized to 1' );
+ok( !exists( $j->{'mongo_attr_message_note'} ), 'json: null value skipped' );
+ok( looks_like_number( $j->{'mongo_id'} ), 'json: numeric value stays a number' );
+ok( !exists( $j->{'mongo_json'} ), 'json: source blob removed' );
+
+# a MESSAGE that is not valid JSON leaves the captured blob untouched (never dies)
+my $jbad = $jm->process_item( 'item' => { PROGRAM => 'mongod', MESSAGE => '{this is not json}' } );
+is( $jbad->{'mongo_json'}, '{this is not json}', 'json: invalid JSON leaves the raw field in place' );
+
+#
+# nested mode: store the decoded structure whole under a single key
+#
+my ( $nfh, $nfile ) = tempfile( 'lm_jsonnest_XXXXXX', SUFFIX => '.yaml', TMPDIR => 1, UNLINK => 1 );
+print {$nfh} <<'YAML';
+---
+includes:
+- base
+vars_templated:
+  BLOB: '(?<blob>\{.*\})'
+rules:
+  - name: nested
+    field: MESSAGE
+    anchored: true
+    patterns: [BLOB]
+    decompose:
+      - field: blob
+        type: json
+        nested: true
+        prefix: 'doc_'
+        remove: true
+    tests:
+      negative: ['nope']
+YAML
+close($nfh);
+
+my $nm = Log::Munger->new( 'rules' => [$nfile] );
+my $n  = $nm->process_item( 'item' => { MESSAGE => '{"a":1,"b":{"c":2}}' } );
+is( ref( $n->{'doc'} ), 'HASH', 'json nested: decoded structure stored whole under prefix key (trailing sep trimmed)' );
+is( $n->{'doc'}{'b'}{'c'}, 2, 'json nested: nested structure preserved' );
+ok( !exists( $n->{'blob'} ), 'json nested: source blob removed' );
 
 done_testing();

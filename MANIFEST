@@ -40,6 +40,7 @@ share/ipfw.yaml
 share/kernel.yaml
 share/login.yaml
 share/logind.yaml
+share/mongodb.yaml
 share/named.yaml
 share/netfilter.yaml
 share/ntpd.yaml

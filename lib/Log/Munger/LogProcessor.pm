@@ -4,8 +4,13 @@ use 5.006;
 use strict;
 use warnings;
 use Scalar::Util qw(looks_like_number);
+use JSON                        ();
 use Log::Munger::RuleFileParser ();
 use Log::Munger::RulesUsable    ();
+
+# the "json" decompose type decodes with JSON::decode_json (utf8-on, and backed
+# by JSON::XS when installed via the JSON front end) so it handles a raw-bytes
+# MESSAGE without a separate decode step.
 
 =head1 NAME
 
@@ -328,7 +333,7 @@ sub _geoip_enrich {
 =head2 _compile_decompose
 
 Internal. Compiles a C<decompose:> list (an array of C<{field, type, ...}>
-entries) into runtime structures. Two types are supported:
+entries) into runtime structures. Three types are supported:
 
     - kv      :: split a "k=v k=v" blob into fields. Options: field_split
                  (default " "), value_split (default "="), prefix (default ""),
@@ -338,6 +343,16 @@ entries) into runtime structures. Two types are supported:
                  allowed inside them), and pairs are whitespace-separated.
     - pattern :: re-match the field against a named var (or inline regexp),
                  anchored, and merge its named captures. Options: pattern, remove.
+    - json    :: JSON-decode the field (for logs that embed a JSON document in a
+                 sub-field, e.g. MongoDB). By default the decoded structure is
+                 flattened into keys of C<< prefix + path >> joined by C<separator>
+                 (default "_"); MongoDB extended-JSON wrappers ({"$date":...},
+                 {"$oid":...}, {"$numberLong":...}) collapse to their scalar,
+                 booleans normalize to 1/0, and JSON null is skipped. Arrays are
+                 keyed by index. Options: prefix (default ""), separator
+                 (default "_"), remove, and nested => true (store the decoded
+                 structure whole under a single key instead of flattening). A
+                 field whose value is not valid JSON is left untouched.
 
 Every entry may set C<< remove: true >> to drop the source field afterwards.
 
@@ -394,8 +409,21 @@ sub _compile_decompose {
 				die( '.decompose[' . $int . '].pattern ("' . $pname . '") does not compile... ' . $@ );
 			}
 			$c->{'regexp'} = $rx;
+		} elsif ( $type eq 'json' ) {
+			# JSON-decode the field and either flatten the structure into
+			# prefixed keys (default) or store the decoded structure whole
+			# (nested => true).
+			$c->{'prefix'}    = defined( $d->{'prefix'} )    ? $d->{'prefix'}    : '';
+			$c->{'separator'} = defined( $d->{'separator'} ) ? $d->{'separator'} : '_';
+			$c->{'nested'}    = ( $d->{'nested'} ? 1 : 0 );
+			if ( ref( $c->{'prefix'} ) ne '' ) {
+				die( '.decompose[' . $int . '].prefix is not a string' );
+			}
+			if ( ref( $c->{'separator'} ) ne '' || $c->{'separator'} eq '' ) {
+				die( '.decompose[' . $int . '].separator is undef, empty, or not a string' );
+			}
 		} else {
-			die( '.decompose[' . $int . '].type "' . $type . '" is unknown (expected "kv" or "pattern")' );
+			die( '.decompose[' . $int . '].type "' . $type . '" is unknown (expected "kv", "pattern", or "json")' );
 		}
 
 		push( @compiled, $c );
@@ -464,6 +492,23 @@ sub _decompose {
 					$captures->{$key} = $sub{$key};
 				}
 			}
+		} elsif ( $d->{'type'} eq 'json' ) {
+			my $decoded;
+			eval { $decoded = JSON::decode_json($value); };
+			# a value that is not valid JSON (or decodes to a bare scalar) is left
+			# untouched -- skip this entry entirely so the raw field survives
+			next if ( $@ || !defined($decoded) || ref($decoded) eq '' );
+			if ( $d->{'nested'} ) {
+				my $key = $d->{'prefix'};
+				if ( $key ne '' ) {
+					$key =~ s/\Q$d->{'separator'}\E\z//;    # trim a trailing separator
+				} else {
+					$key = $d->{'field'};
+				}
+				$captures->{$key} = $decoded if ( !exists( $captures->{$key} ) );
+			} else {
+				$self->_json_flatten( $decoded, '', $d->{'separator'}, $d->{'prefix'}, $captures );
+			}
 		}
 
 		if ( $d->{'remove'} ) {
@@ -473,6 +518,58 @@ sub _decompose {
 
 	return;
 } ## end sub _decompose
+
+=head2 _json_flatten
+
+Internal. Recursively flattens a decoded-JSON structure into the captures hash.
+Each leaf becomes C<< prefix + path >> where path is the sequence of object keys
+and array indices joined by C<separator>. MongoDB extended-JSON wrappers (a hash
+with a single C<$>-prefixed key such as C<$date> / C<$oid> / C<$numberLong>)
+collapse transparently to their inner value; booleans normalize to 1/0; JSON
+null is skipped; an already-present capture is never clobbered. Never dies.
+
+=cut
+
+sub _json_flatten {
+	my ( $self, $data, $path, $sep, $prefix, $captures ) = @_;
+
+	if ( ref($data) eq 'HASH' ) {
+		# collapse a MongoDB extended-JSON wrapper: { "$date" => ... } etc.
+		my @keys = keys( %{$data} );
+		if ( scalar(@keys) == 1 && $keys[0] =~ /\A\$/ ) {
+			return $self->_json_flatten( $data->{ $keys[0] }, $path, $sep, $prefix, $captures );
+		}
+		foreach my $key ( keys( %{$data} ) ) {
+			my $child = ( $path eq '' ) ? $key : $path . $sep . $key;
+			$self->_json_flatten( $data->{$key}, $child, $sep, $prefix, $captures );
+		}
+		return;
+	}
+	if ( ref($data) eq 'ARRAY' ) {
+		my $index = 0;
+		foreach my $element ( @{$data} ) {
+			my $child = ( $path eq '' ) ? $index : $path . $sep . $index;
+			$self->_json_flatten( $element, $child, $sep, $prefix, $captures );
+			$index++;
+		}
+		return;
+	}
+
+	# leaf
+	return if ( !defined($data) );    # skip JSON null
+	if ( JSON::is_bool($data) ) {     # backend-agnostic (JSON::XS or JSON::PP boolean)
+		$data = $data ? 1 : 0;
+	} elsif ( ref($data) ) {
+		$data = "$data";              # any other blessed leaf: stringify defensively
+	}
+	return if ( $path eq '' );        # a top-level bare scalar has no key to store under
+
+	my $key = $prefix . $path;
+	return if ( exists( $captures->{$key} ) );    # do not clobber an existing capture
+	$captures->{$key} = $data;
+
+	return;
+} ## end sub _json_flatten
 
 =head2 _compile_convert
 
