@@ -20,6 +20,37 @@ vars_templated:
   SSH_CONN_CLOSED: 'Connection closed by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # "Disconnected from ..." and "Received disconnect from ...".
   SSH_DISCONNECT: '(?:Disconnected|Received disconnect) from (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?::[% GREEDYDATA %]| [% GREEDYDATA %])?'
+  # ------------------------------------------------------------------
+  # New (additive) message types.
+  # ------------------------------------------------------------------
+  # "error: maximum authentication attempts exceeded for <user> from <ip>
+  #  port <port> ssh2 [preauth]" (also "invalid user" variant).
+  SSH_MAX_AUTH: 'error: maximum authentication attempts exceeded for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  # "error: Too many authentication failures for <user>" and the PAM-style
+  # "...; logname= uid=0 euid=0 tty=ssh ruser= rhost=..." trailer.
+  SSH_TOO_MANY: '(?:error: )?Too many authentication failures for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %])(?:\s*;\s*(?<ssh_pam_kv>[% GREEDYDATA %]))?'
+  # "User <user> from <ip> not allowed because not listed in AllowUsers"
+  # and "...not in any group" / "...listed in DenyUsers" variants.
+  SSH_NOT_ALLOWED: 'User (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) not allowed because (?<ssh_reason>[% GREEDYDATA %])'
+  # Reverse-mapping mismatch: "Address <ip> maps to <host>, but this does not
+  # map back to the address - POSSIBLE BREAK-IN ATTEMPT!"
+  SSH_REVERSE_MAP: 'Address (?<ssh_src_ip>[% IP %]) maps to (?<ssh_rev_host>[% HOSTNAME %]), but this does not map back to the address - POSSIBLE BREAK-IN ATTEMPT!(?: [% GREEDYDATA %])?'
+  # "Did not receive identification string from <ip> port <port>".
+  SSH_NO_IDENT: 'Did not receive identification string from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "Timeout before authentication for <ip> port <port>".
+  SSH_TIMEOUT: 'Timeout before authentication for (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # "Connection reset by <ip> port <port> [preauth]" (optionally with a
+  # "authenticating/invalid user X" prefix, mirroring SSH_CONN_CLOSED).
+  SSH_CONN_RESET: 'Connection reset by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # Startup: "Server listening on 0.0.0.0 port 22." (IPv4 or IPv6 bind addr).
+  SSH_LISTENING: 'Server listening on (?<ssh_listen_addr>[% NOTSPACE %]) port (?<ssh_listen_port>[% INT %])\.(?: [% GREEDYDATA %])?'
+  # MFA: "Postponed publickey for <user> from <ip> port <port> ssh2 [preauth]".
+  SSH_POSTPONED: 'Postponed (?<ssh_method>publickey|keyboard-interactive|password) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  # MFA: "Partial authentication for <user> from <ip> port <port> ssh2 [preauth]".
+  SSH_PARTIAL: 'Partial authentication(?: for)? (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  # "Accepted publickey ... ssh2: ED25519-CERT SHA256:... ID user (serial N) CA ...".
+  # Captures the certificate identity clause when present.
+  SSH_ACCEPTED_CERT: 'Accepted (?<ssh_method>publickey) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]) ssh2: (?<ssh_key_type>[% NOTSPACE %]) (?<ssh_key_fingerprint>[% NOTSPACE %]) ID (?<ssh_cert_id>[% NOTSPACE %]) \(serial (?<ssh_cert_serial>[% INT %])\)(?: [% GREEDYDATA %])?'
 vars_tests:
   SSH_ACCEPTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -64,6 +95,97 @@ vars_tests:
         result: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
     negative:
       - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+  SSH_MAX_AUTH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: maximum authentication attempts exceeded for root from 203.0.113.7 port 44444 ssh2 [preauth]'
+        result: 'error: maximum authentication attempts exceeded for root from 203.0.113.7 port 44444 ssh2 [preauth]'
+      - string: 'error: maximum authentication attempts exceeded for invalid user admin from 198.51.100.9 port 40000 ssh2 [preauth]'
+        result: 'error: maximum authentication attempts exceeded for invalid user admin from 198.51.100.9 port 40000 ssh2 [preauth]'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_TOO_MANY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: Too many authentication failures for root'
+        result: 'error: Too many authentication failures for root'
+      - string: 'Too many authentication failures for invalid user admin; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7'
+        result: 'Too many authentication failures for invalid user admin; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_NOT_ALLOWED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'User root from 203.0.113.7 not allowed because not listed in AllowUsers'
+        result: 'User root from 203.0.113.7 not allowed because not listed in AllowUsers'
+      - string: 'User oracle from 198.51.100.9 not allowed because none of user''s groups are listed in AllowGroups'
+        result: 'User oracle from 198.51.100.9 not allowed because none of user''s groups are listed in AllowGroups'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_REVERSE_MAP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Address 203.0.113.7 maps to scan.example.net, but this does not map back to the address - POSSIBLE BREAK-IN ATTEMPT!'
+        result: 'Address 203.0.113.7 maps to scan.example.net, but this does not map back to the address - POSSIBLE BREAK-IN ATTEMPT!'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_NO_IDENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Did not receive identification string from 203.0.113.7 port 44444'
+        result: 'Did not receive identification string from 203.0.113.7 port 44444'
+      - string: 'Did not receive identification string from 198.51.100.9'
+        result: 'Did not receive identification string from 198.51.100.9'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_TIMEOUT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Timeout before authentication for 203.0.113.7 port 44444'
+        result: 'Timeout before authentication for 203.0.113.7 port 44444'
+    negative:
+      - 'Connection reset by 203.0.113.7 port 44444 [preauth]'
+  SSH_CONN_RESET:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Connection reset by 203.0.113.7 port 44444 [preauth]'
+        result: 'Connection reset by 203.0.113.7 port 44444 [preauth]'
+      - string: 'Connection reset by authenticating user root 198.51.100.9 port 40000 [preauth]'
+        result: 'Connection reset by authenticating user root 198.51.100.9 port 40000 [preauth]'
+    negative:
+      - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+  SSH_LISTENING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Server listening on 0.0.0.0 port 22.'
+        result: 'Server listening on 0.0.0.0 port 22.'
+      - string: 'Server listening on :: port 22.'
+        result: 'Server listening on :: port 22.'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_POSTPONED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+        result: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+      - string: 'Postponed keyboard-interactive for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
+        result: 'Postponed keyboard-interactive for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
+    negative:
+      - 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2'
+  SSH_PARTIAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Partial authentication for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+        result: 'Partial authentication for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+    negative:
+      - 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+  SSH_ACCEPTED_CERT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+        result: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+    negative:
+      - 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
 # file-level default: geoip lookup on the source IP (only used when the munger
 # is built with a geoip database)
 geoip:
@@ -71,6 +193,8 @@ geoip:
 # file-level default: coerce the source port to an integer at runtime
 convert:
   ssh_src_port: int
+  ssh_listen_port: int
+  ssh_cert_serial: int
 rules:
   - name: sshd
     gate:
@@ -85,6 +209,17 @@ rules:
       - SSH_INVALID_USER
       - SSH_CONN_CLOSED
       - SSH_DISCONNECT
+      - SSH_ACCEPTED_CERT
+      - SSH_MAX_AUTH
+      - SSH_TOO_MANY
+      - SSH_NOT_ALLOWED
+      - SSH_REVERSE_MAP
+      - SSH_NO_IDENT
+      - SSH_TIMEOUT
+      - SSH_CONN_RESET
+      - SSH_LISTENING
+      - SSH_POSTPONED
+      - SSH_PARTIAL
     tests:
       positive:
         - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
@@ -137,6 +272,90 @@ rules:
           result:
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
+        # -- new message types --
+        - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+          result:
+            ssh_method: 'publickey'
+            ssh_user: 'kitsune'
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '54321'
+            ssh_key_type: 'ED25519-CERT'
+            ssh_key_fingerprint: 'SHA256:AbCdEf0123456789'
+            ssh_cert_id: 'kitsune@example'
+            ssh_cert_serial: '7'
+        - string: 'error: maximum authentication attempts exceeded for root from 203.0.113.7 port 44444 ssh2 [preauth]'
+          result:
+            ssh_user: 'root'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'error: maximum authentication attempts exceeded for invalid user admin from 198.51.100.9 port 40000 ssh2 [preauth]'
+          result:
+            ssh_invalid: 'invalid'
+            ssh_user: 'admin'
+            ssh_src_ip: '198.51.100.9'
+            ssh_src_port: '40000'
+        - string: 'error: Too many authentication failures for root'
+          result:
+            ssh_user: 'root'
+        - string: 'Too many authentication failures for invalid user admin; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7'
+          result:
+            ssh_invalid: 'invalid'
+            ssh_user: 'admin'
+            ssh_pam_kv: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7'
+        - string: 'User root from 203.0.113.7 not allowed because not listed in AllowUsers'
+          result:
+            ssh_user: 'root'
+            ssh_src_ip: '203.0.113.7'
+            ssh_reason: 'not listed in AllowUsers'
+        - string: 'User oracle from 198.51.100.9 not allowed because none of user''s groups are listed in AllowGroups'
+          result:
+            ssh_user: 'oracle'
+            ssh_src_ip: '198.51.100.9'
+            ssh_reason: 'none of user''s groups are listed in AllowGroups'
+        - string: 'Address 203.0.113.7 maps to scan.example.net, but this does not map back to the address - POSSIBLE BREAK-IN ATTEMPT!'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_rev_host: 'scan.example.net'
+        - string: 'Did not receive identification string from 203.0.113.7 port 44444'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Did not receive identification string from 198.51.100.9'
+          result:
+            ssh_src_ip: '198.51.100.9'
+        - string: 'Timeout before authentication for 203.0.113.7 port 44444'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Connection reset by 203.0.113.7 port 44444 [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Connection reset by authenticating user root 198.51.100.9 port 40000 [preauth]'
+          result:
+            ssh_conn_state: 'authenticating'
+            ssh_user: 'root'
+            ssh_src_ip: '198.51.100.9'
+            ssh_src_port: '40000'
+        - string: 'Server listening on 0.0.0.0 port 22.'
+          result:
+            ssh_listen_addr: '0.0.0.0'
+            ssh_listen_port: '22'
+        - string: 'Server listening on :: port 22.'
+          result:
+            ssh_listen_addr: '::'
+            ssh_listen_port: '22'
+        - string: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+          result:
+            ssh_method: 'publickey'
+            ssh_user: 'kitsune'
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '54321'
+        - string: 'Partial authentication for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
+          result:
+            ssh_user: 'alice'
+            ssh_src_ip: '198.51.100.9'
+            ssh_src_port: '40000'
       negative:
         - 'this is not an sshd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

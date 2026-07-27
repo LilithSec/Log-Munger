@@ -21,6 +21,28 @@ vars_templated:
   SUDO_COMMAND: '(?<sudo_user>[% USERNAME %]) : (?<sudo_kv>TTY=[% GREEDYDATA %])'
   # pam_unix session open/close line.
   SUDO_SESSION: 'pam_unix\(sudo:session\): session (?<sudo_session_action>opened|closed) for user (?<sudo_target_user>[% USERNAME %])(?:\(uid=(?<sudo_target_uid>[% INT %])\))?(?: by (?<sudo_by_user>[% USERNAME %])\(uid=(?<sudo_by_uid>[% INT %])\))?'
+  # --- security-relevant DENIALS -------------------------------------------
+  # These share the "<user> : <reason> ; TTY=... ; PWD=... ; USER=... ;
+  # COMMAND=..." shape.  The reason is captured as sudo_error and the trailing
+  # "KEY=VALUE ; KEY=VALUE" blob is captured as sudo_kv so the SAME file-level
+  # kv decompose splits out sudo_TTY / sudo_PWD / sudo_USER / sudo_COMMAND.
+  #
+  # "<user> : user NOT in sudoers ; TTY=... ; ..."
+  SUDO_NOT_IN_SUDOERS: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT in sudoers) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  # "<user> : command not allowed ; TTY=... ; ..."
+  SUDO_COMMAND_NOT_ALLOWED: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>command not allowed) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  # "<user> : user NOT allowed to execute '\''...'\'' as root ; TTY=... ; ..."
+  # (some distros) -- the reason (including the quoted command + "as <user>")
+  # runs up to the " ; TTY=" that starts the kv blob.
+  SUDO_NOT_ALLOWED_EXECUTE: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT allowed to execute [% GREEDYDATA_NO_SEMICOLON %]) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  # "<user> : N incorrect password attempts ; TTY=... ; ..."
+  SUDO_INCORRECT_PASSWORD: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>(?<sudo_pw_attempts>[% INT %]) incorrect password attempts?) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  # "<user> : sorry, you must have a tty to run sudo ; ..."
+  SUDO_NEED_TTY: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>sorry, you must have a tty to run sudo)(?: ; (?<sudo_kv>TTY=[% GREEDYDATA %]))?'
+  # pam_unix auth-failure line, gated to sudo by this file's PROGRAM=sudo gate.
+  # The trailing "logname= uid= euid= tty= ruser= rhost= user=" blob is
+  # captured whole as sudo_pam_kv and split by the second decompose below.
+  SUDO_PAM_AUTH_FAILURE: 'pam_unix\(sudo:(?<sudo_pam_type>[% WORD %])\): authentication failure; (?<sudo_pam_kv>logname=[% GREEDYDATA %])'
 vars_tests:
   SUDO_COMMAND:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -40,10 +62,67 @@ vars_tests:
         result: 'pam_unix(sudo:session): session closed for user root'
     negative:
       - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_NOT_IN_SUDOERS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'baduser : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/baduser ; USER=root ; COMMAND=/bin/ls'
+        result: 'baduser : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/baduser ; USER=root ; COMMAND=/bin/ls'
+      - string: 'www-data : user NOT in sudoers ; TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/id'
+        result: 'www-data : user NOT in sudoers ; TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/id'
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_COMMAND_NOT_ALLOWED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+        result: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+      - string: 'deploy : command not allowed ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/bin/rm -rf /'
+        result: 'deploy : command not allowed ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/bin/rm -rf /'
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_NOT_ALLOWED_EXECUTE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
+        result: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
+      - string: "deploy : user NOT allowed to execute '/usr/bin/passwd' as root ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/passwd"
+        result: "deploy : user NOT allowed to execute '/usr/bin/passwd' as root ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/passwd"
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_INCORRECT_PASSWORD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+        result: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+      - string: 'deploy : 1 incorrect password attempt ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/id'
+        result: 'deploy : 1 incorrect password attempt ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/id'
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_NEED_TTY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+        result: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+      - string: 'www-data : sorry, you must have a tty to run sudo'
+        result: 'www-data : sorry, you must have a tty to run sudo'
+    negative:
+      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+  SUDO_PAM_AUTH_FAILURE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+        result: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+      - string: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
+        result: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
+    negative:
+      - 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
 # file-level default: coerce the session uids to integers at runtime
 convert:
   sudo_target_uid: int
   sudo_by_uid: int
+  sudo_pw_attempts: int
+  sudo_uid: int
+  sudo_euid: int
 # file-level default: split the classic "KEY=VALUE ; KEY=VALUE" command blob
 # (captured as sudo_kv) into per-key fields, namespaced with sudo_ .
 decompose:
@@ -59,6 +138,24 @@ decompose:
           sudo_PWD: '/home/kitsune'
           sudo_USER: 'root'
           sudo_COMMAND: '/bin/ls -la'
+  # pam_unix auth-failure blob (space-separated) -> sudo_logname / sudo_uid /
+  # sudo_euid / sudo_tty / sudo_ruser / sudo_rhost / sudo_user.  Empty values
+  # (e.g. "rhost= ") yield empty-string fields.
+  - field: sudo_pam_kv
+    type: kv
+    field_split: ' '
+    prefix: 'sudo_'
+    remove: true
+    tests:
+      - input: 'logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost= user=kitsune'
+        result:
+          sudo_logname: 'kitsune'
+          sudo_uid: '1000'
+          sudo_euid: '0'
+          sudo_tty: '/dev/pts/0'
+          sudo_ruser: 'kitsune'
+          sudo_rhost: ''
+          sudo_user: 'kitsune'
 rules:
   - name: sudo
     gate:
@@ -70,6 +167,12 @@ rules:
     patterns:
       - SUDO_COMMAND
       - SUDO_SESSION
+      - SUDO_NOT_IN_SUDOERS
+      - SUDO_COMMAND_NOT_ALLOWED
+      - SUDO_NOT_ALLOWED_EXECUTE
+      - SUDO_INCORRECT_PASSWORD
+      - SUDO_NEED_TTY
+      - SUDO_PAM_AUTH_FAILURE
     tests:
       positive:
         - string: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
@@ -91,5 +194,39 @@ rules:
           result:
             sudo_session_action: 'closed'
             sudo_target_user: 'root'
+        - string: 'baduser : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/baduser ; USER=root ; COMMAND=/bin/ls'
+          result:
+            sudo_user: 'baduser'
+            sudo_error: 'user NOT in sudoers'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/baduser ; USER=root ; COMMAND=/bin/ls'
+        - string: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+          result:
+            sudo_user: 'kitsune'
+            sudo_error: 'command not allowed'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+        - string: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
+          result:
+            sudo_user: 'kitsune'
+            sudo_error: "user NOT allowed to execute '/bin/su' as root"
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su'
+        - string: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+          result:
+            sudo_user: 'kitsune'
+            sudo_error: '3 incorrect password attempts'
+            sudo_pw_attempts: '3'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+        - string: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+          result:
+            sudo_user: 'kitsune'
+            sudo_error: 'sorry, you must have a tty to run sudo'
+            sudo_kv: 'TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+        - string: 'www-data : sorry, you must have a tty to run sudo'
+          result:
+            sudo_user: 'www-data'
+            sudo_error: 'sorry, you must have a tty to run sudo'
+        - string: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+          result:
+            sudo_pam_type: 'auth'
+            sudo_pam_kv: 'logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
       negative:
         - 'this is not a valid sudo line at all'

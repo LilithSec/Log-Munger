@@ -1,0 +1,135 @@
+---
+# util-linux login(1) / console + tty login log enrichment.
+#
+# Gates on the syslog PROGRAM field being "login".  This covers local console
+# and tty logins as well as the failure/root-login accounting messages emitted
+# by util-linux login.  Patterns are anchored (each must match the whole
+# MESSAGE) and first-match wins.  Every capture is namespaced with login_ .
+#
+# Note: "pam_unix(login:session): session opened for user root" is emitted via
+# PAM and is handled by the PAM rule file, NOT here.
+includes:
+- base
+vars_templated:
+  # "FAILED LOGIN 3 FROM 203.0.113.7 FOR root, Authentication failure"
+  # The "FROM" token may be a tty (e.g. tty1) or a remote host / IP.  Capture
+  # it into login_from; when it is an IP also capture it into login_src_ip so
+  # it can be geoip-enriched.  Most specific first: IP variant before generic.
+  LOGIN_FAILED_COUNT_IP: 'FAILED LOGIN (?<login_count>[% INT %]) FROM (?<login_from>(?<login_src_ip>[% IP %])) FOR (?<login_user>[% USERNAME %]), (?<login_reason>[% GREEDYDATA %])'
+  # "FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure"
+  LOGIN_FAILED_COUNT: 'FAILED LOGIN (?<login_count>[% INT %]) FROM (?<login_tty>[% NOTSPACE %]) FOR (?<login_user>[% USERNAME %]), (?<login_reason>[% GREEDYDATA %])'
+  # "FAILED LOGIN SESSION FROM tty1 FOR root, Authentication failure"
+  LOGIN_FAILED_SESSION: 'FAILED LOGIN SESSION FROM (?<login_tty>[% NOTSPACE %]) FOR (?<login_user>[% USERNAME %]), (?<login_reason>[% GREEDYDATA %])'
+  # "TOO MANY LOGIN TRIES (3) FROM tty1 FOR root, Authentication failure"
+  LOGIN_TOO_MANY: 'TOO MANY LOGIN TRIES \((?<login_count>[% INT %])\) FROM (?<login_tty>[% NOTSPACE %]) FOR (?<login_user>[% USERNAME %]), (?<login_reason>[% GREEDYDATA %])'
+  # "ROOT LOGIN  on '/dev/tty1'" (note the doubled space + quoted device) and
+  # "ROOT LOGIN ON tty1".  Tolerate the quoting and either "on"/"ON".
+  LOGIN_ROOT: 'ROOT LOGIN +(?:on|ON) (?:''(?<login_tty>[% NOTSPACE %])''|(?<login_tty>[% NOTSPACE %]))(?: [% GREEDYDATA %])?'
+  # "LOGIN ON tty1 BY root"
+  LOGIN_ON_BY: 'LOGIN ON (?<login_tty>[% NOTSPACE %]) BY (?<login_user>[% USERNAME %])(?: [% GREEDYDATA %])?'
+vars_tests:
+  LOGIN_FAILED_COUNT_IP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'FAILED LOGIN 3 FROM 203.0.113.7 FOR root, Authentication failure'
+        result: 'FAILED LOGIN 3 FROM 203.0.113.7 FOR root, Authentication failure'
+    negative:
+      - 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+  LOGIN_FAILED_COUNT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+        result: 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+    negative:
+      - 'FAILED LOGIN SESSION FROM tty1 FOR root, Authentication failure'
+  LOGIN_FAILED_SESSION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'FAILED LOGIN SESSION FROM tty1 FOR root, Authentication failure'
+        result: 'FAILED LOGIN SESSION FROM tty1 FOR root, Authentication failure'
+    negative:
+      - 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+  LOGIN_TOO_MANY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'TOO MANY LOGIN TRIES (3) FROM tty1 FOR root, Authentication failure'
+        result: 'TOO MANY LOGIN TRIES (3) FROM tty1 FOR root, Authentication failure'
+    negative:
+      - 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+  LOGIN_ROOT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "ROOT LOGIN  on '/dev/tty1'"
+        result: "ROOT LOGIN  on '/dev/tty1'"
+      - string: 'ROOT LOGIN ON tty1'
+        result: 'ROOT LOGIN ON tty1'
+    negative:
+      - 'LOGIN ON tty1 BY root'
+  LOGIN_ON_BY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'LOGIN ON tty1 BY root'
+        result: 'LOGIN ON tty1 BY root'
+    negative:
+      - "ROOT LOGIN ON tty1"
+# file-level default: geoip lookup on the source IP (only used when the munger
+# is built with a geoip database)
+geoip:
+  - login_src_ip
+# file-level default: coerce the failure/try count to an integer at runtime
+convert:
+  login_count: int
+rules:
+  - name: login
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^login$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - LOGIN_FAILED_COUNT_IP
+      - LOGIN_FAILED_COUNT
+      - LOGIN_FAILED_SESSION
+      - LOGIN_TOO_MANY
+      - LOGIN_ROOT
+      - LOGIN_ON_BY
+    tests:
+      positive:
+        - string: 'FAILED LOGIN 1 FROM tty1 FOR root, Authentication failure'
+          result:
+            login_count: '1'
+            login_tty: 'tty1'
+            login_user: 'root'
+            login_reason: 'Authentication failure'
+        - string: 'FAILED LOGIN 3 FROM 203.0.113.7 FOR root, Authentication failure'
+          result:
+            login_count: '3'
+            login_from: '203.0.113.7'
+            login_src_ip: '203.0.113.7'
+            login_user: 'root'
+            login_reason: 'Authentication failure'
+        - string: 'FAILED LOGIN SESSION FROM tty1 FOR root, Authentication failure'
+          result:
+            login_tty: 'tty1'
+            login_user: 'root'
+            login_reason: 'Authentication failure'
+        - string: 'TOO MANY LOGIN TRIES (3) FROM tty1 FOR root, Authentication failure'
+          result:
+            login_count: '3'
+            login_tty: 'tty1'
+            login_user: 'root'
+            login_reason: 'Authentication failure'
+        - string: "ROOT LOGIN  on '/dev/tty1'"
+          result:
+            login_tty: '/dev/tty1'
+        - string: 'ROOT LOGIN ON tty1'
+          result:
+            login_tty: 'tty1'
+        - string: 'LOGIN ON tty1 BY root'
+          result:
+            login_tty: 'tty1'
+            login_user: 'root'
+      negative:
+        - 'this is not a login line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

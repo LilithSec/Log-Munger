@@ -16,6 +16,34 @@ includes:
 - base
 vars_templated:
   DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %]): (?<dovecot_kv>[% GREEDYDATA %])'
+  # Post-login session process logout with byte-count statistics, e.g.
+  #   imap(kitsune)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 ...
+  # service is the bare protocol, the (user)<pid><session> triplet follows, then
+  # the event/reason and a SPACE-separated in=/out=/deleted=/expunged= stats blob
+  # captured as dovecot_stats (space-split decompose below).
+  DOVECOT_SESSION_STATS: '(?<dovecot_service>[% WORD %])\((?<dovecot_user>[^)]*)\)<(?<dovecot_pid>[% INT %])><(?<dovecot_session>[^>]*)>: (?<dovecot_event>[% WORD %]): (?<dovecot_reason>.*?) (?<dovecot_stats>in=[% INT %] out=[% INT %][% GREEDYDATA %])'
+  # Aborted pre-auth login, e.g.
+  #   imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, ...
+  # The parenthetical reason is captured, the trailing user=<..>,... blob is fed
+  # to the same comma/<>-style kv decompose as DOVECOT_LOGIN via dovecot_kv.
+  DOVECOT_ABORTED_LOGIN: '(?<dovecot_service>[% WORD %])-login: Aborted login \((?<dovecot_abort_reason>[^)]*)\): (?<dovecot_kv>user=<[% GREEDYDATA %])'
+  # Login failure from a login process, e.g.
+  #   imap-login: Login failed: Authentication failed: Password mismatch, user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>
+  # reason is everything up to the ", user=<" that starts the kv blob.
+  DOVECOT_LOGIN_FAILED: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %]) failed: (?<dovecot_reason>.*?), (?<dovecot_kv>user=<[% GREEDYDATA %])'
+  # auth backend failure, e.g.
+  #   auth: passwd-file(kitsune,203.0.113.7): unknown user
+  # the backend name, user, and remote IP (dovecot_rip -> geoip) are captured.
+  DOVECOT_AUTH_FAIL: 'auth: (?<dovecot_auth_db>[^(:]+)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
+  # generic informational auth line, e.g.
+  #   auth: Info: passwd(kitsune): unknown user
+  DOVECOT_AUTH_INFO: 'auth: Info: (?<dovecot_auth_info>[% GREEDYDATA %])'
+  # LMTP sieve delivery, e.g.
+  #   lmtp(kitsune): sieve: msgid=<abc@example.com>: stored mail into mailbox 'INBOX'
+  DOVECOT_LMTP_STORED: 'lmtp\((?<dovecot_lmtp_id>[^)]*)\): sieve: msgid=<(?<dovecot_msgid>[^>]*)>: stored mail into mailbox ''(?<dovecot_mailbox>[^'']*)'''
+  # LMTP connect, e.g.
+  #   lmtp(1234): Connect from local
+  DOVECOT_LMTP_CONNECT: 'lmtp\((?<dovecot_lmtp_id>[^)]*)\): Connect from (?<dovecot_lmtp_from>[% GREEDYDATA %])'
 vars_tests:
   DOVECOT_LOGIN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -26,13 +54,82 @@ vars_tests:
         result: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
     negative:
       - 'this is not a dovecot login line at all'
+  DOVECOT_SESSION_STATS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'imap(kitsune)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
+        result: 'imap(kitsune)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
+      - string: 'pop3(alice)<55><s1>: Disconnected: Logged out top=0/0, retr=1/2345, del=0/1, size=2345 in=100 out=200'
+        result: 'pop3(alice)<55><s1>: Disconnected: Logged out top=0/0, retr=1/2345, del=0/1, size=2345 in=100 out=200'
+    negative:
+      - 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+  DOVECOT_ABORTED_LOGIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+        result: 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+      - string: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
+        result: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
+    negative:
+      - 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+  DOVECOT_LOGIN_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'imap-login: Login failed: Authentication failed: Password mismatch, user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
+        result: 'imap-login: Login failed: Authentication failed: Password mismatch, user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
+      - string: 'pop3-login: Login failed: unknown user, user=<bob>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, session=<q>'
+        result: 'pop3-login: Login failed: unknown user, user=<bob>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, session=<q>'
+    negative:
+      - 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+  DOVECOT_AUTH_FAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'auth: passwd-file(kitsune,203.0.113.7): unknown user'
+        result: 'auth: passwd-file(kitsune,203.0.113.7): unknown user'
+      - string: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
+        result: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
+    negative:
+      - 'auth: Info: passwd(kitsune): unknown user'
+  DOVECOT_AUTH_INFO:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'auth: Info: passwd(kitsune): unknown user'
+        result: 'auth: Info: passwd(kitsune): unknown user'
+      - string: 'auth: Info: Client didn''t present valid SSL certificate'
+        result: 'auth: Info: Client didn''t present valid SSL certificate'
+    negative:
+      - 'auth: passwd-file(kitsune,203.0.113.7): unknown user'
+  DOVECOT_LMTP_STORED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'lmtp(kitsune): sieve: msgid=<abc@example.com>: stored mail into mailbox ''INBOX'''
+        result: 'lmtp(kitsune): sieve: msgid=<abc@example.com>: stored mail into mailbox ''INBOX'''
+      - string: 'lmtp(bob): sieve: msgid=<xyz@example.org>: stored mail into mailbox ''Junk'''
+        result: 'lmtp(bob): sieve: msgid=<xyz@example.org>: stored mail into mailbox ''Junk'''
+    negative:
+      - 'lmtp(1234): Connect from local'
+  DOVECOT_LMTP_CONNECT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'lmtp(1234): Connect from local'
+        result: 'lmtp(1234): Connect from local'
+      - string: 'lmtp(5678): Connect from 192.0.2.5'
+        result: 'lmtp(5678): Connect from 192.0.2.5'
+    negative:
+      - 'lmtp(kitsune): sieve: msgid=<abc@example.com>: stored mail into mailbox ''INBOX'''
 # file-level default: after a rule matches, the remote IP captured as
 # dovecot_rip gets a geoip lookup (only used when built with a geoip database).
 geoip:
   - dovecot_rip
-# file-level default: the process id parsed out of the kv blob is numeric.
+# file-level default: the process id parsed out of the kv blob is numeric, as
+# are the byte/message counts pulled out of the session logout stats blob.
 convert:
   dovecot_mpid: int
+  dovecot_pid: int
+  dovecot_in: int
+  dovecot_out: int
+  dovecot_deleted: int
+  dovecot_expunged: int
 # file-level default: break the captured key=value blob into individual
 # dovecot_* fields. Values wrapped in <...> are unwrapped via trim; bare flag
 # tokens without "=" (TLS, secured) are skipped.
@@ -53,6 +150,26 @@ decompose:
           dovecot_lip: '192.0.2.1'
           dovecot_mpid: '1234'
           dovecot_session: 'AbC123'
+  # second decompose: the session-logout statistics blob captured as
+  # dovecot_stats is a SPACE-separated key=value list (in=100 out=200
+  # deleted=0 expunged=0 ...) with no <> wrapping. Split it into dovecot_*
+  # counters; the numeric ones are coerced to int via the file-level convert.
+  - field: dovecot_stats
+    type: kv
+    field_split: ' '
+    value_split: '='
+    prefix: 'dovecot_'
+    remove: true
+    tests:
+      - input: 'in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50'
+        result:
+          dovecot_in: '100'
+          dovecot_out: '200'
+          dovecot_deleted: '0'
+          dovecot_expunged: '0'
+          dovecot_trashed: '0'
+          dovecot_hdr_count: '1'
+          dovecot_hdr_bytes: '50'
 rules:
   - name: dovecot
     gate:
@@ -63,6 +180,13 @@ rules:
     anchored: true
     patterns:
       - DOVECOT_LOGIN
+      - DOVECOT_SESSION_STATS
+      - DOVECOT_ABORTED_LOGIN
+      - DOVECOT_LOGIN_FAILED
+      - DOVECOT_AUTH_FAIL
+      - DOVECOT_AUTH_INFO
+      - DOVECOT_LMTP_STORED
+      - DOVECOT_LMTP_CONNECT
     tests:
       positive:
         - string: 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
@@ -80,6 +204,94 @@ rules:
             dovecot_service: 'imap'
             dovecot_event: 'Login'
             dovecot_kv: 'user=<alice@example.com>, method=PLAIN, rip=192.0.2.9, lip=192.0.2.1, mpid=99, secured, session=<q>'
+        # DOVECOT_SESSION_STATS: session logout; the raw pattern captures the
+        # service/user/pid/session/event/reason and the in=/out=/... stats blob
+        # into dovecot_stats (the space-split decompose + int convert of
+        # dovecot_in/out/deleted/expunged is exercised by the decompose tests).
+        - string: 'imap(kitsune)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
+          result:
+            dovecot_service: 'imap'
+            dovecot_user: 'kitsune'
+            dovecot_pid: '1234'
+            dovecot_session: 'AbC'
+            dovecot_event: 'Disconnected'
+            dovecot_reason: 'Logged out'
+            dovecot_stats: 'in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
+        - string: 'pop3(alice)<55><s1>: Disconnected: Logged out in=100 out=200 deleted=1 expunged=2'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_user: 'alice'
+            dovecot_pid: '55'
+            dovecot_session: 's1'
+            dovecot_event: 'Disconnected'
+            dovecot_reason: 'Logged out'
+            dovecot_stats: 'in=100 out=200 deleted=1 expunged=2'
+        # DOVECOT_ABORTED_LOGIN: raw captures are service, abort reason, and the
+        # user=<..>,... blob in dovecot_kv (kv decompose tested separately).
+        - string: 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+          result:
+            dovecot_service: 'imap'
+            dovecot_abort_reason: 'auth failed, 1 attempts in 2 secs'
+            dovecot_kv: 'user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+        - string: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_abort_reason: 'no auth attempts in 0 secs'
+            dovecot_kv: 'user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
+        # DOVECOT_LOGIN_FAILED: raw captures are service/event/reason and the
+        # user=<..>,... blob in dovecot_kv.
+        - string: 'imap-login: Login failed: Authentication failed: Password mismatch, user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
+          result:
+            dovecot_service: 'imap'
+            dovecot_event: 'Login'
+            dovecot_reason: 'Authentication failed: Password mismatch'
+            dovecot_kv: 'user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
+        - string: 'pop3-login: Login failed: unknown user, user=<bob>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, session=<q>'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_event: 'Login'
+            dovecot_reason: 'unknown user'
+            dovecot_kv: 'user=<bob>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, session=<q>'
+        # DOVECOT_AUTH_FAIL: auth backend failure with remote IP
+        - string: 'auth: passwd-file(kitsune,203.0.113.7): unknown user'
+          result:
+            dovecot_auth_db: 'passwd-file'
+            dovecot_user: 'kitsune'
+            dovecot_rip: '203.0.113.7'
+            dovecot_auth_reason: 'unknown user'
+        - string: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
+          result:
+            dovecot_auth_db: 'pam'
+            dovecot_user: 'bob'
+            dovecot_rip: '198.51.100.9'
+            dovecot_auth_reason: 'pam_authenticate() failed'
+        # DOVECOT_AUTH_INFO: generic informational auth line
+        - string: 'auth: Info: passwd(kitsune): unknown user'
+          result:
+            dovecot_auth_info: 'passwd(kitsune): unknown user'
+        - string: 'auth: Info: Client didn''t present valid SSL certificate'
+          result:
+            dovecot_auth_info: 'Client didn''t present valid SSL certificate'
+        # DOVECOT_LMTP_STORED: sieve delivery into a mailbox
+        - string: 'lmtp(kitsune): sieve: msgid=<abc@example.com>: stored mail into mailbox ''INBOX'''
+          result:
+            dovecot_lmtp_id: 'kitsune'
+            dovecot_msgid: 'abc@example.com'
+            dovecot_mailbox: 'INBOX'
+        - string: 'lmtp(bob): sieve: msgid=<xyz@example.org>: stored mail into mailbox ''Junk'''
+          result:
+            dovecot_lmtp_id: 'bob'
+            dovecot_msgid: 'xyz@example.org'
+            dovecot_mailbox: 'Junk'
+        # DOVECOT_LMTP_CONNECT: lmtp connect
+        - string: 'lmtp(1234): Connect from local'
+          result:
+            dovecot_lmtp_id: '1234'
+            dovecot_lmtp_from: 'local'
+        - string: 'lmtp(5678): Connect from 192.0.2.5'
+          result:
+            dovecot_lmtp_id: '5678'
+            dovecot_lmtp_from: '192.0.2.5'
       negative:
         - 'this is not a dovecot login line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'

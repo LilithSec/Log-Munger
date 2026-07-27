@@ -8,10 +8,42 @@
 #
 # The rule gates on the "unbound" PROGRAM, matches the whole MESSAGE (anchored)
 # and namespaces every capture with unbound_. The client IP is fed to geoip.
+#
+# In addition to the bare query line this file also recognises reply lines that
+# carry an rcode/status plus timing, resolver failure notices (SERVFAIL,
+# validation failure, refused), per-thread server statistics, module/startup
+# notices, and error lines. Every capture is namespaced with unbound_ and any
+# source/client IP is fed to geoip.
 includes:
 - base
 vars_templated:
   UNBOUND_QUERY: 'info: (?<unbound_client_ip>[% IP %]) (?<unbound_query_name>[% NOTSPACE %]) (?<unbound_query_type>[% WORD %]) (?<unbound_query_class>[% WORD %])'
+  # Reply/response line carrying an rcode/status word plus timing, e.g.
+  #   "info: 203.0.113.7 example.com. A IN NOERROR 0.084232 0 44"
+  # The trailing numbers are: response time (float, seconds), a flag/count and
+  # the answer size. rcode + timing are captured; the trailing counts optional.
+  UNBOUND_REPLY_RCODE: 'info: (?<unbound_client_ip>[% IP %]) (?<unbound_query_name>[% NOTSPACE %]) (?<unbound_query_type>[% WORD %]) (?<unbound_query_class>[% WORD %]) (?<unbound_rcode>NOERROR|NXDOMAIN|SERVFAIL|REFUSED|FORMERR|NOTIMP|YXDOMAIN|YXRRSET|NXRRSET|NOTAUTH|NOTZONE)(?: (?<unbound_response_time>[% NUMBER %]))?(?: (?<unbound_flag>[% INT %]))?(?: (?<unbound_answer_size>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "refused" response line, e.g. "info: 203.0.113.7 refused example.com. A IN"
+  UNBOUND_REFUSED: 'info: (?<unbound_client_ip>[% IP %]) (?<unbound_rcode>refused|REFUSED) (?<unbound_query_name>[% NOTSPACE %]) (?<unbound_query_type>[% WORD %]) (?<unbound_query_class>[% WORD %])(?: [% GREEDYDATA %])?'
+  # SERVFAIL notice, e.g.
+  #   "info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed ..."
+  UNBOUND_SERVFAIL: 'info: (?<unbound_rcode>SERVFAIL) <(?<unbound_query_name>[% NOTSPACE %]) (?<unbound_query_type>[% WORD %]) (?<unbound_query_class>[% WORD %])>: (?<unbound_reason>[% GREEDYDATA %])'
+  # DNSSEC validation failure, e.g.
+  #   "info: validation failure <example.com. A IN>: no signatures from 192.0.2.2 for key example.com. while building chain of trust"
+  UNBOUND_VALIDATION_FAILURE: 'info: (?<unbound_event>validation failure) <(?<unbound_query_name>[% NOTSPACE %]) (?<unbound_query_type>[% WORD %]) (?<unbound_query_class>[% WORD %])>: (?<unbound_reason>[% GREEDYDATA %])'
+  # Per-thread server statistics, e.g.
+  #   "info: server stats for thread 0: 1000 queries, 800 answers from cache, 200 recursions, 0 prefetch, 0 rejected by ip ratelimiting"
+  UNBOUND_SERVER_STATS: 'info: server stats for thread (?<unbound_thread>[% INT %]): (?<unbound_queries>[% INT %]) queries, (?<unbound_cache_answers>[% INT %]) answers from cache, (?<unbound_recursions>[% INT %]) recursions, (?<unbound_prefetch>[% INT %]) prefetch, (?<unbound_ratelimited>[% INT %]) rejected by ip ratelimiting(?: [% GREEDYDATA %])?'
+  # Module init notice, e.g. "notice: init module 0: validator"
+  UNBOUND_INIT_MODULE: 'notice: init module (?<unbound_module_num>[% INT %]): (?<unbound_module>[% NOTSPACE %])'
+  # Startup notice, e.g. "info: start of service (unbound 1.17.1)."
+  UNBOUND_START: 'info: start of service \(unbound (?<unbound_version>[% NOTSPACE %])\)\.?(?: [% GREEDYDATA %])?'
+  # Error line for a connect failure carrying a server IP + port, e.g.
+  #   "error: udp connect failed: Connection refused for 192.0.2.2 port 53"
+  UNBOUND_ERROR_CONNECT: 'error: (?<unbound_error>[% GREEDYDATA_NO_COLON %]): (?<unbound_reason>[% DATA %]) for (?<unbound_src_ip>[% IP %]) port (?<unbound_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # Generic error line, e.g. "error: SERVFAIL <example.com. A IN>: ..." or any
+  # other "error: ..." tail. Kept last so the more specific error above wins.
+  UNBOUND_ERROR: 'error: (?<unbound_error>[% GREEDYDATA %])'
 vars_tests:
   UNBOUND_QUERY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -22,10 +54,92 @@ vars_tests:
         result: 'info: 198.51.100.9 test.org. AAAA IN'
     negative:
       - 'this is not an unbound query line at all'
-# file-level default: geoip lookup on the client IP (only used when the munger
-# is built with a geoip database).
+  UNBOUND_REPLY_RCODE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: 203.0.113.7 example.com. A IN NOERROR 0.084232 0 44'
+        result: 'info: 203.0.113.7 example.com. A IN NOERROR 0.084232 0 44'
+      - string: 'info: 198.51.100.9 test.org. AAAA IN NXDOMAIN 0.001000 0 0'
+        result: 'info: 198.51.100.9 test.org. AAAA IN NXDOMAIN 0.001000 0 0'
+    negative:
+      - 'info: 192.0.2.5 example.com. A IN'
+  UNBOUND_REFUSED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: 203.0.113.7 refused example.com. A IN'
+        result: 'info: 203.0.113.7 refused example.com. A IN'
+    negative:
+      - 'info: 192.0.2.5 example.com. A IN'
+  UNBOUND_SERVFAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed, at zone example.com.'
+        result: 'info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed, at zone example.com.'
+    negative:
+      - 'info: validation failure <example.com. A IN>: no signatures'
+  UNBOUND_VALIDATION_FAILURE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: validation failure <example.com. A IN>: no signatures from 192.0.2.2 for key example.com. while building chain of trust'
+        result: 'info: validation failure <example.com. A IN>: no signatures from 192.0.2.2 for key example.com. while building chain of trust'
+    negative:
+      - 'info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed'
+  UNBOUND_SERVER_STATS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: server stats for thread 0: 1000 queries, 800 answers from cache, 200 recursions, 0 prefetch, 0 rejected by ip ratelimiting'
+        result: 'info: server stats for thread 0: 1000 queries, 800 answers from cache, 200 recursions, 0 prefetch, 0 rejected by ip ratelimiting'
+    negative:
+      - 'info: 192.0.2.5 example.com. A IN'
+  UNBOUND_INIT_MODULE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'notice: init module 0: validator'
+        result: 'notice: init module 0: validator'
+      - string: 'notice: init module 1: iterator'
+        result: 'notice: init module 1: iterator'
+    negative:
+      - 'info: start of service (unbound 1.17.1).'
+  UNBOUND_START:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'info: start of service (unbound 1.17.1).'
+        result: 'info: start of service (unbound 1.17.1).'
+    negative:
+      - 'notice: init module 0: validator'
+  UNBOUND_ERROR_CONNECT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: udp connect failed: Connection refused for 192.0.2.2 port 53'
+        result: 'error: udp connect failed: Connection refused for 192.0.2.2 port 53'
+    negative:
+      - 'info: 192.0.2.5 example.com. A IN'
+  UNBOUND_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: SERVFAIL <example.com. A IN>: all servers failed'
+        result: 'error: SERVFAIL <example.com. A IN>: all servers failed'
+    negative:
+      - 'info: 192.0.2.5 example.com. A IN'
+# file-level default: geoip lookup on the client / source IPs (only used when
+# the munger is built with a geoip database).
 geoip:
   - unbound_client_ip
+  - unbound_src_ip
+# file-level default: coerce numeric stats / timings / ports captured as
+# top-level fields.
+convert:
+  unbound_response_time: float
+  unbound_flag: int
+  unbound_answer_size: int
+  unbound_thread: int
+  unbound_queries: int
+  unbound_cache_answers: int
+  unbound_recursions: int
+  unbound_prefetch: int
+  unbound_ratelimited: int
+  unbound_module_num: int
+  unbound_src_port: int
 rules:
   - name: unbound
     gate:
@@ -36,6 +150,15 @@ rules:
     anchored: true
     patterns:
       - UNBOUND_QUERY
+      - UNBOUND_REPLY_RCODE
+      - UNBOUND_REFUSED
+      - UNBOUND_SERVFAIL
+      - UNBOUND_VALIDATION_FAILURE
+      - UNBOUND_SERVER_STATS
+      - UNBOUND_INIT_MODULE
+      - UNBOUND_START
+      - UNBOUND_ERROR_CONNECT
+      - UNBOUND_ERROR
     tests:
       positive:
         - string: 'info: 192.0.2.5 example.com. A IN'
@@ -56,6 +179,75 @@ rules:
             unbound_query_name: 'a.b.c.'
             unbound_query_type: 'MX'
             unbound_query_class: 'IN'
+        - string: 'info: 203.0.113.7 example.com. A IN NOERROR 0.084232 0 44'
+          result:
+            unbound_client_ip: '203.0.113.7'
+            unbound_query_name: 'example.com.'
+            unbound_query_type: 'A'
+            unbound_query_class: 'IN'
+            unbound_rcode: 'NOERROR'
+            unbound_response_time: '0.084232'
+            unbound_flag: '0'
+            unbound_answer_size: '44'
+        - string: 'info: 198.51.100.9 test.org. AAAA IN NXDOMAIN 0.001000 0 0'
+          result:
+            unbound_client_ip: '198.51.100.9'
+            unbound_query_name: 'test.org.'
+            unbound_query_type: 'AAAA'
+            unbound_query_class: 'IN'
+            unbound_rcode: 'NXDOMAIN'
+            unbound_response_time: '0.001000'
+            unbound_flag: '0'
+            unbound_answer_size: '0'
+        - string: 'info: 203.0.113.7 refused example.com. A IN'
+          result:
+            unbound_client_ip: '203.0.113.7'
+            unbound_rcode: 'refused'
+            unbound_query_name: 'example.com.'
+            unbound_query_type: 'A'
+            unbound_query_class: 'IN'
+        - string: 'info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed, at zone example.com.'
+          result:
+            unbound_rcode: 'SERVFAIL'
+            unbound_query_name: 'example.com.'
+            unbound_query_type: 'A'
+            unbound_query_class: 'IN'
+            unbound_reason: 'all the configured stub or forward servers failed, at zone example.com.'
+        - string: 'info: validation failure <example.com. A IN>: no signatures from 192.0.2.2 for key example.com. while building chain of trust'
+          result:
+            unbound_event: 'validation failure'
+            unbound_query_name: 'example.com.'
+            unbound_query_type: 'A'
+            unbound_query_class: 'IN'
+            unbound_reason: 'no signatures from 192.0.2.2 for key example.com. while building chain of trust'
+        - string: 'info: server stats for thread 0: 1000 queries, 800 answers from cache, 200 recursions, 0 prefetch, 0 rejected by ip ratelimiting'
+          result:
+            unbound_thread: '0'
+            unbound_queries: '1000'
+            unbound_cache_answers: '800'
+            unbound_recursions: '200'
+            unbound_prefetch: '0'
+            unbound_ratelimited: '0'
+        - string: 'notice: init module 0: validator'
+          result:
+            unbound_module_num: '0'
+            unbound_module: 'validator'
+        - string: 'notice: init module 1: iterator'
+          result:
+            unbound_module_num: '1'
+            unbound_module: 'iterator'
+        - string: 'info: start of service (unbound 1.17.1).'
+          result:
+            unbound_version: '1.17.1'
+        - string: 'error: udp connect failed: Connection refused for 192.0.2.2 port 53'
+          result:
+            unbound_error: 'udp connect failed'
+            unbound_reason: 'Connection refused'
+            unbound_src_ip: '192.0.2.2'
+            unbound_src_port: '53'
+        - string: 'error: SERVFAIL <example.com. A IN>: all servers failed'
+          result:
+            unbound_error: 'SERVFAIL <example.com. A IN>: all servers failed'
       negative:
         - 'this is not an unbound query line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'

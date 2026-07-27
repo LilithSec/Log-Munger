@@ -1,0 +1,145 @@
+---
+# ISC dhcpd (DHCP server) lease-transaction log enrichment.
+#
+# Gates on the syslog PROGRAM field being "dhcpd".  Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins.  Every capture
+# is namespaced with dhcp_ .  A unified dhcp_type capture records the DHCP
+# message type (DHCPDISCOVER / DHCPOFFER / DHCPREQUEST / DHCPACK / DHCPNAK /
+# DHCPRELEASE / DHCPDECLINE).  MAC addresses are the colon-separated hex
+# form covered by the base MAC / COMMONMAC primitive.
+includes:
+- base
+vars_templated:
+  # "DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff (myhost) via eth0"
+  # ACK/NAK use "on <ip> to <mac>" with an optional client hostname clause.
+  DHCP_ACK: '(?<dhcp_type>DHCPACK|DHCPNAK) on (?<dhcp_ip>[% IP %]) to (?<dhcp_mac>[% MAC %])(?: \((?<dhcp_hostname>[% NOTSPACE %])\))? via (?<dhcp_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # "DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0"
+  DHCP_OFFER: '(?<dhcp_type>DHCPOFFER) on (?<dhcp_ip>[% IP %]) to (?<dhcp_mac>[% MAC %])(?: \((?<dhcp_hostname>[% NOTSPACE %])\))? via (?<dhcp_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # "DHCPREQUEST for 192.0.2.50 (192.0.2.1) from aa:bb:cc:dd:ee:ff via eth0"
+  # The parenthetical after the requested IP is the server the client picked.
+  DHCP_REQUEST: '(?<dhcp_type>DHCPREQUEST) for (?<dhcp_ip>[% IP %])(?: \((?<dhcp_server_ip>[% IP %])\))? from (?<dhcp_mac>[% MAC %])(?: \((?<dhcp_hostname>[% NOTSPACE %])\))? via (?<dhcp_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # "DHCPRELEASE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0 (found)"
+  # "DHCPDECLINE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0: abandoned"
+  # RELEASE/DECLINE use "of <ip> from <mac>".
+  DHCP_RELEASE: '(?<dhcp_type>DHCPRELEASE|DHCPDECLINE) of (?<dhcp_ip>[% IP %]) from (?<dhcp_mac>[% MAC %]) via (?<dhcp_iface>[A-Za-z0-9._]+)(?::)?(?: [% GREEDYDATA %])?'
+  # "DHCPDISCOVER from aa:bb:cc:dd:ee:ff (myhost) via eth0"
+  # DISCOVER has no lease IP; the client hostname clause is optional.
+  DHCP_DISCOVER: '(?<dhcp_type>DHCPDISCOVER) from (?<dhcp_mac>[% MAC %])(?: \((?<dhcp_hostname>[% NOTSPACE %])\))? via (?<dhcp_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+vars_tests:
+  DHCP_ACK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff (myhost) via eth0'
+        result: 'DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff (myhost) via eth0'
+      - string: 'DHCPNAK on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+        result: 'DHCPNAK on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+    negative:
+      - 'DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+  DHCP_OFFER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+        result: 'DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+      - string: 'DHCPOFFER on 198.51.100.9 to 00:11:22:33:44:55 (laptop) via eth1'
+        result: 'DHCPOFFER on 198.51.100.9 to 00:11:22:33:44:55 (laptop) via eth1'
+    negative:
+      - 'DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+  DHCP_REQUEST:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPREQUEST for 192.0.2.50 (192.0.2.1) from aa:bb:cc:dd:ee:ff via eth0'
+        result: 'DHCPREQUEST for 192.0.2.50 (192.0.2.1) from aa:bb:cc:dd:ee:ff via eth0'
+      - string: 'DHCPREQUEST for 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0'
+        result: 'DHCPREQUEST for 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0'
+    negative:
+      - 'DHCPRELEASE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0 (found)'
+  DHCP_RELEASE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPRELEASE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0 (found)'
+        result: 'DHCPRELEASE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0 (found)'
+      - string: 'DHCPDECLINE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0: abandoned'
+        result: 'DHCPDECLINE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0: abandoned'
+    negative:
+      - 'DHCPREQUEST for 192.0.2.50 (192.0.2.1) from aa:bb:cc:dd:ee:ff via eth0'
+  DHCP_DISCOVER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff via eth0'
+        result: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff via eth0'
+      - string: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff (myhost) via eth0'
+        result: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff (myhost) via eth0'
+    negative:
+      - 'DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+# file-level default: geoip lookup on the lease IP (leases are usually private,
+# but this keeps the file consistent with the other daemon rule files)
+geoip:
+  - dhcp_ip
+rules:
+  - name: dhcpd
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^dhcpd$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - DHCP_ACK
+      - DHCP_OFFER
+      - DHCP_REQUEST
+      - DHCP_RELEASE
+      - DHCP_DISCOVER
+    tests:
+      positive:
+        - string: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff via eth0'
+          result:
+            dhcp_type: 'DHCPDISCOVER'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff (myhost) via eth0'
+          result:
+            dhcp_type: 'DHCPDISCOVER'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_hostname: 'myhost'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPOFFER on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+          result:
+            dhcp_type: 'DHCPOFFER'
+            dhcp_ip: '192.0.2.50'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPREQUEST for 192.0.2.50 (192.0.2.1) from aa:bb:cc:dd:ee:ff via eth0'
+          result:
+            dhcp_type: 'DHCPREQUEST'
+            dhcp_ip: '192.0.2.50'
+            dhcp_server_ip: '192.0.2.1'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff (myhost) via eth0'
+          result:
+            dhcp_type: 'DHCPACK'
+            dhcp_ip: '192.0.2.50'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_hostname: 'myhost'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPNAK on 192.0.2.50 to aa:bb:cc:dd:ee:ff via eth0'
+          result:
+            dhcp_type: 'DHCPNAK'
+            dhcp_ip: '192.0.2.50'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPRELEASE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0 (found)'
+          result:
+            dhcp_type: 'DHCPRELEASE'
+            dhcp_ip: '192.0.2.50'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+        - string: 'DHCPDECLINE of 192.0.2.50 from aa:bb:cc:dd:ee:ff via eth0: abandoned'
+          result:
+            dhcp_type: 'DHCPDECLINE'
+            dhcp_ip: '192.0.2.50'
+            dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dhcp_iface: 'eth0'
+      negative:
+        - 'this is not a dhcpd line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

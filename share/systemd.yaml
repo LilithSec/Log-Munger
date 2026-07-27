@@ -1,0 +1,204 @@
+---
+# systemd manager (PID 1) unit lifecycle log enrichment.
+#
+# Gates on the syslog PROGRAM field being "systemd".  Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins, so the more
+# specific unit-scoped "<unit>.service: ..." lines are listed before the
+# generic Started/Stopped/Starting/Stopping messages.  Every capture is
+# namespaced with systemd_ .
+includes:
+- base
+vars_templated:
+  # "<unit>.service: Main process exited, code=exited, status=1/FAILURE"
+  SYSTEMD_MAIN_PROC_EXITED: '(?<systemd_unit>[% NOTSPACE %]): Main process exited, code=(?<systemd_code>[% WORD %]), status=(?<systemd_status>[% INT %])/(?<systemd_status_text>[% WORD %])(?: [% GREEDYDATA %])?'
+  # "<unit>.service: Failed with result 'exit-code'."
+  SYSTEMD_FAILED_RESULT: "(?<systemd_unit>[% NOTSPACE %]): Failed with result '(?<systemd_result>[^']+)'\\.(?: [% GREEDYDATA %])?"
+  # "<unit>.service: Scheduled restart job, restart counter is at 3."
+  SYSTEMD_SCHED_RESTART: '(?<systemd_unit>[% NOTSPACE %]): Scheduled restart job, restart counter is at (?<systemd_restart_counter>[% INT %])\.(?: [% GREEDYDATA %])?'
+  # "<unit>.service: Deactivated successfully." / "<unit>.timer: Deactivated successfully."
+  SYSTEMD_DEACTIVATED: '(?<systemd_unit>[% NOTSPACE %]): Deactivated successfully\.(?: [% GREEDYDATA %])?'
+  # "Reached target multi-user.target."
+  SYSTEMD_REACHED_TARGET: 'Reached target (?<systemd_target>[% GREEDYDATA %])\.'
+  # "Failed to start My Service."
+  SYSTEMD_FAILED_TO_START: 'Failed to start (?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Reloading." and "Reloading finished in 12 ms."
+  SYSTEMD_RELOADING: 'Reloading(?: [% GREEDYDATA %])?\.?'
+  # "Starting My Service..."
+  SYSTEMD_STARTING: 'Starting (?<systemd_desc>[% GREEDYDATA %])\.\.\.'
+  # "Stopping My Service..."
+  SYSTEMD_STOPPING: 'Stopping (?<systemd_desc>[% GREEDYDATA %])\.\.\.'
+  # "Started Session 3 of user kitsune."
+  SYSTEMD_STARTED: 'Started (?<systemd_desc>[% GREEDYDATA %])\.'
+  # "Stopped My Service."
+  SYSTEMD_STOPPED: 'Stopped (?<systemd_desc>[% GREEDYDATA %])\.'
+vars_tests:
+  SYSTEMD_MAIN_PROC_EXITED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
+        result: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
+      - string: 'apache2.service: Main process exited, code=killed, status=9/KILL'
+        result: 'apache2.service: Main process exited, code=killed, status=9/KILL'
+    negative:
+      - "nginx.service: Failed with result 'exit-code'."
+  SYSTEMD_FAILED_RESULT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "nginx.service: Failed with result 'exit-code'."
+        result: "nginx.service: Failed with result 'exit-code'."
+      - string: "foo.timer: Failed with result 'timeout'."
+        result: "foo.timer: Failed with result 'timeout'."
+    negative:
+      - 'nginx.service: Deactivated successfully.'
+  SYSTEMD_SCHED_RESTART:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'nginx.service: Scheduled restart job, restart counter is at 3.'
+        result: 'nginx.service: Scheduled restart job, restart counter is at 3.'
+      - string: 'foo.service: Scheduled restart job, restart counter is at 1.'
+        result: 'foo.service: Scheduled restart job, restart counter is at 1.'
+    negative:
+      - 'nginx.service: Deactivated successfully.'
+  SYSTEMD_DEACTIVATED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'nginx.service: Deactivated successfully.'
+        result: 'nginx.service: Deactivated successfully.'
+      - string: 'logrotate.timer: Deactivated successfully.'
+        result: 'logrotate.timer: Deactivated successfully.'
+    negative:
+      - "nginx.service: Failed with result 'exit-code'."
+  SYSTEMD_REACHED_TARGET:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Reached target multi-user.target.'
+        result: 'Reached target multi-user.target.'
+      - string: 'Reached target Basic System.'
+        result: 'Reached target Basic System.'
+    negative:
+      - 'Started Session 3 of user kitsune.'
+  SYSTEMD_FAILED_TO_START:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Failed to start nginx - A high performance web server.'
+        result: 'Failed to start nginx - A high performance web server.'
+      - string: 'Failed to start My Service.'
+        result: 'Failed to start My Service.'
+    negative:
+      - 'Started Session 3 of user kitsune.'
+  SYSTEMD_RELOADING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Reloading.'
+        result: 'Reloading.'
+      - string: 'Reloading finished in 12 ms.'
+        result: 'Reloading finished in 12 ms.'
+    negative:
+      - 'Started Session 3 of user kitsune.'
+  SYSTEMD_STARTING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Starting nginx - A high performance web server...'
+        result: 'Starting nginx - A high performance web server...'
+      - string: 'Starting Daily apt download activities...'
+        result: 'Starting Daily apt download activities...'
+    negative:
+      - 'Started Session 3 of user kitsune.'
+  SYSTEMD_STOPPING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Stopping nginx - A high performance web server...'
+        result: 'Stopping nginx - A high performance web server...'
+      - string: 'Stopping User Manager for UID 1000...'
+        result: 'Stopping User Manager for UID 1000...'
+    negative:
+      - 'Stopped nginx - A high performance web server.'
+  SYSTEMD_STARTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Started Session 3 of user kitsune.'
+        result: 'Started Session 3 of user kitsune.'
+      - string: 'Started nginx - A high performance web server.'
+        result: 'Started nginx - A high performance web server.'
+    negative:
+      - 'Starting nginx - A high performance web server...'
+  SYSTEMD_STOPPED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Stopped nginx - A high performance web server.'
+        result: 'Stopped nginx - A high performance web server.'
+      - string: 'Stopped Session 3 of user kitsune.'
+        result: 'Stopped Session 3 of user kitsune.'
+    negative:
+      - 'Stopping nginx - A high performance web server...'
+# file-level default: coerce numeric captures to integers at runtime
+convert:
+  systemd_status: int
+  systemd_restart_counter: int
+rules:
+  - name: systemd
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^systemd$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - SYSTEMD_MAIN_PROC_EXITED
+      - SYSTEMD_FAILED_RESULT
+      - SYSTEMD_SCHED_RESTART
+      - SYSTEMD_DEACTIVATED
+      - SYSTEMD_REACHED_TARGET
+      - SYSTEMD_FAILED_TO_START
+      - SYSTEMD_RELOADING
+      - SYSTEMD_STARTING
+      - SYSTEMD_STOPPING
+      - SYSTEMD_STARTED
+      - SYSTEMD_STOPPED
+    tests:
+      positive:
+        - string: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
+          result:
+            systemd_unit: 'nginx.service'
+            systemd_code: 'exited'
+            systemd_status: '1'
+            systemd_status_text: 'FAILURE'
+        - string: "nginx.service: Failed with result 'exit-code'."
+          result:
+            systemd_unit: 'nginx.service'
+            systemd_result: 'exit-code'
+        - string: 'nginx.service: Scheduled restart job, restart counter is at 3.'
+          result:
+            systemd_unit: 'nginx.service'
+            systemd_restart_counter: '3'
+        - string: 'nginx.service: Deactivated successfully.'
+          result:
+            systemd_unit: 'nginx.service'
+        - string: 'logrotate.timer: Deactivated successfully.'
+          result:
+            systemd_unit: 'logrotate.timer'
+        - string: 'Reached target multi-user.target.'
+          result:
+            systemd_target: 'multi-user.target'
+        - string: 'Failed to start nginx - A high performance web server.'
+          result:
+            systemd_desc: 'nginx - A high performance web server'
+        - string: 'Reloading.'
+          result: {}
+        - string: 'Reloading finished in 12 ms.'
+          result: {}
+        - string: 'Starting nginx - A high performance web server...'
+          result:
+            systemd_desc: 'nginx - A high performance web server'
+        - string: 'Stopping User Manager for UID 1000...'
+          result:
+            systemd_desc: 'User Manager for UID 1000'
+        - string: 'Started Session 3 of user kitsune.'
+          result:
+            systemd_desc: 'Session 3 of user kitsune'
+        - string: 'Stopped nginx - A high performance web server.'
+          result:
+            systemd_desc: 'nginx - A high performance web server'
+      negative:
+        - 'this is not a systemd line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

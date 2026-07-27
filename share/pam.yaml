@@ -28,6 +28,31 @@ vars_templated:
   PAM_AUTH_FAILURE: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): authentication failure; (?<pam_kv>logname=[% GREEDYDATA %])'
   # session open/close line.
   PAM_SESSION: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): session (?<pam_session_action>opened|closed) for user (?<pam_user>[% USERNAME %])(?:\(uid=(?<pam_uid>[% INT %])\))?(?: by (?:(?<pam_by_user>[% USERNAME %]))?\(uid=(?<pam_by_uid>[% INT %])\))?'
+  # -------------------------------------------------------------------------
+  # additive expansions -- other common PAM message types.  All mirror the
+  # module/service/type "pam_<module>(<service>:<type>):" prefix used above and
+  # namespace every capture with pam_ .
+  # -------------------------------------------------------------------------
+  # pam_unix auth check where the account does not exist, e.g.
+  #   pam_unix(sshd:auth): check pass; user unknown
+  # pam_reason records the human-readable failure reason.
+  PAM_CHECK_PASS_USER_UNKNOWN: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): (?<pam_reason>check pass; user unknown)(?: [% GREEDYDATA %])?'
+  # pam_unix account-management expiry, e.g.
+  #   pam_unix(sshd:account): account root has expired (account expired)
+  #   pam_unix(sshd:account): password has expired
+  # pam_user is present only for the "account <user> has expired" shape; the
+  # parenthesised detail is captured as pam_result.
+  PAM_ACCOUNT_EXPIRED: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): (?<pam_reason>(?:account (?<pam_user>[% USERNAME %]) has expired|password has expired))(?: \((?<pam_result>[% GREEDYDATA_NO_BRACKET %])\))?'
+  # pam_faillock temporary account lock, e.g.
+  #   pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked
+  PAM_FAILLOCK: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): (?<pam_reason>Consecutive login failures for user (?<pam_user>[% USERNAME %]) account temporarily locked)(?: [% GREEDYDATA %])?'
+  # pam_tally2 lock after N failures, e.g.
+  #   pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked
+  # pam_failures is the failure count (coerced to int via convert below).
+  PAM_TALLY2: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): user (?<pam_user>[% USERNAME %]) \((?<pam_uid>[% INT %])\) has (?<pam_failures>[% INT %]) login failures; (?<pam_reason>the account is locked)(?: [% GREEDYDATA %])?'
+  # pam_succeed_if requirement not met, e.g.
+  #   pam_succeed_if(sshd:auth): requirement "uid >= 1000" not met by user "root"
+  PAM_SUCCEED_IF: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): requirement "(?<pam_requirement>[^"]*)" not met by user "(?<pam_user>[% USERNAME %])"(?: [% GREEDYDATA %])?'
 vars_tests:
   PAM_AUTH_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -49,6 +74,51 @@ vars_tests:
         result: 'pam_unix(sshd:session): session closed for user kitsune'
     negative:
       - 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+  PAM_CHECK_PASS_USER_UNKNOWN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(sshd:auth): check pass; user unknown'
+        result: 'pam_unix(sshd:auth): check pass; user unknown'
+      - string: 'pam_unix(login:auth): check pass; user unknown'
+        result: 'pam_unix(login:auth): check pass; user unknown'
+    negative:
+      - 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+  PAM_ACCOUNT_EXPIRED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_unix(sshd:account): account root has expired (account expired)'
+        result: 'pam_unix(sshd:account): account root has expired (account expired)'
+      - string: 'pam_unix(sshd:account): password has expired'
+        result: 'pam_unix(sshd:account): password has expired'
+    negative:
+      - 'pam_unix(sshd:session): session closed for user kitsune'
+  PAM_FAILLOCK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
+        result: 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
+      - string: 'pam_faillock(login:auth): Consecutive login failures for user kitsune account temporarily locked'
+        result: 'pam_faillock(login:auth): Consecutive login failures for user kitsune account temporarily locked'
+    negative:
+      - 'pam_unix(sshd:auth): check pass; user unknown'
+  PAM_TALLY2:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
+        result: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
+      - string: 'pam_tally2(login:auth): user kitsune (1001) has 3 login failures; the account is locked'
+        result: 'pam_tally2(login:auth): user kitsune (1001) has 3 login failures; the account is locked'
+    negative:
+      - 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
+  PAM_SUCCEED_IF:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pam_succeed_if(sshd:auth): requirement "uid >= 1000" not met by user "root"'
+        result: 'pam_succeed_if(sshd:auth): requirement "uid >= 1000" not met by user "root"'
+      - string: 'pam_succeed_if(sudo:auth): requirement "uid >= 1000" not met by user "daemon"'
+        result: 'pam_succeed_if(sudo:auth): requirement "uid >= 1000" not met by user "daemon"'
+    negative:
+      - 'pam_unix(sshd:account): password has expired'
 # file-level default: geoip the remote host from auth failures (empty rhost is
 # skipped by the geoip step)
 geoip:
@@ -59,6 +129,7 @@ convert:
   pam_uid: int
   pam_euid: int
   pam_by_uid: int
+  pam_failures: int
 # file-level default: split the "logname= uid= euid= tty= ruser= rhost= user="
 # blob (captured as pam_kv) into per-key fields, namespaced with pam_ .  Empty
 # values (e.g. logname= / rhost=) yield empty-string fields.
@@ -94,6 +165,11 @@ rules:
     patterns:
       - PAM_AUTH_FAILURE
       - PAM_SESSION
+      - PAM_CHECK_PASS_USER_UNKNOWN
+      - PAM_ACCOUNT_EXPIRED
+      - PAM_FAILLOCK
+      - PAM_TALLY2
+      - PAM_SUCCEED_IF
     tests:
       positive:
         # auth-failure lines -- decompose does NOT run in rule-tests, so the
@@ -137,5 +213,53 @@ rules:
             pam_type: 'session'
             pam_session_action: 'closed'
             pam_user: 'kitsune'
+        # check pass; user unknown
+        - string: 'pam_unix(sshd:auth): check pass; user unknown'
+          result:
+            pam_module: 'unix'
+            pam_service: 'sshd'
+            pam_type: 'auth'
+            pam_reason: 'check pass; user unknown'
+        # account/password expiry
+        - string: 'pam_unix(sshd:account): account root has expired (account expired)'
+          result:
+            pam_module: 'unix'
+            pam_service: 'sshd'
+            pam_type: 'account'
+            pam_reason: 'account root has expired'
+            pam_user: 'root'
+            pam_result: 'account expired'
+        - string: 'pam_unix(sshd:account): password has expired'
+          result:
+            pam_module: 'unix'
+            pam_service: 'sshd'
+            pam_type: 'account'
+            pam_reason: 'password has expired'
+        # faillock temporary lock
+        - string: 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
+          result:
+            pam_module: 'faillock'
+            pam_service: 'sshd'
+            pam_type: 'auth'
+            pam_reason: 'Consecutive login failures for user root account temporarily locked'
+            pam_user: 'root'
+        # tally2 lock after N failures
+        - string: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
+          result:
+            pam_module: 'tally2'
+            pam_service: 'sshd'
+            pam_type: 'auth'
+            pam_user: 'root'
+            pam_uid: '1000'
+            pam_failures: '5'
+            pam_reason: 'the account is locked'
+        # succeed_if requirement not met
+        - string: 'pam_succeed_if(sshd:auth): requirement "uid >= 1000" not met by user "root"'
+          result:
+            pam_module: 'succeed_if'
+            pam_service: 'sshd'
+            pam_type: 'auth'
+            pam_requirement: 'uid >= 1000'
+            pam_user: 'root'
       negative:
         - 'this is not a pam line at all'

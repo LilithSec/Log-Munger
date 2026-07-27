@@ -1,5 +1,5 @@
 ---
-# named / BIND9 query-log enrichment.
+# named / BIND9 log enrichment.
 #
 # Gates on the syslog PROGRAM field being "named". Patterns are anchored (each
 # must match the whole MESSAGE) and first-match wins. Every capture is
@@ -9,13 +9,71 @@
 #   client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): query: example.com IN A +E(0)K (192.0.2.1)
 # The "@0x..." internal address token is optional, as is the trailing
 # "(server_ip)" reporting which local address answered.
+#
+# In addition to the query log, BIND emits many other daemon messages: query
+# denials, zone transfers (AXFR/IXFR), zone loads, DNSSEC validation results,
+# response-rate-limiting (RRL), dynamic DNS (DDNS) updates, lame-server reports
+# and general network/resolution errors. Those are parsed by the patterns
+# appended after NAMED_QUERY below.
 includes:
 - base
 vars_templated:
   # A single BIND9 query-log line. Tolerates the optional "@0x..." client
   # address token and the optional trailing "(server_ip)".
   NAMED_QUERY: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: query: (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]) (?<dns_flags>[% NOTSPACE %])(?: \((?<dns_server_ip>[% IP %])\))?'
+  # Query denied by an ACL, e.g.:
+  #   client @0x7f 203.0.113.7#40000 (example.com): query (cache) 'example.com/A/IN' denied
+  # The "@0x..." token and "(cache)"/"(recursion)" qualifier are optional, as is
+  # the "(view)" between the client address and the colon.
+  NAMED_QUERY_DENIED: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: query(?: \((?<dns_query_source>[% WORD %])\))? ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'' denied(?: [% GREEDYDATA %])?'
+  # Zone transfer start, e.g.:
+  #   client 192.0.2.9#5300 (example.com): transfer of 'example.com/IN': AXFR started
+  #   client 192.0.2.9#5300 (example.com): transfer of 'example.com/IN': AXFR-style IXFR ended
+  NAMED_XFR_CLIENT: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: transfer of ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_xfr_type>(?:AXFR-style IXFR|AXFR|IXFR)) (?<dns_xfr_state>started|ended|deferred)(?: [% GREEDYDATA %])?'
+  # Outbound/failed zone transfer from a master, e.g.:
+  #   transfer of 'example.com/IN' from 192.0.2.2#53: failed while receiving responses: ...
+  NAMED_XFR_FROM: 'transfer of ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'' from (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %]): (?<dns_xfr_result>[% GREEDYDATA %])'
+  # Zone load, e.g.:
+  #   zone example.com/IN: loaded serial 2024010101
+  NAMED_ZONE_LOAD: 'zone (?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])(?:/[% NOTSPACE %])?: loaded serial (?<dns_zone_serial>[% INT %])(?: [% GREEDYDATA %])?'
+  # DNSSEC validation result, e.g.:
+  #   validating example.com/A: no valid signature found
+  #   validating example.com/A: insecurity proof failed
+  NAMED_DNSSEC: 'validating (?:@0x[0-9a-fA-F]+: )?(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %]): (?<dns_dnssec_result>[% GREEDYDATA %])'
+  # Response-rate-limiting (RRL) action, e.g.:
+  #   client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)
+  #   client 203.0.113.7#40000 (example.com): rate limit drop responses to ...
+  NAMED_RRL: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: rate limit (?<dns_rrl_action>[% WORD %]) (?<dns_rrl_kind>[% WORD %]) to (?<dns_rrl_network>[% NOTSPACE %])(?: for (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]))?(?: [% GREEDYDATA %])?'
+  # Dynamic DNS (DDNS) update, e.g.:
+  #   client 192.0.2.9#40000: updating zone 'example.com/IN': adding an RR at 'host.example.com' A 192.0.2.50
+  NAMED_DDNS: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: updating zone ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_ddns_op>[% GREEDYDATA %])'
+  # Lame server report, e.g.:
+  #   lame server resolving 'example.com' (in 'example.com'?): 192.0.2.2#53
+  NAMED_LAME: 'lame server resolving ''(?<dns_query_name>[% NOTSPACE %])''(?: \(in ''(?<dns_zone_name>[% NOTSPACE %])''\?\))?: (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # General resolution / network error, e.g.:
+  #   network unreachable resolving 'example.com/A/IN': 2001:db8::1#53
+  #   host unreachable resolving 'example.com/A/IN': 192.0.2.2#53
+  NAMED_NET_ERROR: '(?<dns_error>[% GREEDYDATA_NO_QUOTE %]) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'': (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
 vars_tests:
+  NOTSPACE_NO_SLASH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'example.com'
+        result: 'example.com'
+      - string: 'host.sub.test.org'
+        result: 'host.sub.test.org'
+    negative:
+      - 'has a space'
+      - 'example.com/IN'
+  GREEDYDATA_NO_QUOTE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'network unreachable'
+        result: 'network unreachable'
+      - string: 'host unreachable'
+        result: 'host unreachable'
+    negative:
+      - 'has a '' quote'
   NAMED_QUERY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -25,13 +83,103 @@ vars_tests:
         result: 'client 198.51.100.9#40000 (test.org): query: test.org IN AAAA + (192.0.2.1)'
     negative:
       - 'this is not a named query line at all'
-# file-level default: geoip lookup on the client IP (only used when the munger
-# is built with a geoip database).
+  NAMED_QUERY_DENIED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client @0x7f 203.0.113.7#40000 (example.com): query (cache) ''example.com/A/IN'' denied'
+        result: 'client @0x7f 203.0.113.7#40000 (example.com): query (cache) ''example.com/A/IN'' denied'
+      - string: 'client 198.51.100.9#40000 (test.org): query ''test.org/AAAA/IN'' denied'
+        result: 'client 198.51.100.9#40000 (test.org): query ''test.org/AAAA/IN'' denied'
+    negative:
+      - 'client @0x7f 192.0.2.5#54321 (example.com): query: example.com IN A + (192.0.2.1)'
+  NAMED_XFR_CLIENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR started'
+        result: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR started'
+      - string: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR-style IXFR ended'
+        result: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR-style IXFR ended'
+    negative:
+      - 'transfer of ''example.com/IN'' from 192.0.2.2#53: failed while receiving responses: end of file'
+  NAMED_XFR_FROM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'transfer of ''example.com/IN'' from 192.0.2.2#53: failed while receiving responses: end of file'
+        result: 'transfer of ''example.com/IN'' from 192.0.2.2#53: failed while receiving responses: end of file'
+      - string: 'transfer of ''test.org/IN'' from 198.51.100.9#53: connected using 192.0.2.1#5300'
+        result: 'transfer of ''test.org/IN'' from 198.51.100.9#53: connected using 192.0.2.1#5300'
+    negative:
+      - 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR started'
+  NAMED_ZONE_LOAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'zone example.com/IN: loaded serial 2024010101'
+        result: 'zone example.com/IN: loaded serial 2024010101'
+      - string: 'zone test.org/IN: loaded serial 1'
+        result: 'zone test.org/IN: loaded serial 1'
+    negative:
+      - 'zone example.com/IN: sending notifies (serial 2024010101)'
+  NAMED_DNSSEC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'validating example.com/A: no valid signature found'
+        result: 'validating example.com/A: no valid signature found'
+      - string: 'validating example.com/A: insecurity proof failed'
+        result: 'validating example.com/A: insecurity proof failed'
+    negative:
+      - 'zone example.com/IN: loaded serial 2024010101'
+  NAMED_RRL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+        result: 'client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+      - string: 'client 203.0.113.7#40000 (example.com): rate limit drop responses to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+        result: 'client 203.0.113.7#40000 (example.com): rate limit drop responses to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+    negative:
+      - 'client @0x7f 192.0.2.5#54321 (example.com): query: example.com IN A + (192.0.2.1)'
+  NAMED_DDNS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 192.0.2.9#40000: updating zone ''example.com/IN'': adding an RR at ''host.example.com'' A 192.0.2.50'
+        result: 'client 192.0.2.9#40000: updating zone ''example.com/IN'': adding an RR at ''host.example.com'' A 192.0.2.50'
+      - string: 'client 192.0.2.9#40000: updating zone ''test.org/IN'': deleting rrset at ''host.test.org'' A'
+        result: 'client 192.0.2.9#40000: updating zone ''test.org/IN'': deleting rrset at ''host.test.org'' A'
+    negative:
+      - 'client @0x7f 192.0.2.5#54321 (example.com): query: example.com IN A + (192.0.2.1)'
+  NAMED_LAME:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+        result: 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+      - string: 'lame server resolving ''sub.test.org'' (in ''test.org''?): 198.51.100.9#53'
+        result: 'lame server resolving ''sub.test.org'' (in ''test.org''?): 198.51.100.9#53'
+    negative:
+      - 'network unreachable resolving ''example.com/A/IN'': 2001:db8::1#53'
+  NAMED_NET_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'network unreachable resolving ''example.com/A/IN'': 2001:db8::1#53'
+        result: 'network unreachable resolving ''example.com/A/IN'': 2001:db8::1#53'
+      - string: 'host unreachable resolving ''test.org/AAAA/IN'': 192.0.2.2#53'
+        result: 'host unreachable resolving ''test.org/AAAA/IN'': 192.0.2.2#53'
+    negative:
+      - 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+# additional primitives used above that are not in base.yaml.
+vars:
+  # NOTSPACE that also excludes "/" (so a "name/type/class" triple can be split)
+  NOTSPACE_NO_SLASH: '[^\s/]+'
+  # a run of non-quote characters (used to bound a leading error phrase)
+  GREEDYDATA_NO_QUOTE: '[^'']*'
+# file-level default: geoip lookup on any captured client / source IP (only used
+# when the munger is built with a geoip database).
 geoip:
   - dns_client_ip
-# file-level default: coerce the client port to an integer at runtime.
+  - dns_src_ip
+# file-level default: coerce numeric captures (ports / serials) to integers.
 convert:
   dns_client_port: int
+  dns_src_port: int
+  dns_zone_serial: int
 rules:
   - name: named
     gate:
@@ -42,6 +190,15 @@ rules:
     anchored: true
     patterns:
       - NAMED_QUERY
+      - NAMED_QUERY_DENIED
+      - NAMED_XFR_CLIENT
+      - NAMED_XFR_FROM
+      - NAMED_ZONE_LOAD
+      - NAMED_DNSSEC
+      - NAMED_RRL
+      - NAMED_DDNS
+      - NAMED_LAME
+      - NAMED_NET_ERROR
     tests:
       positive:
         - string: 'client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): query: example.com IN A +E(0)K (192.0.2.1)'
@@ -71,6 +228,100 @@ rules:
             dns_query_type: 'MX'
             dns_flags: '+E'
             dns_server_ip: '192.0.2.1'
+        - string: 'client @0x7f 203.0.113.7#40000 (example.com): query (cache) ''example.com/A/IN'' denied'
+          result:
+            dns_client_ip: '203.0.113.7'
+            dns_client_port: '40000'
+            dns_query_source: 'cache'
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_query_class: 'IN'
+        - string: 'client 198.51.100.9#40000 (test.org): query ''test.org/AAAA/IN'' denied'
+          result:
+            dns_client_ip: '198.51.100.9'
+            dns_client_port: '40000'
+            dns_query_name: 'test.org'
+            dns_query_type: 'AAAA'
+            dns_query_class: 'IN'
+        - string: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR started'
+          result:
+            dns_client_ip: '192.0.2.9'
+            dns_client_port: '5300'
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_xfr_type: 'AXFR'
+            dns_xfr_state: 'started'
+        - string: 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR-style IXFR ended'
+          result:
+            dns_client_ip: '192.0.2.9'
+            dns_client_port: '5300'
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_xfr_type: 'AXFR-style IXFR'
+            dns_xfr_state: 'ended'
+        - string: 'transfer of ''example.com/IN'' from 192.0.2.2#53: failed while receiving responses: end of file'
+          result:
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_src_ip: '192.0.2.2'
+            dns_src_port: '53'
+            dns_xfr_result: 'failed while receiving responses: end of file'
+        - string: 'zone example.com/IN: loaded serial 2024010101'
+          result:
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_zone_serial: '2024010101'
+        - string: 'validating example.com/A: no valid signature found'
+          result:
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_dnssec_result: 'no valid signature found'
+        - string: 'validating example.com/A: insecurity proof failed'
+          result:
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_dnssec_result: 'insecurity proof failed'
+        - string: 'client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+          result:
+            dns_client_ip: '203.0.113.7'
+            dns_client_port: '40000'
+            dns_rrl_action: 'slip'
+            dns_rrl_kind: 'response'
+            dns_rrl_network: '203.0.113.0/24'
+            dns_query_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_query_type: 'A'
+        - string: 'client 203.0.113.7#40000 (example.com): rate limit drop responses to 203.0.113.0/24 for example.com IN A  (abcd1234)'
+          result:
+            dns_client_ip: '203.0.113.7'
+            dns_client_port: '40000'
+            dns_rrl_action: 'drop'
+            dns_rrl_kind: 'responses'
+            dns_rrl_network: '203.0.113.0/24'
+            dns_query_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_query_type: 'A'
+        - string: 'client 192.0.2.9#40000: updating zone ''example.com/IN'': adding an RR at ''host.example.com'' A 192.0.2.50'
+          result:
+            dns_client_ip: '192.0.2.9'
+            dns_client_port: '40000'
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_ddns_op: 'adding an RR at ''host.example.com'' A 192.0.2.50'
+        - string: 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+          result:
+            dns_query_name: 'example.com'
+            dns_zone_name: 'example.com'
+            dns_src_ip: '192.0.2.2'
+            dns_src_port: '53'
+        - string: 'network unreachable resolving ''example.com/A/IN'': 2001:db8::1#53'
+          result:
+            dns_error: 'network unreachable'
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_query_class: 'IN'
+            dns_src_ip: '2001:db8::1'
+            dns_src_port: '53'
       negative:
         - 'this is not a named line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'

@@ -1,0 +1,194 @@
+---
+# Exim MTA (exim / exim4) main log enrichment.
+#
+# Gates on the syslog PROGRAM field being "exim" or "exim4".  Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# capture is namespaced with exim_ .
+#
+# After Log::Munger strips the syslog timestamp + program, most Exim main-log
+# lines begin with the internal message id (e.g. "1rABCD-0001Ab-2x") followed
+# by a one/two character flag describing the event:
+#   <=  arrival        =>  delivery        ->  additional recipient
+#   >>  cutthrough     *>  delivery suppressed
+#   **  delivery failed (bounce)           ==  deferred
+#   Completed          (message fully processed)
+# Some lines (e.g. connection-time RCPT rejections) have NO message id and are
+# handled as separate patterns.
+includes:
+- base
+vars_templated:
+  # Arrival: "<msgid> <= sender@example.com H=mail.example.com [203.0.113.7]
+  #  P=esmtp S=1234 id=<abc@x>".  Sender may be "<>" for bounces (captured as
+  #  the literal token).  The H= host clause and later key=value fields are all
+  #  optional so we tolerate the many arrival variants.
+  EXIM_ARRIVAL: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_flag><=) (?<exim_sender>[% NOTSPACE %])(?: H=(?:(?<exim_h_host>[% HOSTNAME %]) )?\[(?<exim_src_ip>[% IP %])\])?(?: P=(?<exim_proto>[% NOTSPACE %]))?(?: S=(?<exim_size>[% INT %]))?(?: id=(?<exim_id>[% NOTSPACE %]))?(?: [% GREEDYDATA %])?'
+  # Delivery: "<msgid> => recipient@example.net R=dnslookup T=remote_smtp
+  #  H=mx.example.net [198.51.100.2] X=TLS1.3 C=\"250 OK\"".
+  EXIM_DELIVERY: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_flag>=>) (?<exim_recipient>[% NOTSPACE %])(?: R=(?<exim_router>[% NOTSPACE %]))?(?: T=(?<exim_transport>[% NOTSPACE %]))?(?: H=(?:(?<exim_h_host>[% HOSTNAME %]) )?\[(?<exim_dst_ip>[% IP %])\])?(?: [% GREEDYDATA %])?'
+  # Additional recipient of an already-delivered message: "<msgid> ->
+  #  extra@example.net R=... T=...".
+  EXIM_ADDITIONAL: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_flag>->) (?<exim_recipient>[% NOTSPACE %])(?: R=(?<exim_router>[% NOTSPACE %]))?(?: T=(?<exim_transport>[% NOTSPACE %]))?(?: H=(?:(?<exim_h_host>[% HOSTNAME %]) )?\[(?<exim_dst_ip>[% IP %])\])?(?: [% GREEDYDATA %])?'
+  # Deferred: "<msgid> == recipient@example.net R=dnslookup T=remote_smtp defer
+  #  (-53): retry time not reached".  Everything after "defer ..." (or the first
+  #  free-text) becomes the defer reason.
+  EXIM_DEFERRED: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_flag>==) (?<exim_recipient>[% NOTSPACE %])(?: R=(?<exim_router>[% NOTSPACE %]))?(?: T=(?<exim_transport>[% NOTSPACE %]))? (?<exim_defer_reason>[% GREEDYDATA %])'
+  # Failed / bounce: "<msgid> ** recipient@example.net R=dnslookup
+  #  T=remote_smtp: SMTP error from remote mail server after RCPT TO:<...>:
+  #  550 No such user".  The trailing free-text after the ": " is the error.
+  EXIM_FAILED: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_flag>\*\*) (?<exim_recipient>[% NOTSPACE %])(?: R=(?<exim_router>[% NOTSPACE %]))?(?: T=(?<exim_transport>[% NOTSPACE %]))?: (?<exim_error>[% GREEDYDATA %])'
+  # Completed: "<msgid> Completed".
+  EXIM_COMPLETED: '(?<exim_msgid>[% NOTSPACE %]) (?<exim_completed>Completed)(?: [% GREEDYDATA %])?'
+  # Connection-time rejection (NO message id): "H=(helo) [203.0.113.7]
+  #  F=<spammer@x> rejected RCPT <victim@example.com>: relay not permitted".
+  #  The HELO name in parens, the bracketed source IP, the envelope sender in
+  #  F=<...>, the rejected recipient, and the free-text reason.
+  EXIM_REJECT: 'H=(?:\((?<exim_helo>[% GREEDYDATA_NO_BRACKET %])\) )?\[(?<exim_src_ip>[% IP %])\] F=<(?<exim_sender>[% GREEDYDATA_NO_BRACKET %])> rejected (?<exim_reject_verb>[% WORD %]) <(?<exim_recipient>[% GREEDYDATA_NO_BRACKET %])>: (?<exim_reject_reason>[% GREEDYDATA %])'
+vars_tests:
+  EXIM_ARRIVAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234 id=<abc@x>'
+        result: '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234 id=<abc@x>'
+      - string: '1rWXYZ-0002Cd-9y <= bounce@example.org H=relay.example.org [198.51.100.5] P=esmtps S=987'
+        result: '1rWXYZ-0002Cd-9y <= bounce@example.org H=relay.example.org [198.51.100.5] P=esmtps S=987'
+    negative:
+      - '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp'
+  EXIM_DELIVERY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2] X=TLS1.3 C="250 OK"'
+        result: '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2] X=TLS1.3 C="250 OK"'
+      - string: '1rABCD-0001Ab-2x => localuser R=localuser T=local_delivery'
+        result: '1rABCD-0001Ab-2x => localuser R=localuser T=local_delivery'
+    negative:
+      - '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234'
+  EXIM_ADDITIONAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x -> extra@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2]'
+        result: '1rABCD-0001Ab-2x -> extra@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2]'
+      - string: '1rABCD-0001Ab-2x -> second@example.net R=dnslookup T=remote_smtp'
+        result: '1rABCD-0001Ab-2x -> second@example.net R=dnslookup T=remote_smtp'
+    negative:
+      - '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp'
+  EXIM_DEFERRED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x == recipient@example.net R=dnslookup T=remote_smtp defer (-53): retry time not reached'
+        result: '1rABCD-0001Ab-2x == recipient@example.net R=dnslookup T=remote_smtp defer (-53): retry time not reached'
+      - string: '1rABCD-0001Ab-2x == user@example.org R=dnslookup T=remote_smtp defer (110, 0): Connection timed out'
+        result: '1rABCD-0001Ab-2x == user@example.org R=dnslookup T=remote_smtp defer (110, 0): Connection timed out'
+    negative:
+      - '1rABCD-0001Ab-2x ** recipient@example.net R=dnslookup T=remote_smtp: 550 No such user'
+  EXIM_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x ** recipient@example.net R=dnslookup T=remote_smtp: SMTP error from remote mail server after RCPT TO:<recipient@example.net>: 550 No such user'
+        result: '1rABCD-0001Ab-2x ** recipient@example.net R=dnslookup T=remote_smtp: SMTP error from remote mail server after RCPT TO:<recipient@example.net>: 550 No such user'
+      - string: '1rABCD-0001Ab-2x ** baduser@example.org R=dnslookup T=remote_smtp: retry timeout exceeded'
+        result: '1rABCD-0001Ab-2x ** baduser@example.org R=dnslookup T=remote_smtp: retry timeout exceeded'
+    negative:
+      - '1rABCD-0001Ab-2x == recipient@example.net R=dnslookup T=remote_smtp defer (-53): retry time not reached'
+  EXIM_COMPLETED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '1rABCD-0001Ab-2x Completed'
+        result: '1rABCD-0001Ab-2x Completed'
+      - string: '1rWXYZ-0002Cd-9y Completed'
+        result: '1rWXYZ-0002Cd-9y Completed'
+    negative:
+      - '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp'
+  EXIM_REJECT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'H=(helo) [203.0.113.7] F=<spammer@x> rejected RCPT <victim@example.com>: relay not permitted'
+        result: 'H=(helo) [203.0.113.7] F=<spammer@x> rejected RCPT <victim@example.com>: relay not permitted'
+      - string: 'H=(evil.example) [198.51.100.9] F=<bad@evil.example> rejected RCPT <target@example.org>: sender verify failed'
+        result: 'H=(evil.example) [198.51.100.9] F=<bad@evil.example> rejected RCPT <target@example.org>: sender verify failed'
+    negative:
+      - '1rABCD-0001Ab-2x Completed'
+# file-level default: geoip lookup on any captured source / destination IP
+# (only used when the munger is built with a geoip database)
+geoip:
+  - exim_src_ip
+  - exim_dst_ip
+# file-level default: coerce the message size to an integer at runtime
+convert:
+  exim_size: int
+rules:
+  - name: exim
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^exim4?$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - EXIM_COMPLETED
+      - EXIM_ARRIVAL
+      - EXIM_DELIVERY
+      - EXIM_ADDITIONAL
+      - EXIM_DEFERRED
+      - EXIM_FAILED
+      - EXIM_REJECT
+    tests:
+      positive:
+        - string: '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234 id=<abc@x>'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_flag: '<='
+            exim_sender: 'sender@example.com'
+            exim_h_host: 'mail.example.com'
+            exim_src_ip: '203.0.113.7'
+            exim_proto: 'esmtp'
+            exim_size: '1234'
+            exim_id: '<abc@x>'
+        - string: '1rABCD-0001Ab-2x => recipient@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2] X=TLS1.3 C="250 OK"'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_flag: '=>'
+            exim_recipient: 'recipient@example.net'
+            exim_router: 'dnslookup'
+            exim_transport: 'remote_smtp'
+            exim_h_host: 'mx.example.net'
+            exim_dst_ip: '198.51.100.2'
+        - string: '1rABCD-0001Ab-2x -> extra@example.net R=dnslookup T=remote_smtp H=mx.example.net [198.51.100.2]'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_flag: '->'
+            exim_recipient: 'extra@example.net'
+            exim_router: 'dnslookup'
+            exim_transport: 'remote_smtp'
+            exim_h_host: 'mx.example.net'
+            exim_dst_ip: '198.51.100.2'
+        - string: '1rABCD-0001Ab-2x == recipient@example.net R=dnslookup T=remote_smtp defer (-53): retry time not reached'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_flag: '=='
+            exim_recipient: 'recipient@example.net'
+            exim_router: 'dnslookup'
+            exim_transport: 'remote_smtp'
+            exim_defer_reason: 'defer (-53): retry time not reached'
+        - string: '1rABCD-0001Ab-2x ** recipient@example.net R=dnslookup T=remote_smtp: SMTP error from remote mail server after RCPT TO:<recipient@example.net>: 550 No such user'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_flag: '**'
+            exim_recipient: 'recipient@example.net'
+            exim_router: 'dnslookup'
+            exim_transport: 'remote_smtp'
+            exim_error: 'SMTP error from remote mail server after RCPT TO:<recipient@example.net>: 550 No such user'
+        - string: '1rABCD-0001Ab-2x Completed'
+          result:
+            exim_msgid: '1rABCD-0001Ab-2x'
+            exim_completed: 'Completed'
+        - string: 'H=(helo) [203.0.113.7] F=<spammer@x> rejected RCPT <victim@example.com>: relay not permitted'
+          result:
+            exim_helo: 'helo'
+            exim_src_ip: '203.0.113.7'
+            exim_sender: 'spammer@x'
+            exim_reject_verb: 'RCPT'
+            exim_recipient: 'victim@example.com'
+            exim_reject_reason: 'relay not permitted'
+      negative:
+        - 'this is not an exim line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

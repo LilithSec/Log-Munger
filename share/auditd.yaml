@@ -8,15 +8,58 @@
 # pattern peels off the type, the audit() id, the outer field blob, and the
 # optional nested msg, then two quote-aware kv decomposes split the two blobs.
 #
+# Ahead of the generic catch-all AUDITD var sit type-specific patterns that
+# recognise the common USER_*, cred, user/group management, SELinux AVC and
+# anomaly records via their "type=XXX" token. To stay drop-in compatible with the
+# existing consumers (and t/auditd.t) every pattern captures into the SAME field
+# names -- audit_type / audit_epoch / audit_serial and the two k=v blobs
+# audit_fields (outer) + audit_msg (nested single-quoted sub-record). Those two
+# blobs are broken up by the quote-aware kv decomposes below into audit_* /
+# audit_msg_* fields (acct, exe, hostname, addr, terminal, res, ...). Because
+# decompose only ever runs on fields that were actually captured, one shared
+# decompose list serves every pattern. Genuinely new, AVC-only captures are
+# audit_avc_action and audit_avc_perms.
+#
 # Per-record only -- correlating the several records of one event (same audit
 # id, separate lines) is a stateful concern left to the consumer.
 includes:
 - base
 vars_templated:
   # '' is a literal single quote inside this single-quoted YAML scalar
+  #
+  # --- type-specific patterns (matched BEFORE the generic AUDITD below) ---
+  #
+  # USER_AUTH / USER_ACCT / CRED_ACQ / CRED_DISP / CRED_REFR / USER_START /
+  # USER_END: an outer pid/uid/auid/ses blob followed by a nested single-quoted
+  # msg='...' sub-record carrying op/acct/exe/hostname/addr/terminal/res. The
+  # nested blob is decomposed into audit_msg_* (acct/exe/hostname/addr/res).
+  AUDITD_USER_AUTH: 'type=(?<audit_type>USER_AUTH|USER_ACCT|CRED_ACQ|CRED_DISP|CRED_REFR|USER_START|USER_END) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  # USER_LOGIN: an outer pid/uid/auid/ses(/res) blob plus a nested msg='...' that
+  # carries op/acct/addr/terminal (and often res). uid/auid/ses/res come from the
+  # outer blob (audit_*), acct/addr/terminal from the nested one (audit_msg_*).
+  AUDITD_USER_LOGIN: 'type=(?<audit_type>USER_LOGIN) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  # USER_CMD: a privileged command (sudo et al). The nested msg='...' holds the
+  # cmd (usually hex-encoded), cwd, terminal and res.
+  AUDITD_USER_CMD: 'type=(?<audit_type>USER_CMD) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  # ADD_USER / DEL_USER / ADD_GROUP / DEL_GROUP / USER_MGMT / GRP_MGMT: account
+  # and group lifecycle. The nested msg='...' carries op= (the operation) and the
+  # acct/grp being touched, plus exe/hostname/addr/res.
+  AUDITD_USER_MGMT: 'type=(?<audit_type>ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  # AVC: SELinux access-vector-cache decisions. The message body starts with
+  #   avc:  denied  { read write } for  pid=.. comm=".." scontext=.. tcontext=..
+  # capture the action (denied/granted) and the { perms }, then hand the trailing
+  # pid=.. comm=.. scontext=.. tcontext=.. blob to the outer kv decompose.
+  AUDITD_AVC: 'type=(?<audit_type>AVC|USER_AVC|SELINUX_ERR) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): avc: +(?<audit_avc_action>denied|granted) +\{ (?<audit_avc_perms>[^}]*) \} +for +(?<audit_fields>.*)'
+  # ANOM_* / anomaly + integrity records (ANOM_LOGIN_FAILURES, ANOM_ABEND,
+  # ANOM_PROMISCUOUS, INTEGRITY_*, SECCOMP, ...): recognise the type and let the
+  # outer kv decompose (and, when present, the nested one) handle the k=v blobs.
+  AUDITD_ANOM: 'type=(?<audit_type>(?:ANOM_|INTEGRITY_)[A-Z_]+|SECCOMP|MAC_STATUS|MAC_POLICY_LOAD) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  #
+  # --- generic catch-all (UNCHANGED; must stay LAST in the patterns list) ---
   AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) msg=audit\((?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %])\): (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
 geoip:
   - audit_msg_addr
+  - audit_addr
 convert:
   audit_serial: int
   audit_pid: int
@@ -43,6 +86,14 @@ decompose:
           audit_comm: 'ls'
           audit_exe: '/usr/bin/ls'
           audit_key: 'watch exec'
+      # AVC trailing blob: comm/scontext/tcontext survive the split
+      - input: 'pid=4444 comm="httpd" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file'
+        result:
+          audit_pid: '4444'
+          audit_comm: 'httpd'
+          audit_scontext: 'system_u:system_r:httpd_t:s0'
+          audit_tcontext: 'system_u:object_r:shadow_t:s0'
+          audit_tclass: 'file'
   # nested USER_* sub-record (single-quoted blob, double-quoted values inside)
   - field: audit_msg
     type: kv
@@ -57,7 +108,95 @@ decompose:
           audit_msg_exe: '/usr/sbin/sshd'
           audit_msg_addr: '203.0.113.7'
           audit_msg_res: 'failed'
+      # USER_AUTH nested blob with grantors/hostname/terminal, hostname=? bareword
+      - input: 'op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'
+        result:
+          audit_msg_op: 'PAM:authentication'
+          audit_msg_grantors: 'pam_unix'
+          audit_msg_acct: 'root'
+          audit_msg_exe: '/usr/sbin/sshd'
+          audit_msg_hostname: '?'
+          audit_msg_addr: '203.0.113.7'
+          audit_msg_terminal: 'ssh'
+          audit_msg_res: 'success'
+      # USER_CMD nested blob: hex cmd, cwd, terminal, res
+      - input: 'cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'
+        result:
+          audit_msg_cwd: '/home/kitsune'
+          audit_msg_cmd: '6C73202D6C61'
+          audit_msg_terminal: 'pts/0'
+          audit_msg_res: 'success'
+      # USER_MGMT nested blob: op + acct/grp lifecycle
+      - input: 'op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'
+        result:
+          audit_msg_op: 'add-user'
+          audit_msg_id: '1500'
+          audit_msg_exe: '/usr/sbin/useradd'
+          audit_msg_hostname: '?'
+          audit_msg_addr: '?'
+          audit_msg_terminal: 'pts/0'
+          audit_msg_res: 'success'
 vars_tests:
+  AUDITD_USER_AUTH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+        result: 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+      - string: 'type=CRED_ACQ msg=audit(1700000001.500:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:setcred grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+        result: 'type=CRED_ACQ msg=audit(1700000001.500:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:setcred grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+    negative:
+      - 'type=USER_LOGIN msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_USER_LOGIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=USER_LOGIN msg=audit(1700000002.000:458): pid=1234 uid=0 auid=1000 ses=3 msg=''op=login id=1000 exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+        result: 'type=USER_LOGIN msg=audit(1700000002.000:458): pid=1234 uid=0 auid=1000 ses=3 msg=''op=login id=1000 exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+      - string: 'type=USER_LOGIN msg=audit(1700000003.000:459): pid=999 uid=0 auid=0 ses=1 msg=''op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'''
+        result: 'type=USER_LOGIN msg=audit(1700000003.000:459): pid=999 uid=0 auid=0 ses=1 msg=''op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'''
+    negative:
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_USER_CMD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+        result: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+      - string: 'type=USER_CMD msg=audit(1700000005.000:461): pid=2223 uid=1000 auid=1000 ses=3 msg=''cwd="/root" cmd=6964 terminal=pts/1 res=failed'''
+        result: 'type=USER_CMD msg=audit(1700000005.000:461): pid=2223 uid=1000 auid=1000 ses=3 msg=''cwd="/root" cmd=6964 terminal=pts/1 res=failed'''
+    negative:
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_USER_MGMT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''
+        result: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''
+      - string: 'type=DEL_GROUP msg=audit(1700000007.000:463): pid=3334 uid=0 auid=0 ses=2 msg=''op=delete-group grp="devs" exe="/usr/sbin/groupdel" hostname=? addr=? terminal=pts/0 res=success'''
+        result: 'type=DEL_GROUP msg=audit(1700000007.000:463): pid=3334 uid=0 auid=0 ses=2 msg=''op=delete-group grp="devs" exe="/usr/sbin/groupdel" hostname=? addr=? terminal=pts/0 res=success'''
+    negative:
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_AVC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
+        result: 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
+      - string: 'type=AVC msg=audit(1700000009.000:465): avc:  granted  { execute } for  pid=4445 comm="sh" scontext=unconfined_u:unconfined_r:unconfined_t:s0 tcontext=system_u:object_r:bin_t:s0 tclass=file'
+        result: 'type=AVC msg=audit(1700000009.000:465): avc:  granted  { execute } for  pid=4445 comm="sh" scontext=unconfined_u:unconfined_r:unconfined_t:s0 tcontext=system_u:object_r:bin_t:s0 tclass=file'
+    negative:
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
+  AUDITD_ANOM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'type=ANOM_ABEND msg=audit(1700000010.000:466): auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'
+        result: 'type=ANOM_ABEND msg=audit(1700000010.000:466): auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'
+      - string: 'type=ANOM_LOGIN_FAILURES msg=audit(1700000011.000:467): pid=5556 uid=0 auid=1000 ses=3 msg=''op=login acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=failed'''
+        result: 'type=ANOM_LOGIN_FAILURES msg=audit(1700000011.000:467): pid=5556 uid=0 auid=1000 ses=3 msg=''op=login acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=failed'''
+    negative:
+      - 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0'
+      - 'this is not an auditd record'
   AUDITD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -72,6 +211,12 @@ rules:
     field: MESSAGE
     anchored: true
     patterns:
+      - AUDITD_USER_AUTH
+      - AUDITD_USER_LOGIN
+      - AUDITD_USER_CMD
+      - AUDITD_USER_MGMT
+      - AUDITD_AVC
+      - AUDITD_ANOM
       - AUDITD
     tests:
       positive:
@@ -88,6 +233,62 @@ rules:
             audit_serial: '457'
             audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
             audit_msg: 'op=PAM:authentication acct="root" addr=203.0.113.7 res=failed'
+        # USER_AUTH: type-specific pattern wins; outer + nested blobs both split
+        - string: 'type=USER_AUTH msg=audit(1700000000.123:456): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+          result:
+            audit_type: 'USER_AUTH'
+            audit_epoch: '1700000000.123'
+            audit_serial: '456'
+            audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
+            audit_msg: 'op=PAM:authentication grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'
+        # CRED_ACQ shares the USER_AUTH pattern
+        - string: 'type=CRED_ACQ msg=audit(1700000001.500:457): pid=1234 uid=0 auid=1000 ses=3 msg=''op=PAM:setcred grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'''
+          result:
+            audit_type: 'CRED_ACQ'
+            audit_epoch: '1700000001.500'
+            audit_serial: '457'
+            audit_fields: 'pid=1234 uid=0 auid=1000 ses=3'
+            audit_msg: 'op=PAM:setcred grantors=pam_unix acct="root" exe="/usr/sbin/sshd" hostname=? addr=203.0.113.7 terminal=ssh res=success'
+        # USER_LOGIN: uid/auid/ses from outer, acct/addr/terminal from nested
+        - string: 'type=USER_LOGIN msg=audit(1700000003.000:459): pid=999 uid=0 auid=0 ses=1 msg=''op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'''
+          result:
+            audit_type: 'USER_LOGIN'
+            audit_epoch: '1700000003.000'
+            audit_serial: '459'
+            audit_fields: 'pid=999 uid=0 auid=0 ses=1'
+            audit_msg: 'op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'
+        # USER_CMD: hex-encoded cmd, cwd, terminal, res in the nested sub-record
+        - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+          result:
+            audit_type: 'USER_CMD'
+            audit_epoch: '1700000004.000'
+            audit_serial: '460'
+            audit_fields: 'pid=2222 uid=1000 auid=1000 ses=3'
+            audit_msg: 'cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'
+        # ADD_USER: op + acct/id from the nested sub-record
+        - string: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''
+          result:
+            audit_type: 'ADD_USER'
+            audit_epoch: '1700000006.000'
+            audit_serial: '462'
+            audit_fields: 'pid=3333 uid=0 auid=0 ses=2'
+            audit_msg: 'op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'
+        # AVC: action + perms captured directly; the rest goes to the outer kv
+        - string: 'type=AVC msg=audit(1700000008.000:464): avc:  denied  { read } for  pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
+          result:
+            audit_type: 'AVC'
+            audit_epoch: '1700000008.000'
+            audit_serial: '464'
+            audit_avc_action: 'denied'
+            audit_avc_perms: 'read'
+            audit_fields: 'pid=4444 comm="httpd" name="passwd" dev="sda1" ino=1234 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0'
+        # ANOM_ABEND: outer blob only (no nested msg)
+        - string: 'type=ANOM_ABEND msg=audit(1700000010.000:466): auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'
+          result:
+            audit_type: 'ANOM_ABEND'
+            audit_epoch: '1700000010.000'
+            audit_serial: '466'
+            audit_fields: 'auid=1000 uid=1000 ses=3 pid=5555 comm="crasher" exe="/usr/bin/crasher" sig=11 res=1'
       negative:
         - 'this is not an auditd record'
         - 'Jul 15 10:00:00 host sshd[1]: Accepted publickey for x'

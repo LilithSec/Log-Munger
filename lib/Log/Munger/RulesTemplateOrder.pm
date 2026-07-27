@@ -5,7 +5,10 @@ use strict;
 use warnings;
 use Algorithm::Dependency::Ordered;
 use Algorithm::Dependency::Source::HoA;
-use Log::Munger::RuleFileParser;
+
+# Log::Munger::RuleFileParser is loaded at runtime (via require, inside the two
+# file-based helpers below) rather than with a compile-time use: RuleFileParser
+# already uses this module, so a use here would form a circular dependency.
 
 =head1 NAME
 
@@ -88,9 +91,9 @@ sub depends_for_rules_hash {
 	}
 	my $rules = $opts{'rules'};
 
-	if ( defined( $rules->{'vars'} ) & ( ref( $rules->{'vars'} ) ne 'HASH' ) ) {
+	if ( defined( $rules->{'vars'} ) && ( ref( $rules->{'vars'} ) ne 'HASH' ) ) {
 		die( '$opts{rules}{vars} has a ref of "' . ref( $rules->{'vars'} ) . '" and not HASH' );
-	} elsif ( defined( $rules->{'vars_templated'} ) & ( ref( $rules->{'vars_templated'} ) ne 'HASH' ) ) {
+	} elsif ( defined( $rules->{'vars_templated'} ) && ( ref( $rules->{'vars_templated'} ) ne 'HASH' ) ) {
 		die( '$opts{rules}{vars_templated} has a ref of "' . ref( $rules->{'vars_templated'} ) . '" and not HASH' );
 	}
 
@@ -143,6 +146,7 @@ sub order_for_rules_file {
 
 	my $rules;
 	eval {
+		require Log::Munger::RuleFileParser;
 		my $parser = Log::Munger::RuleFileParser->new;
 		$rules = $parser->load_no_templating( 'file' => $opts{'file'} );
 	};
@@ -164,6 +168,7 @@ sub depends_for_rules_file {
 
 	my $rules;
 	eval {
+		require Log::Munger::RuleFileParser;
 		my $parser = Log::Munger::RuleFileParser->new;
 		$rules = $parser->load_no_templating( 'file' => $opts{'file'} );
 	};

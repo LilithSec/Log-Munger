@@ -1,0 +1,611 @@
+---
+# Kernel ring-buffer (dmesg via syslog) host-health / security enrichment for
+# BOTH Linux and FreeBSD.
+#
+# Gates on the syslog PROGRAM field being "kernel". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
+# namespaced with kernel_ .
+#
+# NAMING CONVENTION so every var (and its tests) declares its target kernel:
+#   KERNEL_LINUX_*  -> Linux-only message types (OOM, EXT4/XFS, blk I/O, ...)
+#   KERNEL_FBSD_*   -> FreeBSD-only message types (signal-exit, GEOM/ZFS, ...)
+# The vars_tests and the rule-level positive tests are grouped under matching
+# "Linux" / "FreeBSD" headers in the same order.
+#
+# NOTE: netfilter/iptables/ufw firewall lines ("[UFW BLOCK] IN=eth0 SRC=...")
+# ALSO arrive with PROGRAM=kernel and are handled by share/netfilter.yaml. This
+# file deliberately does NOT match those; the negative tests assert a "[UFW
+# BLOCK] IN=... SRC=..." line matches none of the patterns here so the two files
+# do not collide.
+includes:
+- base
+vars_templated:
+  # ==================================================================
+  # Linux kernel messages (KERNEL_LINUX_*).
+  # ==================================================================
+  # OOM killer (newer format): "Out of memory: Killed process 1234 (mysqld)
+  # total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999
+  # pgtables:1kB oom_score_adj:0"
+  KERNEL_LINUX_OOM: 'Out of memory: Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
+  # OOM killer (older format, no "Out of memory:" prefix): "Killed process 1234
+  # (mysqld) total-vm:100kB, anon-rss:50kB, ..."
+  KERNEL_LINUX_OOM_OLD: 'Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
+  # segfault: "php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in
+  # libc-2.31.so[7f00+1c000]"
+  KERNEL_LINUX_SEGV: '(?<kernel_segv_comm>[% NOTSPACE %])\[(?<kernel_segv_pid>[% INT %])\]: segfault at (?<kernel_segv_addr>[% NOTSPACE %]) ip (?<kernel_segv_ip>[% NOTSPACE %]) sp (?<kernel_segv_sp>[% NOTSPACE %]) error (?<kernel_segv_error>[% INT %])(?: in [% GREEDYDATA %])?'
+  # general protection / traps: "traps: nginx[1234] general protection ip:...
+  # sp:... error:0 in ..."
+  KERNEL_LINUX_TRAP: 'traps: (?<kernel_trap_comm>[% NOTSPACE %])\[(?<kernel_trap_pid>[% INT %])\] (?<kernel_trap_detail>[% GREEDYDATA %])'
+  # ext4/ext3/ext2 filesystem error: "EXT4-fs error (device sda1):
+  # ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0"
+  KERNEL_LINUX_EXT_FS: '(?<kernel_fs>EXT[234]-fs) error \(device (?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
+  # XFS filesystem error: "XFS (sda1): ..."
+  KERNEL_LINUX_XFS: '(?<kernel_fs>XFS) \((?<kernel_device>[% NOTSPACE %])\): (?<kernel_fs_detail>[% GREEDYDATA %])'
+  # block I/O error: "blk_update_request: I/O error, dev sda, sector 12345678 op
+  # 0x0:(READ) flags 0x0 phys_seg 1 prio class 0"
+  KERNEL_LINUX_BLK_IO: 'blk_update_request: I/O error, dev (?<kernel_io_dev>[% NOTSPACE %]), sector (?<kernel_io_sector>[% INT %])(?: [% GREEDYDATA %])?'
+  # AppArmor denial: "audit: type=1400 audit(...): apparmor=\"DENIED\"
+  # operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234
+  # comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0". The
+  # apparmor mode ("DENIED"/"ALLOWED") is captured directly as
+  # kernel_apparmor_mode; the remaining quoted k=v tail is captured as
+  # kernel_apparmor_kv and quote-aware kv-decomposed into kernel_apparmor_*
+  # fields (operation/profile/name/comm/...).
+  KERNEL_LINUX_APPARMOR: 'audit: type=1400 audit\([% GREEDYDATA %]\): apparmor="(?<kernel_apparmor_mode>[% WORD %])" (?<kernel_apparmor_kv>operation=[% GREEDYDATA %])'
+  # USB device attach: "usb 1-1: new high-speed USB device number 5 using
+  # ehci-hcd"
+  KERNEL_LINUX_USB: 'usb (?<kernel_usb>[% NOTSPACE %]): new [% GREEDYDATA %]'
+  # ==================================================================
+  # FreeBSD kernel messages (additive). These arrive with PROGRAM=kernel
+  # exactly like the Linux ones above and share the //^kernel$// gate.
+  # NOTE: FreeBSD firewall lines that start with "ipfw:" are deliberately
+  # NOT matched here; they are owned by share/ipfw.yaml.
+  # ==================================================================
+  # ---- TIER A: security / resource ----
+  # process signal exit (segfault analog): "pid 48822 (httpd), jid 0, uid 80:
+  # exited on signal 11 (core dumped)". The trailing "(core dumped)" is optional.
+  KERNEL_FBSD_SIGEXIT: 'pid (?<kernel_pid>[% INT %]) \((?<kernel_comm>[^)]+)\), jid (?<kernel_jid>[% INT %]), uid (?<kernel_uid>[% INT %]): exited on signal (?<kernel_signal>[% INT %])(?: \((?<kernel_core>core dumped)\))?(?: [% GREEDYDATA %])?'
+  # out-of-swap kill (OOM analog): "pid 1234 (mysqld), jid 0, uid 88, was
+  # killed: out of swap space".
+  KERNEL_FBSD_SWAPKILL: 'pid (?<kernel_pid>[% INT %]) \((?<kernel_comm>[^)]+)\), jid (?<kernel_jid>[% INT %]), uid (?<kernel_uid>[% INT %]), was killed: (?<kernel_kill_reason>[% GREEDYDATA %])'
+  # swap allocation failure: "swap_pager_getswapspace(16): failed".
+  KERNEL_FBSD_SWAPFAIL: 'swap_pager_getswapspace\((?<kernel_swap_count>[% INT %])\): failed(?: [% GREEDYDATA %])?'
+  # DoS-mitigation rate limiters: "Limiting closed port RST response from 400
+  # to 200 packets/sec" / "Limiting icmp unreach response from 200 to 100
+  # packets/sec" / "Limiting open port RST response ...".
+  KERNEL_FBSD_LIMIT: 'Limiting (?<kernel_limit_type>[A-Za-z ]+?) response from (?<kernel_limit_from>[% INT %]) to (?<kernel_limit_to>[% INT %]) packets/sec(?: [% GREEDYDATA %])?'
+  # listen-queue overflow (SYN-flood signal): "sonewconn: pcb 0xfffff800:
+  # Listen queue overflow: 193 already in queue awaiting acceptance (5
+  # occurrences)".
+  KERNEL_FBSD_LISTENQ: 'sonewconn: pcb (?<kernel_listenq_pcb>[% NOTSPACE %]): Listen queue overflow: (?<kernel_listenq_depth>[% INT %]) already in queue awaiting acceptance \((?<kernel_listenq_occurrences>[% INT %]) occurrences?\)(?: [% GREEDYDATA %])?'
+  # ARP anomaly: "arp: 192.0.2.5 moved from aa:bb:cc:dd:ee:ff to
+  # 11:22:33:44:55:66 on em0". (LAN IP -> no geoip.)
+  KERNEL_FBSD_ARP: 'arp: (?<kernel_arp_ip>[% IP %]) moved from (?<kernel_arp_from_mac>[% COMMONMAC %]) to (?<kernel_arp_to_mac>[% COMMONMAC %]) on (?<kernel_arp_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # ---- TIER B: storage / hardware ----
+  # CAM/ATA device error: "(ada0:ahcich0:0:0:0): CAM status: Command timeout".
+  KERNEL_FBSD_CAM: '\((?<kernel_cam_device>[^)]+)\): CAM status: (?<kernel_cam_status>[% GREEDYDATA %])'
+  # ATA disk failure: "ada0: FAILURE - READ_DMA48. ACB: ...".
+  KERNEL_FBSD_DISK: '(?<kernel_disk>[a-z]+[0-9]+): FAILURE - (?<kernel_disk_failure>[% GREEDYDATA %])'
+  # GEOM VFS I/O error: "g_vfs_done():ada0p2[READ(offset=12345,
+  # length=4096)]error = 5".
+  KERNEL_FBSD_GEOM_IO: 'g_vfs_done\(\):(?<kernel_geom_provider>[^\[]+)\[(?<kernel_geom_op>[% WORD %])\([^\]]*\)\]error = (?<kernel_geom_error>[% INT %])(?: [% GREEDYDATA %])?'
+  # GEOM class events (mirror/eli/...): "GEOM_MIRROR: Device gm0: provider ada1
+  # disconnected." / "GEOM_ELI: Device ada0p3.eli created.".
+  KERNEL_FBSD_GEOM_EVENT: '(?<kernel_geom_class>GEOM_[A-Z]+): (?<kernel_geom_message>[% GREEDYDATA %])'
+  # ZFS Solaris-style pool message: "Solaris: WARNING: Pool 'tank' has
+  # encountered an uncorrectable I/O failure and has been suspended.".
+  KERNEL_FBSD_ZFS_MSG: 'Solaris: (?<kernel_zfs_message>[% GREEDYDATA %])'
+  # ZFS vdev state change: "ZFS: vdev state changed, pool_guid=123
+  # vdev_guid=456".
+  KERNEL_FBSD_ZFS_VDEV: 'ZFS: vdev state changed, pool_guid=(?<kernel_zfs_pool_guid>[% NOTSPACE %]) vdev_guid=(?<kernel_zfs_vdev_guid>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # ---- TIER C: routine ops ----
+  # link state change: "em0: link state changed to DOWN" / "... to UP".
+  KERNEL_FBSD_LINK: '(?<kernel_iface>[a-z]+[0-9]+): link state changed to (?<kernel_link_state>[% WORD %])(?: [% GREEDYDATA %])?'
+  # USB device attach (FreeBSD ugen): "ugen0.3: <vendor product> at usbus0".
+  KERNEL_FBSD_UGEN: '(?<kernel_usb_dev>ugen[0-9]+\.[0-9]+): <(?<kernel_usb_desc>[^>]*)> at (?<kernel_usb_bus>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # CAM device probe attach: "da0 at umass-sim0 bus 0 scbus0 target 0 lun 0".
+  KERNEL_FBSD_CAM_ATTACH: '(?<kernel_usb_dev>[a-z]+[0-9]+) at (?<kernel_usb_desc>[% NOTSPACE %]) bus [% GREEDYDATA %]'
+  # ---- fatal (single-line only) ----
+  # "panic: page fault".
+  KERNEL_FBSD_PANIC: 'panic: (?<kernel_panic>[% GREEDYDATA %])'
+  # "Fatal trap 12: page fault while in kernel mode".
+  KERNEL_FBSD_FATAL_TRAP: 'Fatal trap (?<kernel_trap_num>[% INT %]): (?<kernel_trap_desc>[% GREEDYDATA %])'
+vars_tests:
+  # ---- Linux vars_tests (KERNEL_LINUX_*) ----
+  KERNEL_LINUX_OOM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+        result: 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+      - string: 'Out of memory: Killed process 4567 (java) total-vm:2000kB, anon-rss:1500kB, file-rss:0kB, shmem-rss:0kB'
+        result: 'Out of memory: Killed process 4567 (java) total-vm:2000kB, anon-rss:1500kB, file-rss:0kB, shmem-rss:0kB'
+    negative:
+      - 'Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB'
+  KERNEL_LINUX_OOM_OLD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB'
+        result: 'Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB'
+      - string: 'Killed process 999 (sshd) total-vm:512kB, anon-rss:256kB'
+        result: 'Killed process 999 (sshd) total-vm:512kB, anon-rss:256kB'
+    negative:
+      - 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB'
+  KERNEL_LINUX_SEGV:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in libc-2.31.so[7f00+1c000]'
+        result: 'php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in libc-2.31.so[7f00+1c000]'
+      - string: 'nginx[6789]: segfault at 10 ip 0000562a sp 00007ffd error 6 in nginx[562a+80000]'
+        result: 'nginx[6789]: segfault at 10 ip 0000562a sp 00007ffd error 6 in nginx[562a+80000]'
+    negative:
+      - 'traps: nginx[1234] general protection ip:0 sp:0 error:0 in libc[0+1000]'
+  KERNEL_LINUX_TRAP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'traps: nginx[1234] general protection ip:00007f00 sp:00007ffe error:0 in libc-2.31.so[7f00+1c000]'
+        result: 'traps: nginx[1234] general protection ip:00007f00 sp:00007ffe error:0 in libc-2.31.so[7f00+1c000]'
+      - string: 'traps: php[9999] general protection ip:0000562a sp:00007ffd error:0 in php[562a+80000]'
+        result: 'traps: php[9999] general protection ip:0000562a sp:00007ffd error:0 in php[562a+80000]'
+    negative:
+      - 'php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in libc-2.31.so[7f00+1c000]'
+  KERNEL_LINUX_EXT_FS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'EXT4-fs error (device sda1): ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0'
+        result: 'EXT4-fs error (device sda1): ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0'
+      - string: 'EXT4-fs error (device dm-0): ext4_lookup:1600: inode #131074: comm bash: deleted inode referenced: 12'
+        result: 'EXT4-fs error (device dm-0): ext4_lookup:1600: inode #131074: comm bash: deleted inode referenced: 12'
+    negative:
+      - 'XFS (sda1): Metadata corruption detected'
+  KERNEL_LINUX_XFS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'XFS (sda1): Metadata corruption detected at xfs_agf_read_verify+0x90, xfs_agf block 0x1'
+        result: 'XFS (sda1): Metadata corruption detected at xfs_agf_read_verify+0x90, xfs_agf block 0x1'
+      - string: 'XFS (dm-1): writeback error on sector 12345'
+        result: 'XFS (dm-1): writeback error on sector 12345'
+    negative:
+      - 'EXT4-fs error (device sda1): ext4_find_entry:1234: inode #2'
+  KERNEL_LINUX_BLK_IO:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'blk_update_request: I/O error, dev sda, sector 12345678 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'
+        result: 'blk_update_request: I/O error, dev sda, sector 12345678 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'
+      - string: 'blk_update_request: I/O error, dev nvme0n1, sector 987654 op 0x1:(WRITE) flags 0x800 phys_seg 2 prio class 0'
+        result: 'blk_update_request: I/O error, dev nvme0n1, sector 987654 op 0x1:(WRITE) flags 0x800 phys_seg 2 prio class 0'
+    negative:
+      - 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+  KERNEL_LINUX_APPARMOR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        result: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+      - string: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
+        result: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
+    negative:
+      - 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+  KERNEL_LINUX_USB:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+        result: 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+      - string: 'usb 2-1.4: new low-speed USB device number 7 using xhci_hcd'
+        result: 'usb 2-1.4: new low-speed USB device number 7 using xhci_hcd'
+    negative:
+      - 'blk_update_request: I/O error, dev sda, sector 12345678'
+  # ---- FreeBSD vars_tests ----
+  KERNEL_FBSD_SIGEXIT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
+        result: 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
+      - string: 'pid 512 (sshd), jid 0, uid 0: exited on signal 6'
+        result: 'pid 512 (sshd), jid 0, uid 0: exited on signal 6'
+    negative:
+      - 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+  KERNEL_FBSD_SWAPKILL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+        result: 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+      - string: 'pid 777 (python3.9), jid 5, uid 1001, was killed: out of swap space'
+        result: 'pid 777 (python3.9), jid 5, uid 1001, was killed: out of swap space'
+    negative:
+      - 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
+  KERNEL_FBSD_SWAPFAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'swap_pager_getswapspace(16): failed'
+        result: 'swap_pager_getswapspace(16): failed'
+      - string: 'swap_pager_getswapspace(4): failed'
+        result: 'swap_pager_getswapspace(4): failed'
+    negative:
+      - 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+  KERNEL_FBSD_LIMIT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Limiting closed port RST response from 400 to 200 packets/sec'
+        result: 'Limiting closed port RST response from 400 to 200 packets/sec'
+      - string: 'Limiting icmp unreach response from 200 to 100 packets/sec'
+        result: 'Limiting icmp unreach response from 200 to 100 packets/sec'
+      - string: 'Limiting open port RST response from 300 to 150 packets/sec'
+        result: 'Limiting open port RST response from 300 to 150 packets/sec'
+    negative:
+      - 'swap_pager_getswapspace(16): failed'
+  KERNEL_FBSD_LISTENQ:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'sonewconn: pcb 0xfffff800: Listen queue overflow: 193 already in queue awaiting acceptance (5 occurrences)'
+        result: 'sonewconn: pcb 0xfffff800: Listen queue overflow: 193 already in queue awaiting acceptance (5 occurrences)'
+      - string: 'sonewconn: pcb 0xdeadbeef: Listen queue overflow: 10 already in queue awaiting acceptance (1 occurrences)'
+        result: 'sonewconn: pcb 0xdeadbeef: Listen queue overflow: 10 already in queue awaiting acceptance (1 occurrences)'
+    negative:
+      - 'Limiting closed port RST response from 400 to 200 packets/sec'
+  KERNEL_FBSD_ARP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'arp: 192.0.2.5 moved from aa:bb:cc:dd:ee:ff to 11:22:33:44:55:66 on em0'
+        result: 'arp: 192.0.2.5 moved from aa:bb:cc:dd:ee:ff to 11:22:33:44:55:66 on em0'
+      - string: 'arp: 10.0.0.1 moved from 00:11:22:33:44:55 to 66:77:88:99:aa:bb on igb1'
+        result: 'arp: 10.0.0.1 moved from 00:11:22:33:44:55 to 66:77:88:99:aa:bb on igb1'
+    negative:
+      - 'sonewconn: pcb 0xfffff800: Listen queue overflow: 193 already in queue awaiting acceptance (5 occurrences)'
+  KERNEL_FBSD_CAM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(ada0:ahcich0:0:0:0): CAM status: Command timeout'
+        result: '(ada0:ahcich0:0:0:0): CAM status: Command timeout'
+      - string: '(da1:umass-sim0:0:0:0): CAM status: SCSI Status Error'
+        result: '(da1:umass-sim0:0:0:0): CAM status: SCSI Status Error'
+    negative:
+      - 'ada0: FAILURE - READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
+  KERNEL_FBSD_DISK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ada0: FAILURE - READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
+        result: 'ada0: FAILURE - READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
+      - string: 'da2: FAILURE - WRITE_DMA. ACB: ca 00 00 00 00 40'
+        result: 'da2: FAILURE - WRITE_DMA. ACB: ca 00 00 00 00 40'
+    negative:
+      - '(ada0:ahcich0:0:0:0): CAM status: Command timeout'
+  KERNEL_FBSD_GEOM_IO:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'g_vfs_done():ada0p2[READ(offset=12345, length=4096)]error = 5'
+        result: 'g_vfs_done():ada0p2[READ(offset=12345, length=4096)]error = 5'
+      - string: 'g_vfs_done():da0p1[WRITE(offset=98304, length=131072)]error = 6'
+        result: 'g_vfs_done():da0p1[WRITE(offset=98304, length=131072)]error = 6'
+    negative:
+      - 'GEOM_MIRROR: Device gm0: provider ada1 disconnected.'
+  KERNEL_FBSD_GEOM_EVENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'GEOM_MIRROR: Device gm0: provider ada1 disconnected.'
+        result: 'GEOM_MIRROR: Device gm0: provider ada1 disconnected.'
+      - string: 'GEOM_ELI: Device ada0p3.eli created.'
+        result: 'GEOM_ELI: Device ada0p3.eli created.'
+    negative:
+      - 'g_vfs_done():ada0p2[READ(offset=12345, length=4096)]error = 5'
+  KERNEL_FBSD_ZFS_MSG:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "Solaris: WARNING: Pool 'tank' has encountered an uncorrectable I/O failure and has been suspended."
+        result: "Solaris: WARNING: Pool 'tank' has encountered an uncorrectable I/O failure and has been suspended."
+      - string: 'Solaris: NOTICE: ZFS filesystem version 5 (features enabled)'
+        result: 'Solaris: NOTICE: ZFS filesystem version 5 (features enabled)'
+    negative:
+      - 'ZFS: vdev state changed, pool_guid=123 vdev_guid=456'
+  KERNEL_FBSD_ZFS_VDEV:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ZFS: vdev state changed, pool_guid=123 vdev_guid=456'
+        result: 'ZFS: vdev state changed, pool_guid=123 vdev_guid=456'
+      - string: 'ZFS: vdev state changed, pool_guid=9876543210 vdev_guid=1234567890'
+        result: 'ZFS: vdev state changed, pool_guid=9876543210 vdev_guid=1234567890'
+    negative:
+      - "Solaris: WARNING: Pool 'tank' has encountered an uncorrectable I/O failure and has been suspended."
+  KERNEL_FBSD_LINK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'em0: link state changed to DOWN'
+        result: 'em0: link state changed to DOWN'
+      - string: 'igb1: link state changed to UP'
+        result: 'igb1: link state changed to UP'
+    negative:
+      - 'ada0: FAILURE - READ_DMA48. ACB: 25 00 00 00 00 40'
+  KERNEL_FBSD_UGEN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ugen0.3: <vendor product> at usbus0'
+        result: 'ugen0.3: <vendor product> at usbus0'
+      - string: 'ugen1.2: <Generic Flash Disk> at usbus1'
+        result: 'ugen1.2: <Generic Flash Disk> at usbus1'
+    negative:
+      - 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+  KERNEL_FBSD_CAM_ATTACH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+        result: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+      - string: 'ada1 at ahcich1 bus 0 scbus1 target 0 lun 0'
+        result: 'ada1 at ahcich1 bus 0 scbus1 target 0 lun 0'
+    negative:
+      - 'ugen0.3: <vendor product> at usbus0'
+  KERNEL_FBSD_PANIC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'panic: page fault'
+        result: 'panic: page fault'
+      - string: 'panic: vm_fault: fault on nofault entry, addr: 0'
+        result: 'panic: vm_fault: fault on nofault entry, addr: 0'
+    negative:
+      - 'Fatal trap 12: page fault while in kernel mode'
+  KERNEL_FBSD_FATAL_TRAP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Fatal trap 12: page fault while in kernel mode'
+        result: 'Fatal trap 12: page fault while in kernel mode'
+      - string: 'Fatal trap 9: general protection fault while in kernel mode'
+        result: 'Fatal trap 9: general protection fault while in kernel mode'
+    negative:
+      - 'panic: page fault'
+# file-level default: coerce numeric top-level captures at runtime.
+convert:
+  kernel_oom_pid: int
+  kernel_segv_pid: int
+  kernel_trap_pid: int
+  kernel_io_sector: int
+  kernel_apparmor_pid: int
+  # FreeBSD numeric top-level captures
+  kernel_pid: int
+  kernel_uid: int
+  kernel_jid: int
+  kernel_signal: int
+  kernel_limit_from: int
+  kernel_limit_to: int
+  kernel_listenq_depth: int
+  kernel_listenq_occurrences: int
+  kernel_geom_error: int
+  kernel_trap_num: int
+# file-level default: break the quoted apparmor key=value tail into individual
+# kernel_apparmor_* fields. Values are double-quoted, so quote-aware splitting is
+# used (quotes stripped). The apparmor mode ("DENIED") is captured separately as
+# kernel_apparmor_mode in the pattern; operation/profile/name/comm map 1:1 here.
+decompose:
+  - field: kernel_apparmor_kv
+    type: kv
+    quoted: true
+    prefix: 'kernel_apparmor_'
+    remove: true
+    tests:
+      - input: 'operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        result:
+          kernel_apparmor_operation: 'open'
+          kernel_apparmor_profile: '/usr/bin/foo'
+          kernel_apparmor_name: '/etc/shadow'
+          kernel_apparmor_pid: '1234'
+          kernel_apparmor_comm: 'foo'
+          kernel_apparmor_requested_mask: 'r'
+          kernel_apparmor_denied_mask: 'r'
+          kernel_apparmor_fsuid: '0'
+          kernel_apparmor_ouid: '0'
+rules:
+  - name: kernel
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^kernel$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - KERNEL_LINUX_OOM
+      - KERNEL_LINUX_OOM_OLD
+      - KERNEL_LINUX_SEGV
+      - KERNEL_LINUX_TRAP
+      - KERNEL_LINUX_EXT_FS
+      - KERNEL_LINUX_XFS
+      - KERNEL_LINUX_BLK_IO
+      - KERNEL_LINUX_APPARMOR
+      - KERNEL_LINUX_USB
+      # ---- FreeBSD patterns (appended after the Linux ones) ----
+      - KERNEL_FBSD_SIGEXIT
+      - KERNEL_FBSD_SWAPKILL
+      - KERNEL_FBSD_SWAPFAIL
+      - KERNEL_FBSD_LIMIT
+      - KERNEL_FBSD_LISTENQ
+      - KERNEL_FBSD_ARP
+      - KERNEL_FBSD_CAM
+      - KERNEL_FBSD_DISK
+      - KERNEL_FBSD_GEOM_IO
+      - KERNEL_FBSD_GEOM_EVENT
+      - KERNEL_FBSD_ZFS_MSG
+      - KERNEL_FBSD_ZFS_VDEV
+      - KERNEL_FBSD_UGEN
+      - KERNEL_FBSD_CAM_ATTACH
+      - KERNEL_FBSD_LINK
+      - KERNEL_FBSD_PANIC
+      - KERNEL_FBSD_FATAL_TRAP
+    tests:
+      positive:
+        # -- Linux message types --
+        # [Linux] KERNEL_LINUX_OOM
+        - string: 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+          result:
+            kernel_oom_pid: '1234'
+            kernel_oom_process: 'mysqld'
+            kernel_oom_total_vm: '100kB'
+            kernel_oom_anon_rss: '50kB'
+        # [Linux] KERNEL_LINUX_OOM_OLD
+        - string: 'Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB'
+          result:
+            kernel_oom_pid: '1234'
+            kernel_oom_process: 'mysqld'
+            kernel_oom_total_vm: '100kB'
+            kernel_oom_anon_rss: '50kB'
+        # [Linux] KERNEL_LINUX_SEGV
+        - string: 'php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in libc-2.31.so[7f00+1c000]'
+          result:
+            kernel_segv_comm: 'php'
+            kernel_segv_pid: '12345'
+            kernel_segv_addr: '0'
+            kernel_segv_ip: '00007f00'
+            kernel_segv_sp: '00007ffe'
+            kernel_segv_error: '4'
+        # [Linux] KERNEL_LINUX_TRAP
+        - string: 'traps: nginx[1234] general protection ip:00007f00 sp:00007ffe error:0 in libc-2.31.so[7f00+1c000]'
+          result:
+            kernel_trap_comm: 'nginx'
+            kernel_trap_pid: '1234'
+            kernel_trap_detail: 'general protection ip:00007f00 sp:00007ffe error:0 in libc-2.31.so[7f00+1c000]'
+        # [Linux] KERNEL_LINUX_EXT_FS
+        - string: 'EXT4-fs error (device sda1): ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0'
+          result:
+            kernel_fs: 'EXT4-fs'
+            kernel_device: 'sda1'
+            kernel_fs_detail: 'ext4_find_entry:1234: inode #2: comm ls: reading directory lblock 0'
+        # [Linux] KERNEL_LINUX_XFS
+        - string: 'XFS (sda1): Metadata corruption detected at xfs_agf_read_verify+0x90, xfs_agf block 0x1'
+          result:
+            kernel_fs: 'XFS'
+            kernel_device: 'sda1'
+            kernel_fs_detail: 'Metadata corruption detected at xfs_agf_read_verify+0x90, xfs_agf block 0x1'
+        # [Linux] KERNEL_LINUX_BLK_IO
+        - string: 'blk_update_request: I/O error, dev sda, sector 12345678 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'
+          result:
+            kernel_io_dev: 'sda'
+            kernel_io_sector: '12345678'
+        # [Linux] KERNEL_LINUX_APPARMOR
+        - string: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+          result:
+            kernel_apparmor_mode: 'DENIED'
+            kernel_apparmor_kv: 'operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+        # [Linux] KERNEL_LINUX_USB
+        - string: 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+          result:
+            kernel_usb: '1-1'
+        # -- FreeBSD message types --
+        # [FreeBSD] KERNEL_FBSD_SIGEXIT
+        - string: 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
+          result:
+            kernel_pid: '48822'
+            kernel_comm: 'httpd'
+            kernel_jid: '0'
+            kernel_uid: '80'
+            kernel_signal: '11'
+            kernel_core: 'core dumped'
+        # [FreeBSD] KERNEL_FBSD_SIGEXIT
+        - string: 'pid 512 (sshd), jid 0, uid 0: exited on signal 6'
+          result:
+            kernel_pid: '512'
+            kernel_comm: 'sshd'
+            kernel_jid: '0'
+            kernel_uid: '0'
+            kernel_signal: '6'
+        # [FreeBSD] KERNEL_FBSD_SWAPKILL
+        - string: 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+          result:
+            kernel_pid: '1234'
+            kernel_comm: 'mysqld'
+            kernel_jid: '0'
+            kernel_uid: '88'
+            kernel_kill_reason: 'out of swap space'
+        # [FreeBSD] KERNEL_FBSD_SWAPFAIL
+        - string: 'swap_pager_getswapspace(16): failed'
+          result:
+            kernel_swap_count: '16'
+        # [FreeBSD] KERNEL_FBSD_LIMIT
+        - string: 'Limiting closed port RST response from 400 to 200 packets/sec'
+          result:
+            kernel_limit_type: 'closed port RST'
+            kernel_limit_from: '400'
+            kernel_limit_to: '200'
+        # [FreeBSD] KERNEL_FBSD_LIMIT
+        - string: 'Limiting icmp unreach response from 200 to 100 packets/sec'
+          result:
+            kernel_limit_type: 'icmp unreach'
+            kernel_limit_from: '200'
+            kernel_limit_to: '100'
+        # [FreeBSD] KERNEL_FBSD_LISTENQ
+        - string: 'sonewconn: pcb 0xfffff800: Listen queue overflow: 193 already in queue awaiting acceptance (5 occurrences)'
+          result:
+            kernel_listenq_pcb: '0xfffff800'
+            kernel_listenq_depth: '193'
+            kernel_listenq_occurrences: '5'
+        # [FreeBSD] KERNEL_FBSD_ARP
+        - string: 'arp: 192.0.2.5 moved from aa:bb:cc:dd:ee:ff to 11:22:33:44:55:66 on em0'
+          result:
+            kernel_arp_ip: '192.0.2.5'
+            kernel_arp_from_mac: 'aa:bb:cc:dd:ee:ff'
+            kernel_arp_to_mac: '11:22:33:44:55:66'
+            kernel_arp_iface: 'em0'
+        # [FreeBSD] KERNEL_FBSD_CAM
+        - string: '(ada0:ahcich0:0:0:0): CAM status: Command timeout'
+          result:
+            kernel_cam_device: 'ada0:ahcich0:0:0:0'
+            kernel_cam_status: 'Command timeout'
+        # [FreeBSD] KERNEL_FBSD_DISK
+        - string: 'ada0: FAILURE - READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
+          result:
+            kernel_disk: 'ada0'
+            kernel_disk_failure: 'READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
+        # [FreeBSD] KERNEL_FBSD_GEOM_IO
+        - string: 'g_vfs_done():ada0p2[READ(offset=12345, length=4096)]error = 5'
+          result:
+            kernel_geom_provider: 'ada0p2'
+            kernel_geom_op: 'READ'
+            kernel_geom_error: '5'
+        # [FreeBSD] KERNEL_FBSD_GEOM_EVENT
+        - string: 'GEOM_MIRROR: Device gm0: provider ada1 disconnected.'
+          result:
+            kernel_geom_class: 'GEOM_MIRROR'
+            kernel_geom_message: 'Device gm0: provider ada1 disconnected.'
+        # [FreeBSD] KERNEL_FBSD_GEOM_EVENT
+        - string: 'GEOM_ELI: Device ada0p3.eli created.'
+          result:
+            kernel_geom_class: 'GEOM_ELI'
+            kernel_geom_message: 'Device ada0p3.eli created.'
+        # [FreeBSD] KERNEL_FBSD_ZFS_MSG
+        - string: "Solaris: WARNING: Pool 'tank' has encountered an uncorrectable I/O failure and has been suspended."
+          result:
+            kernel_zfs_message: "WARNING: Pool 'tank' has encountered an uncorrectable I/O failure and has been suspended."
+        # [FreeBSD] KERNEL_FBSD_ZFS_VDEV
+        - string: 'ZFS: vdev state changed, pool_guid=123 vdev_guid=456'
+          result:
+            kernel_zfs_pool_guid: '123'
+            kernel_zfs_vdev_guid: '456'
+        # [FreeBSD] KERNEL_FBSD_UGEN
+        - string: 'ugen0.3: <vendor product> at usbus0'
+          result:
+            kernel_usb_dev: 'ugen0.3'
+            kernel_usb_desc: 'vendor product'
+            kernel_usb_bus: 'usbus0'
+        # [FreeBSD] KERNEL_FBSD_CAM_ATTACH
+        - string: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+          result:
+            kernel_usb_dev: 'da0'
+            kernel_usb_desc: 'umass-sim0'
+        # [FreeBSD] KERNEL_FBSD_LINK
+        - string: 'em0: link state changed to DOWN'
+          result:
+            kernel_iface: 'em0'
+            kernel_link_state: 'DOWN'
+        # [FreeBSD] KERNEL_FBSD_LINK
+        - string: 'igb1: link state changed to UP'
+          result:
+            kernel_iface: 'igb1'
+            kernel_link_state: 'UP'
+        # [FreeBSD] KERNEL_FBSD_PANIC
+        - string: 'panic: page fault'
+          result:
+            kernel_panic: 'page fault'
+        # [FreeBSD] KERNEL_FBSD_FATAL_TRAP
+        - string: 'Fatal trap 12: page fault while in kernel mode'
+          result:
+            kernel_trap_num: '12'
+            kernel_trap_desc: 'page fault while in kernel mode'
+      negative:
+        - 'this is not a kernel line at all'
+        - '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+        # FreeBSD firewall lines (start with "ipfw:") are owned by
+        # share/ipfw.yaml and must NOT match any kernel pattern here.
+        - 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'

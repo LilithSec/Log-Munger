@@ -7,6 +7,7 @@ use Scalar::Util qw(looks_like_number);
 use File::Slurp  qw(read_file);
 use Hash::Merge  ();
 use YAML::XS qw(Dump);
+use Log::Munger::RuleFileParser ();
 
 =head1 NAME
 
@@ -122,7 +123,7 @@ sub file {
 
 	my @processed_lines;
 	foreach my $line (@lines) {
-		$line = Log::Munger::Degrok->string( 'string' => $line, 'max_loops' => $opts{'max_loops'} );
+		$line = Log::Munger::Degrok->string( 'string' => $line );
 		push( @processed_lines, $line );
 	}
 
@@ -174,7 +175,7 @@ sub grok2rules {
 		'yes'       => 1,
 		'no_die'    => 1,
 		'no_warn'   => 1,
-		'no_wilent' => 1,
+		'no_silent' => 1,
 	};
 
 	if ( !defined( $opts{'overwrite'} ) ) {

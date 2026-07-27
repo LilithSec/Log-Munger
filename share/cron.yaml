@@ -19,6 +19,21 @@ vars_templated:
   # "(CRON) INFO (Running @reboot jobs)" / "(*system*) RELOAD (/etc/crontab)".
   # NOTSPACE is used for the user field so "(*system*)" matches.
   CRON_INFO: '\((?<cron_user>[% NOTSPACE %])\) (?<cron_info_type>INFO|RELOAD|STARTUP|LIST) \((?<cron_info>[% GREEDYDATA %])\)'
+  # "(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)".
+  # The mailed byte count is coerced to int; the MTA status (hex like 0x004b) is
+  # kept verbatim as it is not always numeric.
+  CRON_MAIL: '\((?<cron_user>[% USERNAME %])\) MAIL \(mailed (?<cron_mail_bytes>[% INT %]) bytes of output but got status (?<cron_mail_status>[% NOTSPACE %]) from MTA\)'
+  # "(CRON) error (grandchild #1234 failed with exit status 1)" -- the lowercase
+  # crond "error" line reporting a failed grandchild + its exit status (int).
+  CRON_GRANDCHILD: '\((?<cron_user>[% NOTSPACE %])\) error \(grandchild #(?<cron_grandchild_pid>[% INT %]) failed with exit status (?<cron_exit_status>[% INT %])\)'
+  # "(root) ERROR (Mailing user)" -- the uppercase parenthesised ERROR line.
+  CRON_ERROR: '\((?<cron_user>[% NOTSPACE %])\) ERROR \((?<cron_error>[% GREEDYDATA %])\)'
+  # "Error: bad minute; while reading /etc/crontab" -- a crontab parse error.
+  # No invoking user is present in this shape.
+  CRON_PARSE_ERROR: 'Error: (?<cron_error>[% GREEDYDATA_NO_SEMICOLON %]); while reading (?<cron_crontab>[% PATH %])'
+  # "anacron[1234]: Job `cron.daily' started" / "... terminated".  The syslog
+  # PROGRAM for these is "anacron"; the "[pid]:" prefix is left by anacron itself.
+  CRON_ANACRON: 'anacron\[(?<cron_anacron_pid>[% INT %])\]: Job `(?<cron_anacron_job>[^'']+)'' (?<cron_anacron_action>started|terminated)(?: [% GREEDYDATA %])?'
 vars_tests:
   CRON_CMD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -47,22 +62,76 @@ vars_tests:
         result: '(*system*) RELOAD (/etc/crontab)'
     negative:
       - 'pam_unix(cron:session): session closed for user root'
+  CRON_MAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)'
+        result: '(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)'
+      - string: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+        result: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+    negative:
+      - '(root) CMD (/usr/bin/foo --flag)'
+  CRON_GRANDCHILD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(CRON) error (grandchild #1234 failed with exit status 1)'
+        result: '(CRON) error (grandchild #1234 failed with exit status 1)'
+      - string: '(root) error (grandchild #42 failed with exit status 127)'
+        result: '(root) error (grandchild #42 failed with exit status 127)'
+    negative:
+      - '(root) ERROR (Mailing user)'
+  CRON_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '(root) ERROR (Mailing user)'
+        result: '(root) ERROR (Mailing user)'
+      - string: '(kitsune) ERROR (getpwnam() failed)'
+        result: '(kitsune) ERROR (getpwnam() failed)'
+    negative:
+      - '(CRON) error (grandchild #1234 failed with exit status 1)'
+  CRON_PARSE_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Error: bad minute; while reading /etc/crontab'
+        result: 'Error: bad minute; while reading /etc/crontab'
+      - string: 'Error: bad command; while reading /var/spool/cron/root'
+        result: 'Error: bad command; while reading /var/spool/cron/root'
+    negative:
+      - '(root) ERROR (Mailing user)'
+  CRON_ANACRON:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "anacron[1234]: Job `cron.daily' started"
+        result: "anacron[1234]: Job `cron.daily' started"
+      - string: "anacron[1234]: Job `cron.weekly' terminated"
+        result: "anacron[1234]: Job `cron.weekly' terminated"
+    negative:
+      - '(root) CMD (/usr/bin/foo --flag)'
 # file-level default: coerce the session uids to integers at runtime
 convert:
   cron_uid: int
   cron_by_uid: int
+  cron_mail_bytes: int
+  cron_grandchild_pid: int
+  cron_exit_status: int
+  cron_anacron_pid: int
 rules:
   - name: cron
     gate:
       - field: PROGRAM
         values:
-          - '//^(?:cron|crond|CRON)$//'
+          - '//^(?:cron|crond|CRON|anacron)$//'
     field: MESSAGE
     anchored: true
     patterns:
       - CRON_CMD
       - CRON_SESSION
       - CRON_INFO
+      - CRON_MAIL
+      - CRON_GRANDCHILD
+      - CRON_ERROR
+      - CRON_PARSE_ERROR
+      - CRON_ANACRON
     tests:
       positive:
         - string: '(root) CMD (/usr/bin/foo --flag)'
@@ -93,5 +162,33 @@ rules:
             cron_user: '*system*'
             cron_info_type: 'RELOAD'
             cron_info: '/etc/crontab'
+        - string: '(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)'
+          result:
+            cron_user: 'root'
+            cron_mail_bytes: '123'
+            cron_mail_status: '0x004b'
+        - string: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+          result:
+            cron_user: 'kitsune'
+            cron_mail_bytes: '4096'
+            cron_mail_status: '0x0000'
+        - string: '(CRON) error (grandchild #1234 failed with exit status 1)'
+          result:
+            cron_user: 'CRON'
+            cron_grandchild_pid: '1234'
+            cron_exit_status: '1'
+        - string: '(root) ERROR (Mailing user)'
+          result:
+            cron_user: 'root'
+            cron_error: 'Mailing user'
+        - string: 'Error: bad minute; while reading /etc/crontab'
+          result:
+            cron_error: 'bad minute'
+            cron_crontab: '/etc/crontab'
+        - string: "anacron[1234]: Job `cron.daily' started"
+          result:
+            cron_anacron_pid: '1234'
+            cron_anacron_job: 'cron.daily'
+            cron_anacron_action: 'started'
       negative:
         - 'this is not a valid cron line at all'
