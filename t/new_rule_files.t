@@ -117,6 +117,128 @@ my @cases = (
 		message => '1rABCD: example.com fail; dkim=fail (bad signature) spf=pass',
 		expect  => { opendmarc_qid => '1rABCD', opendmarc_domain => 'example.com', opendmarc_result => 'fail' },
 	},
+	{   file    => 'sendmail',
+		program => 'sm-mta',
+		message => '1rABCD012345: from=<sender@example.com>, size=1234, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=mail.example.com [192.0.2.5]',
+		expect  => { sendmail_qid => '1rABCD012345' },
+		# two decomposes in sequence: the kv split produces sendmail_relay,
+		# which the second one then splits into a host and an address
+		also    => {
+			sendmail_from      => '<sender@example.com>',
+			sendmail_proto     => 'ESMTP',
+			sendmail_relay     => 'mail.example.com [192.0.2.5]',
+			sendmail_relay_host => 'mail.example.com',
+			sendmail_relay_ip  => '192.0.2.5',
+		},
+		numeric => [ 'sendmail_size', 'sendmail_nrcpts' ],
+	},
+	{   file    => 'docker',
+		program => 'dockerd',
+		message => 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"',
+		expect  => {},
+		# quote-aware logfmt: msg= and error= both contain spaces
+		also    => {
+			docker_level => 'error',
+			docker_msg   => 'Handler for GET /v1.43/containers/json returned error',
+			docker_error => 'No such container',
+		},
+	},
+	{   file    => 'freeradius',
+		program => 'radiusd',
+		message => 'Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)',
+		expect  => {
+			radius_result          => 'incorrect',
+			radius_user            => 'admin',
+			radius_client          => 'wifi',
+			radius_calling_station => 'aa-bb-cc-dd-ee-ff',
+		},
+	},
+	{   file    => 'strongswan',
+		program => 'charon',
+		message => '12[IKE] IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]',
+		expect  => { ipsec_subsystem => 'IKE', ipsec_remote_ip => '203.0.113.7', ipsec_remote_id => 'client' },
+		numeric => ['ipsec_thread'],
+	},
+	{   file    => 'wpa_supplicant',
+		program => 'wpa_supplicant',
+		message => 'wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\'home\' auth_failures=1 duration=10 reason=WRONG_KEY',
+		expect  => { wpa_iface => 'wlan0', wpa_ssid => 'home', wpa_reason => 'WRONG_KEY' },
+		numeric => ['wpa_auth_failures'],
+	},
+	{   file    => 'networkmanager',
+		program => 'NetworkManager',
+		message => '<warn>  [1626345600.1234] device (wlan0): state change: config -> failed (reason \'no-secrets\', sys-iface-state: \'managed\')',
+		expect  => { nm_level => 'warn', nm_device => 'wlan0', nm_state_to => 'failed', nm_reason => 'no-secrets' },
+	},
+	{   file    => 'resolved',
+		program => 'systemd-resolved',
+		message => 'DNSSEC validation failed for question example.com IN A: no-signature',
+		expect  => { resolved_query_name => 'example.com', resolved_dnssec_result => 'no-signature' },
+	},
+	{   file    => 'networkd',
+		program => 'systemd-networkd',
+		message => 'eth0: DHCPv4 address 192.0.2.50/24 via 192.0.2.1',
+		expect  => { networkd_iface => 'eth0', networkd_address => '192.0.2.50', networkd_gateway => '192.0.2.1' },
+		numeric => ['networkd_prefix_length'],
+	},
+	{   file    => 'timesyncd',
+		program => 'systemd-timesyncd',
+		message => 'Synchronized to time server 192.0.2.1:123 (ntp.example.com).',
+		expect  => { timesyncd_server_ip => '192.0.2.1', timesyncd_server_name => 'ntp.example.com' },
+		numeric => ['timesyncd_server_port'],
+	},
+	{   file    => 'zed',
+		program => 'zed',
+		message => 'eid=5 class=checksum pool=\'tank\' vdev=sda1 cksum_errors=1',
+		expect  => {},
+		also    => { zed_class => 'checksum', zed_pool => 'tank', zed_vdev => 'sda1' },
+		numeric => [ 'zed_eid', 'zed_cksum_errors' ],
+	},
+	{   file    => 'cups',
+		program => 'cupsd',
+		message => 'E [15/Jul/2026:10:00:00 +0000] [Job 123] The printer is not responding.',
+		expect  => { cups_level => 'E', cups_scope => 'Job 123', cups_message => 'The printer is not responding.' },
+	},
+	{   file    => 'php_fpm',
+		program => 'php8.2-fpm',
+		message => '[15-Jul-2026 10:00:00] WARNING: [pool www] child 1234 exited on signal 11 (SIGSEGV) after 100.123456 seconds from start',
+		expect  => { php_pool => 'www', php_signal_name => 'SIGSEGV', php_level => 'warning' },
+		numeric => [ 'php_pid', 'php_signal', 'php_uptime' ],
+	},
+	{   file    => 'syslog_daemon',
+		program => 'rsyslogd',
+		message => 'imuxsock: 1234 messages lost due to rate-limiting',
+		expect  => { syslogd_module => 'imuxsock' },
+		numeric => ['syslogd_lost'],
+	},
+	{   file    => 'xinetd',
+		program => 'xinetd',
+		message => 'FAIL: ftp address from=203.0.113.7',
+		expect  => { xinetd_service => 'ftp', xinetd_fail_reason => 'address', xinetd_src_ip => '203.0.113.7' },
+	},
+	{   file    => 'snmpd',
+		program => 'snmpd',
+		message => 'Connection from UDP: [203.0.113.7]:12345->[192.0.2.1]:161',
+		expect  => { snmpd_transport => 'UDP', snmpd_src_ip => '203.0.113.7', snmpd_dst_ip => '192.0.2.1' },
+		numeric => [ 'snmpd_src_port', 'snmpd_dst_port' ],
+	},
+	{   file    => 'nfs',
+		program => 'rpc.mountd',
+		message => 'refused mount request from 203.0.113.7 for /export (/export): illegal port',
+		expect  => { nfs_src_ip => '203.0.113.7', nfs_path => '/export', nfs_refusal_reason => 'illegal port' },
+	},
+	{   file    => 'atd',
+		program => 'atd',
+		message => 'Starting job 5 (a000050192abc) for user \'kitsune\' (1000)',
+		expect  => { atd_job => '5', atd_user => 'kitsune' },
+		numeric => ['atd_uid'],
+	},
+	{   file    => 'suricata',
+		program => 'suricata',
+		message => '[1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.7:44444 -> 192.0.2.1:22',
+		expect  => { suricata_alert_signature => 'ET SCAN Potential SSH Scan', suricata_src_ip => '203.0.113.7' },
+		numeric => [ 'suricata_alert_signature_id', 'suricata_src_port' ],
+	},
 );
 
 foreach my $case ( @cases ) {
@@ -160,6 +282,25 @@ is( $icmp->{'pf_src_ip'}, '192.0.2.5', 'pf: portless protocol source' );
 ok( !exists( $icmp->{'pf_src_port'} ), 'pf: portless protocol sets no port' );
 
 #
+# suricata's eve.json rule is also gateless, since eve.json is tailed off disk.
+# Its pattern demands an "event_type" key so that being gateless does not turn
+# into claiming every other daemon's JSON.
+#
+my $suricata = Log::Munger->new( 'rules' => ['suricata'] );
+my $eve = $suricata->process_item(
+	'item' => '{"timestamp":"2026-07-15T10:00:00.123456+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22,"proto":"TCP","alert":{"signature_id":2001219,"signature":"ET SCAN Potential SSH Scan","severity":2}}' );
+is( $eve->{'suricata_event_type'},        'alert',                      'suricata: eve event_type' );
+is( $eve->{'suricata_src_ip'},            '203.0.113.7',                'suricata: eve source, flattened out of the JSON' );
+is( $eve->{'suricata_alert_signature'},   'ET SCAN Potential SSH Scan', 'suricata: nested alert object flattened' );
+ok( looks_like_number( $eve->{'suricata_alert_signature_id'} ), 'suricata: signature id is numeric' );
+ok( !exists( $eve->{'suricata_json'} ), 'suricata: the raw JSON is removed once flattened' );
+
+# a JSON line from another daemon must not be claimed by the gateless rule
+my $not_eve = $suricata->process_item(
+	'item' => '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","msg":"Connection accepted"}' );
+is( $not_eve, undef, 'suricata: JSON from another daemon is left alone' );
+
+#
 # With every shipped rule file loaded at once, each daemon's line still goes to
 # the file that owns it.
 #
@@ -183,11 +324,32 @@ my @ownership = (
 	[ 'polkit goes to polkit', { PROGRAM => 'polkitd', MESSAGE => 'Loading rules from directory /etc/polkit-1/rules.d' }, 'polkit_message' ],
 	[ 'rspamd goes to rspamd', { PROGRAM => 'rspamd', MESSAGE => 'rspamd 3.7.5 is loading configuration' }, 'rspamd_message' ],
 	[ 'clamav goes to clamav', { PROGRAM => 'clamd', MESSAGE => 'SelfCheck: Database status OK.' }, 'clamav_message' ],
-	# the three raw, gateless formats, which are the ones with nothing but
+	# tier-two daemons, several of which also end in a catch-all
+	[ 'docker goes to docker', { PROGRAM => 'dockerd', MESSAGE => 'failed to start daemon: no such file' }, 'docker_message' ],
+	[ 'sendmail goes to sendmail', { PROGRAM => 'sm-mta', MESSAGE => 'starting daemon (8.17.1): SMTP+queueing@00:30:00' }, 'sendmail_message' ],
+	[ 'freeradius goes to freeradius', { PROGRAM => 'radiusd', MESSAGE => 'Ready to process requests' }, 'radius_message' ],
+	[ 'strongswan goes to strongswan', { PROGRAM => 'charon', MESSAGE => 'charon stopped after 200 ms' }, 'ipsec_message' ],
+	[ 'wpa_supplicant goes to wpa_supplicant', { PROGRAM => 'wpa_supplicant', MESSAGE => 'Successfully initialized wpa_supplicant' }, 'wpa_message' ],
+	[ 'networkd goes to networkd', { PROGRAM => 'systemd-networkd', MESSAGE => 'Enumeration completed' }, 'networkd_message' ],
+	[ 'resolved goes to resolved', { PROGRAM => 'systemd-resolved', MESSAGE => 'Positive Trust Anchors:' }, 'resolved_message' ],
+	[ 'timesyncd goes to timesyncd', { PROGRAM => 'systemd-timesyncd', MESSAGE => 'Network configuration changed, trying to establish connection.' }, 'timesyncd_message' ],
+	[ 'zed goes to zed', { PROGRAM => 'zed', MESSAGE => 'ZFS Event Daemon 2.1.11-1 (PID 1234)' }, 'zed_message' ],
+	[ 'cups goes to cups', { PROGRAM => 'cupsd', MESSAGE => 'Scheduler shutting down normally.' }, 'cups_message' ],
+	[ 'php-fpm goes to php_fpm', { PROGRAM => 'php-fpm8.2', MESSAGE => 'ready to handle connections' }, 'php_message' ],
+	[ 'rsyslogd goes to syslog_daemon', { PROGRAM => 'rsyslogd', MESSAGE => 'rsyslogd\'s groupid changed to 106' }, 'syslogd_message' ],
+	[ 'xinetd goes to xinetd', { PROGRAM => 'xinetd', MESSAGE => 'xinetd Version 2.3.15 started' }, 'xinetd_message' ],
+	[ 'snmpd goes to snmpd', { PROGRAM => 'snmpd', MESSAGE => 'NET-SNMP version 5.9.3' }, 'snmpd_message' ],
+	[ 'mountd goes to nfs', { PROGRAM => 'rpc.mountd', MESSAGE => 'Version 1.3.4 starting' }, 'nfs_message' ],
+	[ 'atd goes to atd', { PROGRAM => 'atd', MESSAGE => 'File a000050192abc is in the future' }, 'atd_message' ],
+	# the four raw, gateless formats, which are the ones with nothing but
 	# their own shape keeping them apart
 	[ 'an apache line goes to http_access_logs', '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"', 'http_clientip' ],
 	[ 'a squid line goes to squid', '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://e.com/ - DIRECT/1.2.3.4 text/html', 'squid_client_ip' ],
 	[ 'a pf line goes to pf', 'rule 12/0(match): block in on em0: 192.0.2.5.49152 > 192.0.2.1.22: Flags [S], length 0', 'pf_src_ip' ],
+	[ 'an eve.json line goes to suricata', '{"timestamp":"2026-07-15T10:00:00+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22}', 'suricata_event_type' ],
+	# ...and a mongodb JSON line must still reach mongodb rather than being
+	# taken by suricata's gateless JSON rule
+	[ 'mongodb JSON goes to mongodb', { PROGRAM => 'mongod', MESSAGE => '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted"}' }, 'mongo_msg' ],
 );
 
 foreach my $case (@ownership) {

@@ -1,0 +1,141 @@
+---
+# FortiGate / FortiOS log enrichment.
+#
+# FortiOS speaks syslog natively and every line is a flat key=value ledger,
+# quoted where a value holds spaces:
+#
+#   date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002"
+#   type="event" user="admin" srcip=203.0.113.45 action="login"
+#
+# So there is nothing to pattern out beyond the ledger itself... the rule takes
+# it whole and quote-aware kv does the work. That matters for more than
+# tidiness: an admin login failure logs the attempted account in user=, and the
+# account name is whatever the client typed. Scanning such a line for the first
+# "srcip=" finds the one an attacker pasted into their own username, while
+# splitting on the quoting cannot... user="admin srcip=8.8.8.8" is one value,
+# and srcip stays the address FortiOS put there.
+#
+# The rule is gateless and anchored, like http_access_logs: these lines carry
+# no PROGRAM to gate on, whether they arrive through a syslog reader or get fed
+# in raw, so the ledger shape is the whole test.
+#
+# Two generations are covered. Modern FortiOS writes logid="0100032002" and
+# srcip=; FortiOS 4.x wrote log_id=73001 and src=. Both are just keys, so kv
+# emits fg_logid/fg_srcip for one and fg_log_id/fg_src for the other and a
+# consumer that cares about both names either accepts either or asks for the
+# pair.
+includes:
+- base
+vars_templated:
+  # the BSD syslog head a collector prepends, stepped over rather than
+  # captured... whether it is there is a property of the reader, not the
+  # message, so both shapes have to match.
+  #
+  # The host is \S+ and deliberately NOT [% HOSTNAME %]. That primitive carries
+  # grok's "(?=.{1,255}$)" lookahead, which asserts the REST OF THE LINE is at
+  # most 255 characters... on a longer line the host cannot match, the whole
+  # optional head then matches empty, and the ledger is looked for at position
+  # zero where the timestamp is. The result is a silent miss on exactly the
+  # lines that matter: a FortiOS ledger with a full msg= runs 300-500
+  # characters. Nothing here needs hostname grammar, only to step over the
+  # field, so \S+ is both correct and safe.
+  FORTINET_HEAD: '(?:[% SYSLOGTIMESTAMP %] +\S+ +)?'
+  # the ledger, taken whole. It opens on date= (what a FortiGate itself emits)
+  # or on the log id (what a FortiAnalyzer relay may lead with), which keeps
+  # the gateless rule from claiming every k=v line on the host
+  FORTINET_LEDGER: '[% FORTINET_HEAD %](?<fg_kv>(?:date|log_?id)=[% GREEDYDATA %])'
+vars_tests:
+  FORTINET_HEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Jul 12 08:15:50 fw01 '
+        result: 'Jul 12 08:15:50 fw01 '
+      # all-optional, so the empty string is a match
+      - string: ''
+        result: ''
+    negative:
+      # a trailing separator is part of the fragment... without it, no match
+      - 'Jul 12 08:15:50 fw01'
+  FORTINET_LEDGER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+        result: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+      # no collector head, straight off the wire
+      - string: 'date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+        result: 'date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+      # legacy FortiOS 4.x, leading with the log id
+      - string: 'Jul 12 09:07:02 fw01 log_id=73001 type=traffic src=192.0.2.7'
+        result: 'Jul 12 09:07:02 fw01 log_id=73001 type=traffic src=192.0.2.7'
+      # over 255 characters, which a [% HOSTNAME %] head would silently miss
+      - string: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752326150456219138 tz="-0500" logdesc="Admin login failed" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="failed" reason="passwd_invalid" msg="Administrator admin login failed from https(203.0.113.45) because of invalid password"'
+        result: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752326150456219138 tz="-0500" logdesc="Admin login failed" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="failed" reason="passwd_invalid" msg="Administrator admin login failed from https(203.0.113.45) because of invalid password"'
+    negative:
+      # a k=v line that is not a FortiGate ledger
+      - 'Jul 12 08:15:50 fw01 id=firewall sn=0017C5C0A63C src=203.0.113.66'
+      # nothing resembling the ledger at all
+      - 'Jul 12 08:15:50 fw01 sshd[123]: Invalid user bob from 192.0.2.7'
+decompose:
+  - field: fg_kv
+    type: kv
+    quoted: true
+    prefix: 'fg_'
+    remove: true
+    tests:
+      - input: 'date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002" type="event" user="admin" srcip=203.0.113.45 action="login" status="failed"'
+        result:
+          fg_date: '2026-07-12'
+          fg_time: '08:15:50'
+          fg_devname: 'FGT60F'
+          fg_logid: '0100032002'
+          fg_type: 'event'
+          fg_user: 'admin'
+          fg_srcip: '203.0.113.45'
+          fg_action: 'login'
+          fg_status: 'failed'
+      # the forgery this file exists to defeat... the attacker's own account
+      # name carries a srcip=, and it stays inside fg_user
+      - input: 'date=2026-07-12 time=08:15:50 logid="0100032002" user="admin srcip=8.8.8.8" srcip=203.0.113.45'
+        result:
+          fg_date: '2026-07-12'
+          fg_time: '08:15:50'
+          fg_logid: '0100032002'
+          fg_user: 'admin srcip=8.8.8.8'
+          fg_srcip: '203.0.113.45'
+      # legacy 4.x spellings, unquoted throughout
+      - input: 'date=2026-07-12 time=09:07:02 log_id=73001 type=traffic src=192.0.2.7 dst=203.0.113.1'
+        result:
+          fg_date: '2026-07-12'
+          fg_time: '09:07:02'
+          fg_log_id: '73001'
+          fg_type: 'traffic'
+          fg_src: '192.0.2.7'
+          fg_dst: '203.0.113.1'
+      # a quoted value holding its own spaces and punctuation
+      - input: 'date=2026-07-12 time=14:20:31 logid="0211008192" msg="File is infected." service="HTTP" srcip=192.168.1.30'
+        result:
+          fg_date: '2026-07-12'
+          fg_time: '14:20:31'
+          fg_logid: '0211008192'
+          fg_msg: 'File is infected.'
+          fg_service: 'HTTP'
+          fg_srcip: '192.168.1.30'
+rules:
+  - name: fortinet
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - FORTINET_LEDGER
+    tests:
+      positive:
+        - string: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002" type="event" user="admin" srcip=203.0.113.45 action="login" status="failed"'
+          result:
+            fg_kv: 'date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002" type="event" user="admin" srcip=203.0.113.45 action="login" status="failed"'
+        - string: 'date=2026-07-12 time=09:07:02 log_id=73001 type=traffic src=192.0.2.7'
+          result:
+            fg_kv: 'date=2026-07-12 time=09:07:02 log_id=73001 type=traffic src=192.0.2.7'
+      negative:
+        # a SonicWall ledger... its own file's business, not this one's
+        - 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C msg="Land attack dropped" src=198.51.100.44:80:X1'
+        # an ordinary syslog line
+        - 'Jul 12 08:15:50 fw01 sshd[123]: Invalid user bob from 192.0.2.7 port 22'

@@ -1,0 +1,191 @@
+---
+# SonicWall (SonicOS) firewall log enrichment.
+#
+# SonicOS logs one flat key=value ledger per line, quoted where a value holds
+# spaces:
+#
+#   id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1
+#   pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2
+#   src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0
+#
+# The event itself is named by msg= (and numbered by m=), so a consumer gates
+# on those rather than pattern-matching prose. Quote-aware kv is what makes
+# that safe: an administrator login failure logs the attempted account in usr=,
+# and that name is whatever the client typed. Scanning the line for the first
+# "src=" finds one pasted into the account name; splitting on the quoting does
+# not, since usr="admin src=8.8.8.8" is a single value.
+#
+# Gateless and anchored, like http_access_logs and the fortinet file beside
+# it... these lines carry no PROGRAM, so the ledger shape is the whole test.
+#
+# src= and dst= are composites, address:port:interface, so a second decompose
+# step splits them into their parts while leaving the composite in place. The
+# split is IPv4 only on purpose: SonicOS writes v4 in this field, and a v6
+# literal is all colons, so trying to split one would only invent fields. A
+# value the split does not match is left as it is.
+includes:
+- base
+vars_templated:
+  # the BSD syslog head a collector prepends, stepped over rather than
+  # captured... whether it is there is the reader's property, not the
+  # message's, so both shapes have to match.
+  #
+  # \S+ for the host, not [% HOSTNAME %]: that primitive carries grok's
+  # "(?=.{1,255}$)" lookahead, asserting the REST of the line is under 256
+  # characters, so on a longer ledger the head silently fails to match and the
+  # rule looks for id= where the timestamp is. Same reasoning as the fortinet
+  # file beside this one, which see.
+  SONICWALL_HEAD: '(?:[% SYSLOGTIMESTAMP %] +\S+ +)?'
+  # the ledger, taken whole. SonicOS always opens on id=, which keeps this
+  # gateless rule off every other k=v line on the host
+  SONICWALL_LEDGER: '[% SONICWALL_HEAD %](?<sw_kv>id=[% GREEDYDATA %])'
+  # address:port:interface, each part after the address optional
+  SONICWALL_SRC: '(?<sw_src_ip>[% IPV4NOCAP %])(?::(?<sw_src_port>[% INT %])?)?(?::(?<sw_src_iface>[^:\s]+))?'
+  SONICWALL_DST: '(?<sw_dst_ip>[% IPV4NOCAP %])(?::(?<sw_dst_port>[% INT %])?)?(?::(?<sw_dst_iface>[^:\s]+))?'
+vars:
+  # a bare dotted quad... base IP would also admit v6, which must not be split
+  IPV4NOCAP: '(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
+vars_tests:
+  IPV4NOCAP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '203.0.113.66'
+        result: '203.0.113.66'
+      - string: '0.0.0.0'
+        result: '0.0.0.0'
+      - string: '255.255.255.255'
+        result: '255.255.255.255'
+    negative:
+      - '256.1.1.1'
+      - '1.2.3'
+      - '2001:db8::1'
+  SONICWALL_HEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Jul 12 04:02:11 fw01 '
+        result: 'Jul 12 04:02:11 fw01 '
+      # all-optional, so the empty string is a match
+      - string: ''
+        result: ''
+    negative:
+      # a trailing separator is part of the fragment... without it, no match
+      - 'Jul 12 04:02:11 fw01'
+  SONICWALL_DST:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '192.0.2.10:31337:X0'
+        result: '192.0.2.10:31337:X0'
+      - string: '192.0.2.10'
+        result: '192.0.2.10'
+    negative:
+      - '2001:db8::1:443:X0'
+      - 'notanaddress:1:X0'
+  SONICWALL_LEDGER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C msg="Land attack dropped" src=198.51.100.44:80:X1'
+        result: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C msg="Land attack dropped" src=198.51.100.44:80:X1'
+      # no collector head, straight off the wire
+      - string: 'id=firewall sn=0017C5C0A63C msg="Land attack dropped"'
+        result: 'id=firewall sn=0017C5C0A63C msg="Land attack dropped"'
+      # over 255 characters, which a [% HOSTNAME %] head would silently miss
+      - string: 'Jul 12 12:03:08 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:03:08 UTC" fw=203.0.113.1 pri=1 c=32 m=1096 msg="Anti-Spyware Prevention Alert: ADWARE Gator (Threat Level - High)" sid=280 n=12 src=192.0.2.55:49233:X0 dst=203.0.113.90:80:X1 note="Policy: Gator adware, SID: 280" fw_action="drop"'
+        result: 'Jul 12 12:03:08 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:03:08 UTC" fw=203.0.113.1 pri=1 c=32 m=1096 msg="Anti-Spyware Prevention Alert: ADWARE Gator (Threat Level - High)" sid=280 n=12 src=192.0.2.55:49233:X0 dst=203.0.113.90:80:X1 note="Policy: Gator adware, SID: 280" fw_action="drop"'
+    negative:
+      # a FortiGate ledger... the fortinet file's business
+      - 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+      # an ordinary syslog line
+      - 'Jul 12 08:15:50 fw01 sshd[123]: Invalid user bob from 192.0.2.7 port 22'
+  SONICWALL_SRC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '203.0.113.66:31337:X1'
+        result: '203.0.113.66:31337:X1'
+      # an empty port, which SonicOS writes for a portless protocol
+      - string: '192.0.2.150::X0'
+        result: '192.0.2.150::X0'
+      # address alone
+      - string: '192.0.2.7'
+        result: '192.0.2.7'
+    negative:
+      # a v6 literal must not be split as if it were a composite
+      - '2001:db8::1:443:X1'
+      - 'notanaddress:1:X0'
+decompose:
+  # the ledger first... it is what produces sw_src and sw_dst for the two
+  # pattern steps below
+  - field: sw_kv
+    type: kv
+    quoted: true
+    prefix: 'sw_'
+    remove: true
+    tests:
+      - input: 'id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
+        result:
+          sw_id: 'firewall'
+          sw_sn: '0017C5C0A63C'
+          sw_time: '2026-07-12 04:02:11 UTC'
+          sw_fw: '203.0.113.1'
+          sw_pri: '1'
+          sw_c: '32'
+          sw_m: '606'
+          sw_msg: 'Back Orifice attack dropped'
+          sw_n: '2'
+          sw_src: '203.0.113.66:31337:X1'
+          sw_dst: '192.0.2.10:31337:X0'
+      # the forgery this file exists to defeat... a src= pasted into the
+      # account name stays inside sw_usr
+      - input: 'id=firewall sn=0017C5C0A63C msg="Wrong Admin Password" usr="admin src=8.8.8.8" n=8 src=203.0.113.99:50412:X1'
+        result:
+          sw_id: 'firewall'
+          sw_sn: '0017C5C0A63C'
+          sw_msg: 'Wrong Admin Password'
+          sw_usr: 'admin src=8.8.8.8'
+          sw_n: '8'
+          sw_src: '203.0.113.99:50412:X1'
+  # the composite is left in place, so it is still there beside its parts
+  - field: sw_src
+    type: pattern
+    pattern: SONICWALL_SRC
+    tests:
+      - input: '203.0.113.66:31337:X1'
+        result:
+          sw_src: '203.0.113.66:31337:X1'
+          sw_src_ip: '203.0.113.66'
+          sw_src_port: '31337'
+          sw_src_iface: 'X1'
+      - input: '192.0.2.150::X0'
+        result:
+          sw_src: '192.0.2.150::X0'
+          sw_src_ip: '192.0.2.150'
+          sw_src_iface: 'X0'
+      # a v6 literal is not a composite... nothing is split, nothing invented
+      - input: '2001:db8::1'
+        result:
+          sw_src: '2001:db8::1'
+  - field: sw_dst
+    type: pattern
+    pattern: SONICWALL_DST
+    tests:
+      - input: '192.0.2.10:31337:X0'
+        result:
+          sw_dst: '192.0.2.10:31337:X0'
+          sw_dst_ip: '192.0.2.10'
+          sw_dst_port: '31337'
+          sw_dst_iface: 'X0'
+rules:
+  - name: sonicwall
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - SONICWALL_LEDGER
+    tests:
+      positive:
+        - string: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
+          result:
+            sw_kv: 'id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
+      negative:
+        # a FortiGate ledger
+        - 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 logid="0100032002" srcip=203.0.113.45'
+        # an ordinary syslog line
+        - 'Jul 12 08:15:50 fw01 sshd[123]: Invalid user bob from 192.0.2.7 port 22'

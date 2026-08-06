@@ -118,7 +118,10 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
 | `slapd` | OpenLDAP binds, searches, and result codes |
 | `openvpn` | OpenVPN handshakes, certificate verification, and auth failures |
+| `strongswan` | strongSwan/charon IPsec tunnels, IKE, and EAP |
+| `freeradius` | RADIUS logins — the auth behind 802.1X and many VPNs |
 | `samba` | Samba (`smbd`/`nmbd`/`winbindd`) auth audit and share access |
+| `nfs` | `rpc.mountd` mount requests, allowed and refused |
 
 **Mail**
 
@@ -127,6 +130,7 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `postfix` | Postfix mail log (smtpd, qmgr, delivery, …) |
 | `exim` | Exim mail log, including SMTP AUTH and TLS failures |
 | `dovecot` | Dovecot IMAP/POP3 |
+| `sendmail` | Sendmail transactions, AUTH failures, and rejections |
 | `rspamd` | Rspamd scan results — score, action, and symbols |
 | `spamd` | SpamAssassin scan results |
 | `clamav` | ClamAV detections and signature-database freshness |
@@ -141,11 +145,18 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `haproxy` | HAProxy HTTP and TCP traffic, plus health-check state changes |
 | `squid` | Squid access.log (all three shipped logformats) and cache.log |
 | `vsftpd` / `proftpd` | FTP logins and transfers |
+| `php_fpm` | PHP-FPM pool health: dying children, slow requests, exhaustion |
+| `cups` | CUPS printing — both `error_log` and `access_log` |
 | `named` / `unbound` | DNS server logs |
+| `resolved` | `systemd-resolved` upstream health and DNSSEC failures |
 | `dnsmasq` | dnsmasq's DNS, DHCP, and TFTP logging |
 | `dhcpd` | ISC DHCP server leases |
-| `hostapd` | hostapd wireless association events |
-| `chrony` / `ntpd` | Time synchronization daemons |
+| `hostapd` | hostapd wireless association events (the access-point side) |
+| `wpa_supplicant` | Wireless client associations and auth failures |
+| `networkmanager` / `networkd` | Device state machines, carrier, and DHCP leases |
+| `chrony` / `ntpd` / `timesyncd` | Time synchronization daemons |
+| `xinetd` | Superserver dispatch: who reached which service, and refusals |
+| `snmpd` | Net-SNMP connections — who is querying the agent |
 
 **Firewalls**
 
@@ -154,7 +165,10 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `netfilter` | iptables/nftables/UFW kernel firewall logs |
 | `ipfw` | FreeBSD ipfw firewall logs |
 | `pf` | OpenBSD/FreeBSD pf, read from `tcpdump -r /var/log/pflog` |
+| `fortinet` | FortiGate/FortiOS key=value logs |
+| `sonicwall` | SonicWall/SonicOS key=value logs |
 | `fail2ban` | fail2ban ban/unban actions |
+| `suricata` | Suricata IDS — `eve.json` and `fast.log` |
 
 **Databases, storage, and the host itself**
 
@@ -165,8 +179,11 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `mongodb` | MongoDB structured (JSON) logging |
 | `kernel` | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, SYN floods |
 | `smartd` | Disk health: failing attributes, bad sectors, temperature |
+| `zed` | ZFS Event Daemon — checksum errors, vdev states, resilvers |
+| `docker` | Docker/containerd logfmt output |
 | `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
-| `cron` | cron/crond job execution |
+| `cron` / `atd` | Scheduled job execution |
+| `syslog_daemon` | rsyslog and syslog-ng internals — rate limiting and stalled outputs |
 
 ## Documentation
 
