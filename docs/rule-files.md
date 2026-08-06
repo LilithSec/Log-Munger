@@ -205,13 +205,13 @@ document into `MESSAGE`. MongoDB is the bundled example.
 By default the decoded structure is flattened, so each leaf becomes
 `prefix + path` with the path segments joined by `separator`. Object keys and array
 indices both count as segments, so `{"attr":{"remote":"1.2.3.4"}}` with `prefix: mongo_`
-gives `mongo_attr_remote`. That means an arbitrarily-shaped payload does not need a
-pattern written for it.
+gives `mongo_attr_remote`. A payload of any shape therefore needs no pattern written
+for it.
 
-Three things are normalized on the way through: a MongoDB extended-JSON wrapper (a
-single-key object such as `{"$date":…}`, `{"$oid":…}`, or `{"$numberLong":…}`) collapses
-to the scalar inside it, booleans become `1` and `0`, and JSON null is skipped rather
-than stored. A field whose value is not valid JSON is left exactly as it was.
+Some values are normalized on the way through. A MongoDB extended-JSON wrapper — a
+single-key object such as `{"$date":…}`, `{"$oid":…}`, or `{"$numberLong":…}` — collapses
+to the scalar inside it. Booleans become `1` and `0`. JSON null is skipped rather than
+stored. A field whose value is not valid JSON is left exactly as it was.
 
 ```yaml
 decompose:
@@ -245,8 +245,8 @@ geoip:
 
 ### `convert` — coerce captured fields
 
-A map of `field: type`. Everything captured out of a regexp is a string, and this is how
-one becomes something else. Four types, each with a few accepted spellings:
+A map of `field: type`. Everything a regexp captures is a string; this is how one stops
+being one. Four types, each with a few accepted spellings:
 
 - `int` :: Coerce to an integer, so it serializes as a JSON number rather than a string.
   Also spelled `integer`.

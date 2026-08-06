@@ -84,8 +84,7 @@ If no flagged field resolves, no `geoip` key is added.
 ## Timing
 
 GeoIP runs **after** `decompose` and **before** `convert` (see
-[architecture](architecture.md#why-the-enrichment-order-is-fixed)). Two things follow from
-that:
+[architecture](architecture.md#why-the-enrichment-order-is-fixed)), which buys two things:
 
 - It can look up an address a `decompose` step produced, such as `nf_SRC` split out of the
   kernel firewall blob.

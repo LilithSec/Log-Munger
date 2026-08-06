@@ -7,7 +7,7 @@ use Log::Munger::LogProcessor ();
 
 =head1 NAME
 
-Log::Munger - Extract structured fields from log records using YAML rule files.
+Log::Munger - Extracts structured fields from log records using YAML rule files.
 
 =head1 VERSION
 

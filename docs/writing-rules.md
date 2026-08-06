@@ -143,12 +143,14 @@ rules:
         - 'nospacehere'
 ```
 
-The negative case must be a string the pattern does *not* match. `MYAPP_EVENT` is loose —
-a word, a space, then anything — so a good negative has no space at all (`nospacehere`),
-not merely "unrelated" content like `some unrelated line` (which *does* match, with
-`app_status=some`). When you run the item through `munge` for real, `decompose` and
-`convert` then turn `app_kv` into `app_user`/`app_ip`/`app_dur`/`app_tags` and coerce
-`app_dur` to the number `0.42` — as verified in step 8.
+The negative case must be a string the pattern really does *not* match. `MYAPP_EVENT` is
+loose — a word, a space, then anything — so a good negative has no space at all, which is
+why `nospacehere` works. Something merely unrelated, like `some unrelated line`, would
+*not* work: it matches, with `app_status=some`.
+
+Run the item through `munge` for real and `decompose` and `convert` do the rest, turning
+`app_kv` into `app_user`, `app_ip`, `app_dur` and `app_tags`, and coercing `app_dur` to
+the number `0.42`. Step 8 shows how to check that.
 
 ## 8. Test and iterate
 

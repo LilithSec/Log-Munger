@@ -12,7 +12,7 @@ use Algorithm::Dependency::Source::HoA;
 
 =head1 NAME
 
-Log::Munger::RulesTemplateOrder - Works out what order a rule file's templated vars have to be resolved in.
+Log::Munger::RulesTemplateOrder - Works out the order a rule file's templated vars must be resolved in.
 
 =head1 VERSION
 

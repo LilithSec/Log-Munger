@@ -23,19 +23,19 @@ ssh_user: kitsune
 
 ## Why
 
-Grok patterns are great, but they live inside Logstash. Log-Munger takes the same
-idea — a library of named regexp primitives (`%{IP}`, `%{WORD}`, …) composed into
-larger patterns — and makes it:
+Grok's good idea is a library of named regexp primitives (`%{IP}`, `%{WORD}`, …)
+composed into larger patterns. The catch is that it only runs inside Logstash.
+Log-Munger takes the idea and makes it:
 
 - Standalone :: A Perl module (`Log::Munger`) and a CLI (`log_munger`). Pipe NDJSON
   or raw lines through it.
-- Templated, not string-spliced :: Primitives are composed with
+- Templated :: Primitives are composed with
   [Template Toolkit](https://metacpan.org/pod/Template) as `[% IP %]` and resolved in
-  dependency order, so a pattern can build on another pattern.
+  dependency order, so one pattern can build on another.
 - Testable :: Every primitive and every rule carries its own positive and negative
   `tests`, checkable with `log_munger test_all`.
-- Enriching, not just matching :: After a match it can split key=value blobs, decode
-  embedded JSON, re-match sub-fields, coerce values, and do GeoIP lookups.
+- Enriching :: After a match it can split key=value blobs, decode embedded JSON,
+  re-match sub-fields, coerce values, and do GeoIP lookups.
 - Grok-compatible :: `log_munger degrok` and `grok2rules` convert existing grok
   patterns (`%{TOKEN}` and `%{TOKEN:name}`) into Log-Munger's form.
 

@@ -14,7 +14,7 @@ use Log::Munger::RulesUsable    ();
 
 =head1 NAME
 
-Log::Munger::LogProcessor - Loads rule files and enriches log items via their C<rules:> dispatch section.
+Log::Munger::LogProcessor - Compiles rule files and matches log records against them.
 
 =head1 VERSION
 

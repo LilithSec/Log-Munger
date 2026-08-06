@@ -38,13 +38,13 @@ Key points:
 
 - Includes are merged first :: With right precedence, so the current file wins on a
   conflict and a consumer can override a base primitive. Includes are de-duplicated.
-- Templating order matters :: Because `vars_templated` entries reference each other,
+- Templating order matters :: `vars_templated` entries reference each other, so
   `RulesTemplateOrder` works out a dependency order via `Algorithm::Dependency::Ordered`
-  so a var is resolved only once everything it references already is. Trailing newlines
-  are stripped at every step, since a YAML `|` block scalar leaking its terminator into
-  the middle of a composed pattern would leave it unable to match a single-line log while
-  looking perfectly fine in the file. Inspect the order with
+  and a var is resolved only once everything it references already is. See the order with
   `log_munger rule_file_template_order -f <file>`.
+- Trailing newlines are stripped at every step :: A YAML `|` block scalar keeps its
+  terminating newline, and one of those landing in the middle of a composed pattern leaves
+  it unable to match a single-line log while looking perfectly fine in the file.
 - Compilation is where errors surface :: `LogProcessor->new` compiles each rule to real
   `qr//` objects and dies on a malformed rule, a leftover un-degrokked `%{...}`, or a
   pattern that will not compile, which includes an illegal capture name such as one
@@ -75,12 +75,12 @@ log line can never take down a stream.
 
 ### Why the enrichment order is fixed
 
-- decompose first :: It can *produce* fields, such as splitting a `k=v` blob into
-  `SRC=...`, that a later step then needs.
-- geoip next :: So it can look up an address a decompose step just produced, while the
-  value is still the original string.
-- convert last :: So coercion happens after geoip has seen the string form of an address
-  or port.
+- decompose first :: It *produces* fields, such as the `SRC=...` split out of a `k=v`
+  blob, that the later steps then work on.
+- geoip next :: It can therefore look up an address decompose just produced, and it sees
+  that address while the value is still the original string.
+- convert last :: Coercion happens once geoip has had its look, so turning a port into a
+  number never gets in the way of a lookup.
 
 No enrichment step ever overwrites an existing capture; new keys are only added if absent.
 

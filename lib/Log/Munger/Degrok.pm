@@ -11,7 +11,7 @@ use Log::Munger::RuleFileParser ();
 
 =head1 NAME
 
-Log::Munger::Degrok - Converts grok style regexp template stuff to template stuff usable with Log::Munger
+Log::Munger::Degrok - Rewrites grok templating into the form Log::Munger uses.
 
 =head1 VERSION
 

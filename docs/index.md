@@ -19,7 +19,7 @@ Start here:
 8. **[GeoIP enrichment](geoip.md)** — enriching captured IP addresses.
 9. **[Grok migration](grok.md)** — converting existing grok patterns.
 
-## Core concepts at a glance
+## Core concepts
 
 - Rule file :: A YAML document. Either a *primitive library* such as `base`, which only
   defines reusable patterns, or a *consumer* such as `sshd`, which defines `rules:` that
@@ -37,12 +37,13 @@ Start here:
 
 ## Rule-file search path
 
-Rule files are resolved by name across, in precedence order:
+A rule file name is looked for in three places, in this order:
 
 1. `/etc/log_munger/rules/`
 2. `/usr/local/etc/log_munger/rules/`
 3. the distribution share directory (`File::ShareDir::dist_dir('Log-Munger')`)
 
-An earlier match shadows a later one. A name with no `.yaml` also tries `name.yaml`; a
-path starting with `/`, `./`, or `../` is used directly. `log_munger which_rule_file -f NAME`
-shows what a name resolves to; `log_munger list` shows everything discoverable.
+The first hit wins, so a local file shadows one shipped with the distribution. A name with
+no `.yaml` also tries `name.yaml`, and a path starting with `/`, `./`, or `../` is used
+directly instead of being searched for. `log_munger which_rule_file -f NAME` shows what a
+name resolves to, and `log_munger list` shows everything discoverable.

@@ -6,7 +6,7 @@ use warnings;
 
 =head1 NAME
 
-Log::Munger::RulesUsable - Check that a rules hash is fit to run.
+Log::Munger::RulesUsable - Checks that a rules hash is fit to run.
 
 =head1 VERSION
 
