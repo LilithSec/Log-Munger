@@ -110,8 +110,10 @@ convert:
   app_dur: float
 ```
 
-`geoip` only fires when a database is supplied (`--geoip`); `convert` makes `app_dur`
-serialize as a JSON number.
+`geoip` only fires when a database is supplied via `--geoip`. `convert` makes `app_dur`
+serialize as a JSON number rather than the string the regexp captured. Besides `int` and
+`float`, `convert` also takes `lc` and `uc`, which are for tokens whose case varies
+between the sources that write them.
 
 ## 7. Add a rule test
 
@@ -165,13 +167,13 @@ keep them that way.
 
 ## Tips
 
-- **Anchor** rules that consume the whole message; leave gateless/anchored rules (like
-  `http_access_logs`) for whole-line formats fed raw.
-- **Namespace** every capture with a short prefix (`ssh_`, `postfix_`, `app_`) so fields
+- Anchor :: Rules that consume the whole message want `anchored: true`. Leave gateless,
+  anchored rules like `http_access_logs` for whole-line formats fed in raw.
+- Namespace :: Give every capture a short prefix — `ssh_`, `postfix_`, `app_` — so fields
   from different rule files never collide in a merged record.
-- **Prefer decompose over giant regexps** for `k=v` payloads — it is easier to read and
-  the dynamic keys survive format drift.
-- **Order matters** inside `decompose`: a `kv` step can produce a field a later `pattern`
-  step then splits.
-- Use `log_munger dump_rule_file -f <file> --var <VAR>` to see a primitive's fully-resolved
-  regexp when a pattern is not matching.
+- Prefer decompose over giant regexps :: For `k=v` payloads it is easier to read, and the
+  dynamic keys survive format drift that would break a pattern naming each key.
+- Order matters inside `decompose` :: A `kv` step can produce a field that a later
+  `pattern` step then splits.
+- When a pattern is not matching :: `log_munger dump_rule_file -f <file> --var <VAR>` shows
+  a primitive's fully resolved regexp, which is usually where the problem is.

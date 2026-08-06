@@ -18,15 +18,19 @@ my $munger = Log::Munger->new(
 );
 ```
 
-- `rules` — arrayref of rule-file names (or paths) to load. Optional at construction; you
+- `rules` :: Arrayref of rule-file names or paths to load. Optional at construction; you
   can add more later with `load`.
-- `geoip` — path to a MaxMind `.mmdb` database. When set, rules that flag captured fields
-  with `geoip:` have those looked up, stored under `result -> {geoip}{$field}`. Requires
-  [`IP::Geolocation::MMDB`](geoip.md), loaded only when this option is used.
+- `geoip` :: Path to a MaxMind `.mmdb` database. When set, rules that flag captured fields
+  with `geoip:` have those looked up and stored under `result -> {geoip}{$field}`. Needs
+  [`IP::Geolocation::MMDB`](geoip.md), which is loaded only when this option is used.
+
+A rule file that will not load or compile is fatal here, so a broken file is caught at
+construction rather than silently matching nothing later on.
 
 ### `load`
 
-Load an additional rule file and rebuild the processor.
+Load an additional rule file and rebuild the processor. Rules from files loaded later are
+tried after rules from files loaded earlier, so load order is match priority.
 
 ```perl
 $munger->load( file => 'sshd' );   # 'file' is required
@@ -42,14 +46,36 @@ my $fields = $munger->process_item( item => $decoded_hashref );
 my $fields = $munger->process_item( item => $raw_log_line );   # bare string => { MESSAGE => ... }
 ```
 
-- `item` — a decoded record (hashref) or a bare string. A bare string is matched as the
-  `MESSAGE` field, so whole log lines need not be wrapped.
+- `item` :: A decoded record (hashref) or a bare string. A bare string is matched as the
+  `MESSAGE` field, so whole log lines need not be wrapped. Takes precedence over the
+  field args below.
+
+If you are coming from a syslog reader that has already split the fields out, hand them
+over directly instead of building the record hash yourself:
+
+```perl
+my $fields = $munger->process_item(
+    message  => $message,
+    program  => $program,
+    priority => $priority,
+    facility => $facility,
+);
+```
+
+- `message` :: The raw log message, assembled into `{ MESSAGE => ... }`.
+- `program` :: Adds a `PROGRAM` field, which is what most daemon rule files gate on.
+- `priority` :: Adds a `PRIORITY` field.
+- `facility` :: Adds a `FACILITY` field.
+
+Only `message` is needed; the other three are added when given. The keys are the
+upper-case syslog-ng-style names that rule gates match on.
 
 Never dies: a bad item or a pathological pattern yields `undef`.
 
 ### `explain_item`
 
-Like `process_item`, but returns match metadata instead of just the fields:
+Like `process_item`, and takes the same arguments, but returns match metadata instead of
+just the fields:
 
 ```perl
 my $why = $munger->explain_item( item => $record );
@@ -86,56 +112,72 @@ Loads and parses a single rule file into a hash: resolves the name via
 (right-precedence via `Hash::Merge`), normalizes `vars`, and expands `vars_templated` with
 Template Toolkit in dependency order.
 
-- `load( file => $name )` — full parse, including templating. Returns the rules hashref.
-- `load_no_templating( file => $name )` — parse and merge includes but leave
-  `vars_templated` unexpanded (used by the template-order tooling).
+- `load( file => $name )` :: Full parse, including templating. Returns the rules hashref.
+  Every resolved `vars_templated` entry is written back into `vars`, so afterwards there
+  is one flat namespace of named regexps.
+- `load_no_templating( file => $name )` :: Parse and merge includes but leave
+  `vars_templated` unexpanded. This is what the template-order tooling uses, since working
+  out which var depends on which means reading the `[% VAR %]` references before they are
+  substituted away.
 
 ## `Log::Munger::WhichRuleFile`
 
 Resolves a rule-file name to a path.
 
-- `rule_file_location( file => $name )` — returns the resolved path, or `undef` if not
-  found. Search order (first match wins):
+- `rule_file_location( file => $name )` :: Returns the resolved path, or `undef` if the
+  name turned up nothing. Search order, first match wins:
   1. an explicit path (starts with `/`, `./`, `../`) — the file, then `name.yaml`;
   2. `/etc/log_munger/rules/` — `name`, then `name.yaml`;
   3. `/usr/local/etc/log_munger/rules/` — `name`, then `name.yaml`;
   4. the dist share dir (`File::ShareDir::dist_dir('Log-Munger')`) — `name`, then `name.yaml`.
 
+That ordering is what lets a local file shadow one shipped with the distribution: drop
+your own `sshd.yaml` into `/etc/log_munger/rules/` and every reference to `sshd` picks it
+up instead.
+
 ## `Log::Munger::RulesUsable`
 
-A fast structural sanity check (not a full test).
+A fast structural sanity check, not a full test. Meant for something starting up that
+wants a cheap look at a file it is about to load.
 
-- `usable( rules => \%rules_hash )` — returns `1`, or **dies** if `rules` is missing, not a
-  hash, or its `rules` key is missing/not an array/empty.
+- `usable( rules => \%rules_hash )` :: Returns `1`, or **dies** if `rules` is missing, is
+  not a hash, or its `rules` key is missing, not an array, or empty.
 
 ## `Log::Munger::RulesTest`
 
 The full test harness behind `log_munger test_all` / `test_rule_file`.
 
-- `test( file => $path )` **or** `test( hash => \%rules_hash )` — returns
+- `test( file => $path )` **or** `test( hash => \%rules_hash )` :: Returns
   `{ fatal => <load-error-or-undef>, errors => [...], warnings => [...] }`.
 
-It checks: `vars_tests` positive/negative cases; each rule compiles and its positive
-strings match with the expected captures while its negative strings do not; each
-`decompose` entry's isolated `tests`; and lints vars for un-degrokked `%{...}`, illegal
-capture names, embedded newlines, and non-compiling regexps.
+It runs every `vars_tests` case, compiles each rule exactly as the engine does and runs it
+against its `tests`, applies each `decompose` entry to its own `tests` in isolation, and
+lints every resolved var for un-degrokked `%{...}`, illegal capture names, embedded
+newlines, and regexps that will not compile. Nothing that would produce wrong output is a
+warning; things merely worth knowing, such as a rule with no tests at all, are.
+
+Every message names where the problem is as a path into the rule file, so
+`.rules.3.tests.positive.0` is the first positive test of the fourth rule.
 
 ## `Log::Munger::RulesTemplateOrder`
 
 Computes the dependency order for `vars_templated` (a topological sort over `[% VAR %]`
 references, via `Algorithm::Dependency::Ordered`).
 
-- `order_for_rules_hash( rules => \%hash )` / `order_for_rules_file( file => $path )` —
-  arrayref of var names in resolution order.
-- `depends_for_rules_hash( rules => \%hash )` / `depends_for_rules_file( file => $path )` —
-  the raw `{ var => [deps] }` map.
+- `order_for_rules_hash( rules => \%hash )` / `order_for_rules_file( file => $path )` ::
+  Arrayref of var names in resolution order.
+- `depends_for_rules_hash( rules => \%hash )` / `depends_for_rules_file( file => $path )`
+  :: The raw `{ var => [deps] }` map.
+
+The hash forms want a hash from `load_no_templating`. Once `load` has run the templating
+is already done and the `[% VAR %]` references these read have been substituted away.
 
 ## `Log::Munger::Degrok`
 
 Converts grok templating to Log-Munger templating. See [grok.md](grok.md).
 
-- `string( string => $s )` — `%{TOKEN}` → `[% TOKEN %]`, `%{TOKEN:name}` →
-  `(?<name>[% TOKEN %])`.
-- `file( file => $path )` — the same, applied to a whole file.
-- `grok2rules( file => $path, includes => [...], overwrite => ... )` — turn a grok patterns
-  file into a rules-YAML skeleton.
+- `string( string => $s )` :: `%{TOKEN}` becomes `[% TOKEN %]`, and `%{TOKEN:name}`
+  becomes `(?<name>[% TOKEN %])`.
+- `file( file => $path )` :: The same, applied to a whole file a line at a time.
+- `grok2rules( file => $path, includes => [...], overwrite => ... )` :: Turns a grok
+  patterns file into a rules-YAML skeleton.

@@ -6,7 +6,7 @@ use warnings;
 
 =head1 NAME
 
-Log::Munger::RulesUsable - Test if a rules hash is usable or not.
+Log::Munger::RulesUsable - Check that a rules hash is fit to run.
 
 =head1 VERSION
 
@@ -16,19 +16,36 @@ Version 0.0.1
 
 our $VERSION = '0.0.1';
 
+=head1 SYNOPSIS
+
+    use Log::Munger::RulesUsable;
+
+    eval { Log::Munger::RulesUsable->usable( 'rules' => $rules_hash ); };
+    if ($@) {
+        die( 'unusable rules... ' . $@ );
+    }
+
 =head1 METHODS
 
 =head2 usable
 
-Test of the rules are usable or not.
+Checks that a rules hash is structurally sound enough to run against.
 
-This does not test if they work as intended or not, just that the everything is sane
-enought to run with out causing issues.
+This says nothing about whether the rules do what they were meant to do. It only
+confirms that the hash is a hash, that it has a C<rules> key, and that the key
+holds an array with something in it. Anything past that, such as whether the
+patterns compile or whether the tests pass, is L<Log::Munger::RulesTest>'s job.
 
-This is meant to be a faster option than doing a full test for when starting
+The split exists because the two are used at different times. Something starting
+up wants a cheap look at a file it is about to load, not the full test suite.
 
-    - rules :: The rules hash to rest
+    - rules :: The rules hash ref to check.
         default :: undef
+
+Returns 1 if the hash is usable. Otherwise dies with a message naming the specific
+thing that was wrong, so the caller has something worth printing.
+
+    Log::Munger::RulesUsable->usable( 'rules' => $rules_hash );
 
 =cut
 

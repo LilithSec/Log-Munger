@@ -72,7 +72,11 @@ vars_templated:
   DATESTAMP_EVENTLOG: '[% YEAR %][% MONTHNUM2 %][% MONTHDAY %][% HOUR %][% MINUTE %][% SECOND %]'
   DATESTAMP_RFC822: '[% DAY %] [% MONTH%] [% MONTHDAY %] [% YEAR %] [% TIME %] [% TZ %]'
   DATESTAMP_OTHER: '[% DAY %] [% MONTH %] [% MONTHDAY %] [% TIME %] [% TZ %] [% YEAR %]'
-  HTTPDATE: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [% INT %]'
+  # the timezone offset is signed ("-0700"), and INT here is unsigned, so the
+  # sign has to be spelled out separately.  Without it this matched the shape
+  # of an apache timestamp but not an actual one -- grok gets away with the
+  # bare INT because its INT carries the sign.
+  HTTPDATE: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [+-]?[% INT %]'
   URI: '[% URIPROTO %]://(?:[% USERNAME %](?::[^@]*)?@)?(?:[% HOSTmaybePORT %])?(?:[% URIPATHPARAM %])?'
   TIMESTAMP_ISO8601: '[% YEAR %]-[% MONTHNUM %]-[% MONTHDAY %][T ][% HOUR %]:?[% MINUTE %](?::?[% SECOND %])?[%  ISO8601_TIMEZONE %]?'
   DATE: '([% DATE_US %]|[% DATE_EU %])'
@@ -1112,6 +1116,11 @@ vars_tests:
     positive:
       - string: 'a b c=22/Nov/1984:01:22:33 1 d'
         result: '22/Nov/1984:01:22:33 1'
+      # what an apache or nginx access log actually writes
+      - string: 'a b c=10/Oct/2000:13:55:36 -0700 d'
+        result: '10/Oct/2000:13:55:36 -0700'
+      - string: 'a b c=15/Jul/2026:10:00:00 +0000 d'
+        result: '15/Jul/2026:10:00:00 +0000'
     negative:
       - '  a b c= d'
       - '  a b c=22/11/1984:01:22:33 1 d'

@@ -6,16 +6,18 @@ application. Run `log_munger commands` to list subcommands and
 
 Global options accepted by every subcommand:
 
-- `--help`, `-h` — usage screen
-- `--version`, `-v` — version
+- `--help`, `-h` :: Usage screen.
+- `--version`, `-v` :: Version.
 
 Options common to the processing commands (`munge`, `explain`, `enrich`):
 
-- `--rules`, `-r <name>` — a rule file to load. **Repeatable** — give it once per rule
-  file (e.g. `-r sshd -r postfix`). Resolved via the [search path](index.md#rule-file-search-path).
-- `--raw` — treat each input item as a raw log line (matched as the `MESSAGE` field)
+- `--rules`, `-r <name>` :: A rule file to load. Repeatable — give it once per rule file,
+  as in `-r sshd -r postfix`. Resolved via the
+  [search path](index.md#rule-file-search-path).
+- `--raw` :: Treat each input item as a raw log line, matched as the `MESSAGE` field,
   instead of JSON/NDJSON.
-- `--geoip`, `-g <path>` — path to a MaxMind `.mmdb` database for [GeoIP enrichment](geoip.md).
+- `--geoip`, `-g <path>` :: Path to a MaxMind `.mmdb` database for
+  [GeoIP enrichment](geoip.md).
 
 ---
 
@@ -104,9 +106,17 @@ first occurrence of a name wins).
 
 ### `which_rule_file` — resolve a name to a path
 
-> Returns the path to the specified rule file.
+> Print the path a rule file name resolves to.
 
-Prints the path a name resolves to. Exit status: `0` found, `1` not found, `255` error.
+Prints the path a name resolves to, searching the same places in the same order as
+[`list`](#list--list-discoverable-rule-files). A name beginning with `/`, `./`, or `../`
+is used as a path instead of being searched for.
+
+Exit codes:
+
+- `0` :: found
+- `1` :: not found
+- `255` :: error
 
 | Option | Meaning |
 |--------|---------|
@@ -127,11 +137,11 @@ keys):`, and `geoip:` sections.
 
 ### `dump_rule_file` — dump a rule file (fully templated)
 
-> Reads in the specified rule file and dumps it (or one resolved var) to stdout.
+> Dump a rule file as loaded, with includes merged and vars resolved.
 
-Loads a rule file (resolving `includes` and Template Toolkit `vars_templated`) and dumps
-the result as YAML. With `--var`/`-v` it dumps only the resolved value of a single var —
-handy for seeing the final compiled regexp of a primitive.
+Loads a rule file the way the engine does, resolving `includes` and the Template Toolkit
+`vars_templated`, then dumps the result as YAML. With `--var` it prints only that one
+var's resolved value, which is how to see the regexp a primitive actually compiles to.
 
 | Option | Meaning |
 |--------|---------|
@@ -144,10 +154,11 @@ log_munger dump_rule_file -f base --var TIMESTAMP_ISO8601
 
 ### `rule_file_template_order` — templating dependency order
 
-> Reads in the specified rule file and dumps its template order.
+> Show the order a rule file's templated vars get resolved in.
 
-Dumps the order in which `vars_templated` entries are resolved (topologically sorted by
-their `[% VAR %]` dependencies), or the raw dependency map with `-d`.
+Prints the order `vars_templated` entries are resolved in, topologically sorted by their
+`[% VAR %]` references. With `-d` it prints the dependency map that order was worked out
+from, which is what to look at when a var is not resolving.
 
 | Option | Meaning |
 |--------|---------|
@@ -160,10 +171,11 @@ their `[% VAR %]` dependencies), or the raw dependency map with `-d`.
 
 ### `test_rule_file` — test one rule file
 
-> Reads in the specified rule file and reports its test results.
+> Run the built-in tests for one rule file.
 
 Runs [`Log::Munger::RulesTest`](api.md#logmungerrulestest) over one rule file and dumps
-the result (fatal load error, errors, warnings) as YAML.
+the whole result as YAML: a fatal load error if it would not load, then every error and
+warning found.
 
 | Option | Meaning |
 |--------|---------|
@@ -193,11 +205,11 @@ See [grok migration](grok.md) for the full workflow.
 
 ### `degrok` — convert grok templating
 
-> Converts grok style regexp template to perl.
+> Rewrite grok templating into the Log::Munger form.
 
-Translates grok's `%{TEMPLATE}` → `[% TEMPLATE %]` and `%{TEMPLATE:VAR}` →
-`(?<VAR>[% TEMPLATE %])`. Give exactly one of `-s` (a string) or `-f` (a file). With
-`-f -r` it emits a full rules-file skeleton (like `grok2rules`).
+Rewrites grok's `%{TEMPLATE}` as `[% TEMPLATE %]` and `%{TEMPLATE:VAR}` as
+`(?<VAR>[% TEMPLATE %])`. Give exactly one of `-s` for a string or `-f` for a file. Adding
+`-r` to `-f` emits a rules-file skeleton instead, the same as `grok2rules`.
 
 | Option | Meaning |
 |--------|---------|

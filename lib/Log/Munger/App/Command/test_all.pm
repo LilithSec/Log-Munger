@@ -13,12 +13,34 @@ sub opt_spec {
 sub abstract { "Run the built-in tests for every discoverable rule file" }
 
 sub description {
-	"Runs Log::Munger::RulesTest over every rule file found across the search path and prints a "
-		. "pass/fail summary. Exits non-zero if any file has errors (or fails to load).";
+	"Runs Log::Munger::RulesTest over every rule file found across the search path and prints a
+pass/fail summary. Add -v to print each error and warning rather than just the counts.
+
+Exits non-zero if any file has errors or fails to load, which makes this the thing to run in
+CI.
+";
 }
 
 sub validate { return 1 }
 
+# Every rule file name discoverable across the search path.
+#
+# The same directories Log::Munger::WhichRuleFile searches are walked for .yaml
+# files and the names are collected into a set. Only the name is kept, not the
+# path, since the point is to hand each one to Log::Munger::RulesTest, which
+# resolves names itself. A name defined in more than one directory is therefore
+# tested once, as whichever copy would actually be used.
+#
+# The share dir lookup is wrapped in an eval because File::ShareDir::dist_dir dies
+# when the distribution is not installed, which is normal when running out of a
+# checkout.
+#
+# Takes no args.
+#
+# Returns a sorted list of rule file names, with the .yaml suffix stripped, such
+# as ( 'auditd', 'base', 'cron', ... ). Empty if nothing was found anywhere.
+#
+#     my @names = _names();
 sub _names {
 	my @dirs = ( '/etc/log_munger/rules', '/usr/local/etc/log_munger/rules' );
 	my $share;

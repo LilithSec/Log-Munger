@@ -18,7 +18,16 @@ sub opt_spec {
 
 sub abstract { "Run one log item through the rules and dump the extracted fields" }
 
-sub description { "Run one log item through the rules and dump the extracted fields" }
+sub description {
+	"Reads a single item from -s, or from stdin if -s is not given, runs it through the rules, and
+prints the winning rule's captured fields as YAML. If nothing matched it prints '--- ~', a YAML
+null.
+
+--raw only sets MESSAGE, so a rule gating on another field, as sshd gates on PROGRAM, will not
+match a raw line. Feed those a JSON record that includes the gate field. --raw is for gateless
+whole-line rules such as http_access_logs.
+";
+}
 
 sub validate { return 1 }
 

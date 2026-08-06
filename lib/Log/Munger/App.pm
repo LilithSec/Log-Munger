@@ -10,7 +10,7 @@ our $VERSION = '0.0.1';
 sub global_opt_spec {
         return (
                 [ 'help|h'    => "This usage screen." ],
-                [ 'version|v' => "This usage screen." ],
+                [ 'version|v' => "Print the version." ],
         );
 } ## end sub global_opt_spec
 

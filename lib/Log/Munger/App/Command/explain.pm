@@ -18,7 +18,15 @@ sub opt_spec {
 
 sub abstract { "Show which rule/pattern a log item matched and the fields it produced" }
 
-sub description { "Show which rule/pattern a log item matched and the fields it produced" }
+sub description {
+	"Like munge, but reports the match itself rather than only its output: whether anything
+matched, the name of the rule that fired, which of its patterns did it as a zero-based index,
+the field that was matched against, and then the extracted fields as a YAML document.
+
+This is what to reach for when a rule file is not doing what you expected, since it tells you
+whether the wrong rule won or the right one matched on the wrong pattern.
+";
+}
 
 sub validate { return 1 }
 

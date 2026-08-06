@@ -21,9 +21,9 @@ Pulled in automatically by `Makefile.PL`:
 `YAML::XS`, `JSON`, `File::ShareDir`, `File::Slurp`, `Template`, `Hash::Merge`,
 `App::Cmd`, `Algorithm::Dependency::Source::HoA`, `Algorithm::Dependency::Ordered`.
 
-Optional: [`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB) — only
-needed for the [GeoIP enrichment](geoip.md) feature, and only loaded when you actually
-pass a database path.
+Optional: [`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB), needed
+only for [GeoIP enrichment](geoip.md) and loaded only when you actually pass a database
+path. If you never use geoip you never need it installed.
 
 ## The log-record model
 
@@ -35,13 +35,14 @@ out of structured syslog daemons (journald JSON, syslog-ng's JSON template, rsys
 { "PROGRAM": "sshd", "HOST": "mail01", "MESSAGE": "Failed password for root from 203.0.113.7 port 44444 ssh2" }
 ```
 
-- A **rule** runs its patterns against one field of the record — by default `MESSAGE`.
-- A rule's **gates** test *other* fields (commonly `PROGRAM`) so a rule only fires for the
-  right kind of line. This is what lets you load `sshd`, `postfix`, and `netfilter` at
-  once without them stepping on each other.
-- If you hand Log-Munger a **bare string** instead of a hash, it is treated as
-  `{ MESSAGE => $string }`. That is what `--raw` does on the CLI, and it is why the
-  gateless `http_access_logs` rule works on raw access-log lines fed straight in.
+- Rule :: Runs its patterns against one field of the record, `MESSAGE` unless told
+  otherwise.
+- Gate :: Tests some *other* field, commonly `PROGRAM`, so a rule only fires for the right
+  kind of line. This is what lets you load `sshd`, `postfix`, and `netfilter` at once
+  without them stepping on each other.
+- Bare string :: Handed in instead of a hash, it is treated as `{ MESSAGE => $string }`.
+  That is what `--raw` does on the CLI, and it is why the gateless `http_access_logs` rule
+  works on raw access-log lines fed straight in.
 
 ## Your first munge
 

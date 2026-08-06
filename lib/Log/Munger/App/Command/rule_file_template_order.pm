@@ -12,9 +12,16 @@ sub opt_spec {
 		);
 }
 
-sub abstract { "Reads in the specified rule file and dumps it to stdout" }
+sub abstract { "Show the order a rule file's templated vars get resolved in" }
 
-sub description { "Reads in the specified rule file and dumps it to stdout" }
+sub description {
+	"A rule file's vars_templated entries reference each other, so they have to be resolved in
+dependency order. This prints that order.
+
+With -d it prints the dependency map that order was worked out from instead, which is what to
+look at when a var is not resolving.
+";
+}
 
 sub validate { return 1 }
 

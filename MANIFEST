@@ -79,6 +79,7 @@ t/load_rules_postfix.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t
+t/rule_gaps.t
 t/rules_test.t
 t/rules_usable.t
 t/template_order.t

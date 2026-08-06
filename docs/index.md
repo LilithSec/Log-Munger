@@ -21,19 +21,19 @@ Start here:
 
 ## Core concepts at a glance
 
-- **Rule file** — a YAML document. Either a *primitive library* (like `base`, which only
-  defines reusable patterns) or a *consumer* (like `sshd`, which defines `rules:` that
-  match log lines). See [rule-files.md](rule-files.md).
-- **Primitive / var** — a named regexp (`IP`, `WORD`, `TIMESTAMP_ISO8601`). Referenced in
-  larger patterns as `[% IP %]`. See [primitives.md](primitives.md).
-- **Rule** — a gate + a target field + an ordered list of patterns. The first rule whose
+- Rule file :: A YAML document. Either a *primitive library* such as `base`, which only
+  defines reusable patterns, or a *consumer* such as `sshd`, which defines `rules:` that
+  match log lines. See [rule-files.md](rule-files.md).
+- Primitive / var :: A named regexp, such as `IP`, `WORD`, or `TIMESTAMP_ISO8601`.
+  Referenced in larger patterns as `[% IP %]`. See [primitives.md](primitives.md).
+- Rule :: A gate, a target field, and an ordered list of patterns. The first rule whose
   gates all pass and one of whose patterns matches wins, returning its named captures.
-- **Enrichment** — after a match, captured fields can be `decompose`d (split further),
-  `convert`ed (coerced to numbers), and `geoip`-looked up. These run in the order
-  decompose → geoip → convert.
-- **Log record** — a hash of fields. The pattern usually runs against `MESSAGE`; other
-  fields (`PROGRAM`, `HOST`, …) are used by gates. A bare string is treated as
-  `{ MESSAGE => $string }`.
+- Enrichment :: After a match, captured fields can be `decompose`d into more fields,
+  looked up with `geoip`, and `convert`ed to numbers or a case-folded string. Those run
+  in the order decompose → geoip → convert.
+- Log record :: A hash of fields. The pattern usually runs against `MESSAGE`, while the
+  other fields such as `PROGRAM` and `HOST` are what gates test. A bare string is treated
+  as `{ MESSAGE => $string }`.
 
 ## Rule-file search path
 

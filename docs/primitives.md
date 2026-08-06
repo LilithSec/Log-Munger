@@ -97,13 +97,14 @@ resolved in dependency order.
 | `DATESTAMP_OTHER` | `DAY MONTH MONTHDAY TIME TZ YEAR`. |
 | `DATESTAMP_EVENTLOG` | Compact `YYYYMMDDHHMMSS`. |
 
-Every primitive has positive/negative cases under `vars_tests` in `base.yaml`; run
+Every primitive has positive and negative cases under `vars_tests` in `base.yaml`. Run
 `log_munger test_all -v` to exercise them. A few edge cases are knowingly imperfect and
-carried with comments in the file (e.g. `HOUR` will match the leading digit of `25`).
+carry a comment in the file saying so — `HOUR`, for instance, will match the leading digit
+of `25`.
 
 ## Adding your own primitives
 
-You don't have to edit `base.yaml`. Any consumer file can define its own `vars` /
-`vars_templated` — they are merged with the includes, with the current file taking
-precedence. This is how, e.g., `http_access_logs.yaml` adds `HTTPD_QS`, `HTTPD_USER`, and
-the `HTTPD_COMMONLOG` / `HTTPD_COMBINEDLOG` line patterns on top of `base`.
+You do not have to edit `base.yaml`. Any consumer file can define its own `vars` and
+`vars_templated`, which are merged with the includes with the current file taking
+precedence. That is how `http_access_logs.yaml` adds `HTTPD_QS`, `HTTPD_USER`, and the
+`HTTPD_COMMONLOG` / `HTTPD_COMBINEDLOG` line patterns on top of `base`.

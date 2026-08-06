@@ -9,7 +9,7 @@ use Log::Munger::LogProcessor ();
 
 =head1 NAME
 
-Log::Munger::RulesTest - 
+Log::Munger::RulesTest - Runs a rule file's own tests and lints it for the usual mistakes.
 
 =head1 VERSION
 
@@ -21,42 +21,93 @@ our $VERSION = '0.0.1';
 
 =head1 SYNOPSIS
 
-    use Log::Munger::WhichRuleFile;
+    use Log::Munger::RulesTest;
 
-    my $file_location = Log::Munger::WhichRuleFile->rule_file_location('file'=>'postfix');
-    if (!defined($file_location)) {
-        print "Not found.\n";
+    my $results = Log::Munger::RulesTest->test( 'file' => 'postfix' );
+
+    if ( defined( $results->{'fatal'} ) ) {
+        print 'File could not be loaded... ' . $results->{'fatal'} . "\n";
     } else {
-        print 'File Location: ' . $file_location . "\n";
+        print 'Errors:'   . "\n" . join( "\n", @{ $results->{'errors'} } )   . "\n\n";
+        print 'Warnings:' . "\n" . join( "\n", @{ $results->{'warnings'} } ) . "\n\n";
     }
+
+A rule file carries its own tests. Each primitive under C<vars> has positive and
+negative cases under C<vars_tests>, each rule has a C<tests> block naming strings
+that should and should not match, and each C<decompose> entry has its own
+C<tests>. This module is what runs all of that, along with a lint pass over every
+resolved var.
+
+Nothing here needs live log data or a running system, so it is cheap enough to
+wire into CI. That is what C<log_munger test_all> does, and it exits non-zero if
+any file reports an error. C<log_munger test_rule_file -f E<lt>fileE<gt>> does the
+same thing for one file and dumps the whole result as YAML.
 
 =head1 METHODS
 
 =head2 test
 
-Test a rules file using the built in tests for the rules file and check for
-possible errors.
+Runs a rule file's tests and lints it, gathering everything that went wrong rather
+than stopping at the first problem.
 
-Either the arg file or hash need to be specified. As long as those are, this
-should not die.
+Give it either C<file> or C<hash>, not both and not neither. Beyond that, it
+reports rather than dies: a rule file bad enough that it will not even load comes
+back as a C<fatal>, not an exception.
 
-    - file :: The file to locate and load for testing.
+The checks are:
+
+=over 4
+
+=item * Every C<vars_tests> entry. The var is spliced into the entry's
+C<test_template>, then each positive case has to match with C<TEST> capturing the
+expected result, and each negative case has to not match.
+
+=item * Every resolved var, linted for leftover grok C<%{...}>, named captures
+Perl will not accept, embedded newlines, and anything that will not compile.
+
+=item * Every rule, compiled exactly as L<Log::Munger::LogProcessor> compiles it,
+then run against its C<tests>. Positive strings have to match with the expected
+captures and negative strings have to match nothing. A pattern that looks like a
+var reference but names no existing var is flagged, since the engine would
+silently treat it as an inline regexp.
+
+=item * Every C<decompose> entry, rule level and file level, applied on its own to
+its C<tests> input and checked against the expected output.
+
+=item * A file level C<convert> map, for types that are not recognised.
+
+=back
+
+Anything that would produce wrong output is an error. Anything merely worth
+knowing, such as a var or rule with no tests at all, is a warning.
+
+    - file :: The file to load and test. Either a bare name resolved through the
+        search path, such as "postfix", or a path.
         Default :: undef
 
-    - hash :: A rules file hash to test.
+    - hash :: An already loaded rules hash ref to test instead of a file.
         Default :: undef
 
-    my $results = Log::Munger::WhichRuleFile->('file'=>'postfix');
-    if (defined($results->{'fatal'})) {
-        print "File could not be loaded... ".$results->{'fatal'}
-    }else{
-        if (defined($results->{'errors'}[0])) {
-            print "Errors:\n".join("\n", @{ $results->{'errors'}[0] })."\n\n";
-        }
-        if (defined($results->{'warnings'}[0])) {
-            print "Warnings:\n".join("\n", @{ $results->{'warnings'}[0] })."\n\n";
-        }
-    }
+Returns a hash ref:
+
+    - fatal :: The reason the file could not be loaded, or undef if it loaded.
+        When this is set the other two are empty, since nothing could be tested.
+
+    - errors :: Array ref of strings, each naming a problem that would produce
+        wrong output. Empty if there were none.
+
+    - warnings :: Array ref of strings, each naming something worth knowing that
+        is not itself a failure. Empty if there were none.
+
+Every message is prefixed with where the problem is, written as a path into the
+rule file, so C<.rules.3.tests.positive.0> is the first positive test of the
+fourth rule.
+
+Dies only if neither C<file> nor C<hash> was given, if both were, or if either is
+of the wrong type.
+
+    my $results = Log::Munger::RulesTest->test( 'file' => 'postfix' );
+    my $results = Log::Munger::RulesTest->test( 'hash' => $rules_hash );
 
 =cut
 
@@ -64,9 +115,9 @@ sub test {
 	my ( $blank, %opts ) = @_;
 
 	if ( !defined( $opts{'hash'} ) && !defined( $opts{'file'} ) ) {
-		die('$opts{hash} and $opts{hash} is undef and one needs to be');
+		die('$opts{hash} and $opts{file} are both undef and one needs to be defined');
 	} elsif ( defined( $opts{'hash'} ) && defined( $opts{'file'} ) ) {
-		die('$opts{hash} and $opts{hash} is both defined and only one should be');
+		die('$opts{hash} and $opts{file} are both defined and only one should be');
 	} elsif ( defined( $opts{'hash'} ) && ref( $opts{'hash'} ) ne 'HASH' ) {
 		die( '$opts{hash} has a ref of "' . ref( $opts{'hash'} ) . '" and not "HASH"' );
 	} elsif ( defined( $opts{'file'} ) && ref( $opts{'file'} ) ne '' ) {
@@ -111,14 +162,15 @@ sub test {
 			push( @errors, '.vars_tests has a ref of "' . ref( $rules->{'vars_tests'} ) . '" and not "HASH"' );
 		}
 	} elsif ( defined( $rules->{'vars'} ) ) {
-		push( @warnings, '.vars_tests is undef even through .vars exists, meaning there are no tests for it' );
+		push( @warnings, '.vars_tests is undef even though .vars exists, meaning there are no tests for it' );
 	}
 
 	##
 	## process everything under .vars_tests
 	##
 	if ( $has_var_tests && $vars_testable ) {
-		# used for later checking for vars with out tests
+		# tracked so that, once the tests are done, any var that never showed up
+		# here can be reported as untested
 		my %tested_vars;
 		my $tt = Template->new();
 		foreach my $var ( keys( %{ $rules->{'vars_tests'} } ) ) {
@@ -133,7 +185,9 @@ sub test {
 					&& ( ref( $rules->{'vars_tests'}{$var}{'test_template'} ) eq '' ) )
 				{
 					#
-					# if .vars_tests.$var.text_template exists, attempt to template it and proceed with tests
+					# splice the var into its test_template. everything below
+					# needs the resulting regexp, so a template that will not
+					# process ends the testing of this var here.
 					#
 					eval {
 						$tt->process(
@@ -147,7 +201,10 @@ sub test {
 					} else {
 						#
 						# handle positive tests
-						# lack of positive tests should be considered an error as
+						#
+						# having none is an error rather than a warning. a var
+						# with only negative tests has never been shown to match
+						# anything, which is the same as not being tested at all.
 						#
 						if ( !defined( $rules->{'vars_tests'}{$var}{'positive'} ) ) {
 							push( @errors, '.vars_tests.' . $var . '.positive is undef' );
@@ -215,7 +272,7 @@ sub test {
 													. $var
 													. '.positive.'
 													. $test_int
-													. ' did but "TEST" not found... test_regex="'
+													. ' matched but "TEST" was not captured... test_regex="'
 													. $test_regex
 													. '" string="'
 													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
@@ -230,7 +287,7 @@ sub test {
 													. $var
 													. '.positive.'
 													. $test_int
-													. ' did but "TEST" found a incorrect result of "'
+													. ' matched but "TEST" captured the wrong result, "'
 													. $found_items{'TEST'}
 													. '"... test_regex="'
 													. $test_regex
@@ -246,7 +303,7 @@ sub test {
 												. $var
 												. '.positive.'
 												. $test_int
-												. ' did not match but was expected to found... test_regex="'
+												. ' did not match but was expected to... test_regex="'
 												. $test_regex
 												. '" string="'
 												. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
@@ -270,7 +327,7 @@ sub test {
 							push( @errors,
 									  '.vars_tests.'
 									. $var
-									. '.negative is has a ref of "'
+									. '.negative has a ref of "'
 									. ref( $rules->{'vars_tests'}{$var}{'negative'} )
 									. '" and not "ARRAY"' );
 						} else {
@@ -286,7 +343,7 @@ sub test {
 											. $var
 											. '.negative.'
 											. $test_int
-											. ' is has a ref of "'
+											. ' has a ref of "'
 											. ref( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] )
 											. '" and not ""' );
 								} else {
@@ -475,9 +532,36 @@ sub test {
 	return $results;
 } ## end sub test
 
-# Lint one resolved regexp string (a var value or pattern). Returns a list of
-# error strings (possibly empty). Checks for leftover grok, illegal named
-# captures, interior newlines, and qr// compile failures.
+# Lints one fully resolved regexp string for the four things that go wrong often
+# enough to be worth checking for by name.
+#
+# Leftover grok "%{...}" means a pattern was copied in from logstash and never run
+# through Log::Munger::Degrok. An illegal named capture means a grok capture name
+# came across as-is when Perl will not take it; grok is happy with "src-ip" and
+# Perl only accepts [A-Za-z_]\w*. An embedded newline usually means a YAML "|"
+# block scalar leaked its terminator into the middle of a pattern, which leaves it
+# unable to match a single line log while looking perfectly fine in the file. And
+# a string that will not compile at all is caught here rather than at match time.
+#
+# The capture name scan skips (?<= and (?<! since those are lookbehind assertions
+# rather than named captures.
+#
+# Args:
+#
+#     - $where :: Where this string lives in the rule file, written as a path,
+#         such as ".vars.SSH_FAILED". Prefixed onto every message so the caller
+#         knows what to go look at.
+#
+#     - $value :: The resolved regexp string to lint. This wants to be the value
+#         after templating, not the vars_templated source, since the whole point
+#         is to check what the engine will actually compile.
+#
+# Returns a list of error strings, each already prefixed with $where. An empty
+# list means the string is clean. Nothing is ever pushed to warnings from here;
+# everything it looks for would produce wrong output.
+#
+#     my @errors = __lint_regexp_string( '.vars.SSH_FAILED', $rules->{'vars'}{'SSH_FAILED'} );
+#     # ( '.vars.SSH_FAILED has an illegal named-capture "src-ip" (must match [A-Za-z_]\w*)' )
 sub __lint_regexp_string {
 	my ( $where, $value ) = @_;
 
@@ -514,8 +598,36 @@ sub __lint_regexp_string {
 	return @errors;
 } ## end sub __lint_regexp_string
 
-# Run a rule's positive tests: each {string, result} must match a pattern and
-# the captured named groups must deep-equal result.
+# Runs a rule's positive tests. Each case names a string that has to match one of
+# the rule's patterns, along with the captures that match is expected to produce.
+#
+# The patterns are tried in order and the first to match wins, exactly as the
+# engine does it, so a test also pins down which pattern is supposed to be
+# handling a given line.
+#
+# What is compared is the raw named captures and nothing else. Decompose, geoip
+# and convert do not run here, which is why a positive test's expected result
+# lists a port as the string '54321' even though a convert: turns it into a number
+# at runtime. Those steps have their own tests: decompose entries carry their own,
+# and geoip and convert are runtime concerns.
+#
+# Args:
+#
+#     - $where :: Where this rule lives, written as a path, such as ".rules.3".
+#         The per-test messages extend it, giving ".rules.3.tests.positive.0".
+#
+#     - $rule :: The raw rule hash ref, straight out of the rule file. Only its
+#         tests.positive is read here.
+#
+#     - $compiled :: The same rule after Log::Munger::LogProcessor->_compile_rule,
+#         which is where the qr// patterns to test against come from.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors, which is left untouched
+# if all the positive tests pass.
+#
+#     __test_rule_positive( '.rules.0', $rule, $compiled, \@errors );
 sub __test_rule_positive {
 	my ( $where, $rule, $compiled, $errors ) = @_;
 
@@ -572,7 +684,31 @@ sub __test_rule_positive {
 	return;
 } ## end sub __test_rule_positive
 
-# Run a rule's negative tests: each string must NOT match any pattern.
+# Runs a rule's negative tests. Each case is a bare string that has to match none
+# of the rule's patterns.
+#
+# This is what keeps a loose pattern honest. A pattern written as "a word, a
+# space, then anything" will happily match most of a log file, and its positive
+# tests will not notice. A good negative case is one that is genuinely outside
+# what the pattern was written for, not merely unrelated in subject matter.
+#
+# Args:
+#
+#     - $where :: Where this rule lives, written as a path, such as ".rules.3".
+#         The per-test messages extend it, giving ".rules.3.tests.negative.0".
+#
+#     - $rule :: The raw rule hash ref, straight out of the rule file. Only its
+#         tests.negative is read here.
+#
+#     - $compiled :: The same rule after Log::Munger::LogProcessor->_compile_rule,
+#         which is where the qr// patterns to test against come from.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors, which is left untouched
+# if all the negative tests pass.
+#
+#     __test_rule_negative( '.rules.0', $rule, $compiled, \@errors );
 sub __test_rule_negative {
 	my ( $where, $rule, $compiled, $errors ) = @_;
 
@@ -605,8 +741,32 @@ sub __test_rule_negative {
 	return;
 } ## end sub __test_rule_negative
 
-# Compare expected vs got flat capture hashes. Returns undef if equal, else a
-# human-readable description of the first difference found.
+# Compares two flat capture hashes and describes the first way they differ.
+#
+# Both directions are checked, so a capture that was expected and never appeared
+# is caught, and so is one that appeared without being asked for. That second case
+# matters more than it looks: an unexpected capture usually means a pattern picked
+# up a group nobody meant to add, and without checking for it a test would pass
+# while the rule quietly emitted a field consumers were not written for.
+#
+# Comparison is string comparison, which is what the rule files want. Everything
+# coming out of a regexp capture is a string, and the expected results in YAML are
+# written to match.
+#
+# Args:
+#
+#     - $expected :: Hash ref of the captures the test says there should be, as
+#         written in the rule file. Values are compared as strings.
+#
+#     - $got :: Hash ref of the captures that actually came out, a copy of %+.
+#
+# Returns undef if the two agree, otherwise a string describing the first
+# difference found, ready to be dropped into an error message. Only the first is
+# reported, since a single wrong pattern usually throws off several keys at once
+# and listing them all says no more than listing one.
+#
+#     my $diff = __capture_diff( { ssh_user => 'alice' }, { ssh_user => 'bob' } );
+#     # 'key "ssh_user" expected "alice" but got "bob"'
 sub __capture_diff {
 	my ( $expected, $got ) = @_;
 
@@ -627,10 +787,44 @@ sub __capture_diff {
 	return undef;
 } ## end sub __capture_diff
 
-# Test a decompose list (file-level or rule-level). Each entry may carry a
-# `tests: [{input, result}]` block; the entry is applied on its own to the
-# captures hash { field => input } and the resulting captures must equal result
-# (which reflects the entry's remove: setting).
+# Tests a decompose list, either a rule's own or the file level default.
+#
+# Every entry is compiled on its own first, which is what surfaces an unknown
+# type, leftover grok in a pattern entry, or a pattern that will not compile.
+#
+# An entry that carries tests is then exercised one entry at a time. The captures
+# hash is built as nothing but { field => input }, the single entry is applied to
+# it, and what comes out has to equal the expected result. Testing entries in
+# isolation like this means a list of several does not have to be reasoned about
+# as a whole, and it keeps a change to one entry from breaking the tests of the
+# others.
+#
+# The expected result has to account for the entry's remove: setting. With remove
+# set the source field is gone by the time the comparison happens, so listing it
+# would fail; without it the source field is still there and leaving it out would
+# fail as an unexpected capture.
+#
+# Args:
+#
+#     - $list :: The decompose list, as written in the rule file. An array ref of
+#         { field, type, ... } hash refs.
+#
+#     - $vars :: The resolved vars hash ref, which a "type: pattern" entry
+#         resolves its pattern name against. An empty hash ref is fine for a list
+#         that only uses kv or json entries.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+#     - $warnings :: Array ref to push warning strings onto. Appended to in
+#         place. An entry with no tests at all lands here rather than in errors.
+#
+#     - $where :: Where this list lives, written as a path, such as ".decompose"
+#         for the file level one or ".rules.3.decompose" for a rule's own. The
+#         per-entry and per-test messages extend it.
+#
+# Returns nothing. Everything it finds goes onto $errors or $warnings.
+#
+#     __test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
 sub __test_decompose {
 	my ( $list, $vars, $errors, $warnings, $where ) = @_;
 

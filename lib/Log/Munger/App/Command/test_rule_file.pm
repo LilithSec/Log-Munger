@@ -10,9 +10,15 @@ sub opt_spec {
 	return ( [ 'f=s', 'Rule file to read.', { 'default' => 'base' } ], );
 }
 
-sub abstract { "Reads in the specified rule file and dumps it to stdout" }
+sub abstract { "Run the built-in tests for one rule file" }
 
-sub description { "Reads in the specified rule file and dumps it to stdout" }
+sub description {
+	"Runs Log::Munger::RulesTest over a single rule file and dumps the whole result as YAML: a
+fatal load error if it would not load, then every error and warning found.
+
+Use test_all instead for a pass/fail summary of every rule file.
+";
+}
 
 sub validate { return 1 }
 

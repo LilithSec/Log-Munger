@@ -47,12 +47,15 @@ lines that reference other patterns become `vars_templated:` entries (after degr
 log_munger grok2rules -f /path/to/grok-patterns -i base > mypatterns.yaml
 ```
 
-- `--includes`/`-i <name>` (repeatable) — rule files to treat as includes when resolving
-  and overwriting names. Names already provided by an include are handled per the overwrite
-  policy instead of being redefined.
-- `--overwrite`/`-o <policy>` — what to do when a name is already defined by an include:
-  `yes` (redefine), `no_silent` / `no_warn` (skip, quietly / with a warning), `no_die`.
-  Default: `no_warn`.
+- `--includes`/`-i <name>` :: Rule files to treat as includes when resolving and
+  overwriting names. Repeatable. Names an include already provides are handled per the
+  overwrite policy rather than being redefined. This is worth doing: most grok patterns
+  files carry their own copies of `IP`, `WORD`, `HOSTNAME` and the rest, and without the
+  includes those all come across and shadow the ones in `base`.
+- `--overwrite`/`-o <policy>` :: What to do when a name is already defined by an include.
+  `yes` takes the grok file's version, `no_silent` and `no_warn` keep the include's
+  version (quietly, or with a warning), and `no_die` dies on the first one. Default:
+  `no_warn`.
 
 The same skeleton generation is available from `degrok -f <file> -r` and from
 `Log::Munger::Degrok->grok2rules(...)`.
@@ -72,11 +75,11 @@ The same skeleton generation is available from `degrok -f <file> -r` and from
 
 ## Gotchas
 
-- **Capture names.** Grok is liberal about capture names; Perl named groups must match
-  `[A-Za-z_]\w*`. A `-` in a name (`%{IP:src-ip}`) becomes `(?<src-ip>...)`, which won't
-  compile — rename it (`src_ip`). This is caught at load/test time.
-- **No leftover `%{...}`.** Any `%{...}` that survives into a compiled pattern is a hard
-  error, so an un-degrokked reference can't silently pass through.
-- **Anchoring.** Grok patterns are often used unanchored; if you want whole-line matching
-  (grok `^...$`), set `anchored: true` on the rule rather than baking `\A...\z` into every
-  pattern.
+- Capture names :: Grok is liberal about them and Perl named groups are not — they must
+  match `[A-Za-z_]\w*`. A `-` in a name, so `%{IP:src-ip}` becoming `(?<src-ip>...)`, will
+  not compile. Rename it to `src_ip`. This is caught at load and test time.
+- No leftover `%{...}` :: Any that survives into a compiled pattern is a hard error, so an
+  un-degrokked reference cannot silently pass through.
+- Anchoring :: Grok patterns are often used unanchored. If you want whole-line matching,
+  the grok `^...$` equivalent, set `anchored: true` on the rule rather than baking
+  `\A...\z` into every pattern.

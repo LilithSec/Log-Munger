@@ -9,15 +9,17 @@ sub opt_spec {
 	return ( [ 'f=s', 'Rule file to locate.' ], );
 }
 
-sub abstract { "Returns the path to the specified rule file." }
+sub abstract { "Print the path a rule file name resolves to" }
 
 sub description {
-	"Returns the path to the specified rule file.
+	"Prints the path a rule file name resolves to, searching /etc/log_munger/rules, then
+/usr/local/etc/log_munger/rules, then the dist share dir. A name beginning with /, ./, or ../ is
+used as a path instead of being searched for.
 
-exit
-255, error
-1, not found
-0, found
+Exit codes:
+- 0 :: found
+- 1 :: not found
+- 255 :: error
 ";
 }
 

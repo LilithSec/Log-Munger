@@ -25,39 +25,47 @@ our $VERSION = '0.0.1';
 
     use Log::Munger::Degrok;
 
-    if ( defined( $opts->{'s'} ) ) {
-        print Log::Munger::Degrok->string( 'string' => $opts->{'s'} ) . "\n";
-    } elsif ( defined( $opts->{'f'} ) ) {
-        if (! -f $opts->{'f'} ){
-            die('"'.$opts->{'f'}.'" is not a file');
-        }elsif(! -r $opts->{'f'} ){
-            die('"'.$opts->{'f'}.'" is not readable');
-        }
+    print Log::Munger::Degrok->string( 'string' => 'client=%{IP:client_ip}' ) . "\n";
+    # client=(?<client_ip>[% IP %])
 
-        print Log::Munger::Degrok->file( 'file' => $opts->{'f'} ) . "\n";
-    }
+    print Log::Munger::Degrok->file( 'file' => '/path/to/patterns.grok' );
 
-Grok uses templating in the form of "%{TEMPLATE}" and capturing templating stuff in the form
-of "%{TEMPLATE:VAR}". This is not usable with Log::Munger. This takes that and translates it
-"[% TEMPLATE %]" and "(?<VAR>[% TEMPLATE %])" respectively.
+    print Log::Munger::Degrok->grok2rules( 'file' => '/path/to/patterns.grok', 'includes' => ['base'] );
+
+Grok references a named pattern as C<%{TEMPLATE}> and captures one as
+C<%{TEMPLATE:VAR}>. Log::Munger uses L<Template> for the first and Perl's own
+named capture syntax for the second, so those become C<[% TEMPLATE %]> and
+C<< (?<VAR>[% TEMPLATE %]) >>. This module does that rewrite.
+
+Only the delimiters change. The primitive names in F<base.yaml> deliberately track
+grok's, so a pattern that referenced C<%{IP}> before goes on referencing the same
+thing afterwards, and most patterns work straight after conversion. What the
+rewrite cannot fix is a capture name Perl will not accept, since grok is happy
+with names like C<src-ip> and Perl is not. Those come across unchanged and are
+caught later, either at load time or by L<Log::Munger::RulesTest>.
 
 =head1 METHODS
 
 =head2 string
 
-Takes a string to process and returns the translated results.
+Rewrites the grok templating in a string and returns the result.
 
-    - string :: The string to convert.
+Every C<%{...}> reference is rewritten, however many there are, and anything that
+is not one is left exactly as it was.
+
+    - string :: The string to convert. Required.
         default :: undef
 
+Returns the rewritten string. Dies only if C<string> is undef.
+
     my $results;
-    eval {
-        my $results = Log::Munger::Degrok->string( 'file' => $some_string ) . "\n";
-    };
-    if ($@){
-        die('Failed to process the string "'.$some_string.'"... '.$@);
+    my $some_string = 'client=%{IP:client_ip} user=%{USERNAME:user}';
+    eval { $results = Log::Munger::Degrok->string( 'string' => $some_string ); };
+    if ($@) {
+        die( 'Failed to process the string "' . $some_string . '"... ' . $@ );
     }
-    print $results."\n";
+    print $results . "\n";
+    # client=(?<client_ip>[% IP %]) user=(?<user>[% USERNAME %])
 
 =cut
 
@@ -91,20 +99,25 @@ sub string {
 
 =head2 file
 
-Takes a file to process and returns the translated results.
+L</string> applied to a whole file, a line at a time.
 
-    - file :: The file to convert.
+The file's structure is untouched. Only the C<%{...}> references change, so a grok
+patterns file comes back as the same file with Log::Munger templating in it. To
+turn one into an actual rule file, use L</grok2rules> instead.
+
+    - file :: The file to convert. Required.
         default :: undef
 
+Returns the whole rewritten file as a single string, line endings and all. Dies if
+C<file> is undef or the file cannot be read.
+
     my $results;
-    my $file = '/tmp/some_file';
-    eval {
-        Log::Munger::Degrok->file( 'file' => $file ) . "\n";
-    };
-    if ($@){
-        die('Failed to process "'.$file.'"... '.$@);
+    my $file = '/tmp/patterns.grok';
+    eval { $results = Log::Munger::Degrok->file( 'file' => $file ); };
+    if ($@) {
+        die( 'Failed to process "' . $file . '"... ' . $@ );
     }
-    print $results."\n";
+    print $results;
 
 =cut
 
@@ -132,35 +145,50 @@ sub file {
 
 =head2 grok2rules
 
-Takes a file to process and returns the translated results.
+Turns a grok patterns file into the skeleton of a Log::Munger rule file.
 
-    - file :: The file to convert.
+A grok patterns file is a list of C<NAME regexp> lines. Each one becomes a var:
+plain lines go under C<vars>, and lines that reference other patterns go under
+C<vars_templated> once they have been through L</string>. Comments and blank lines
+are dropped.
+
+Naming what you already have as C<includes> is worth doing. Most grok patterns
+files start with their own copies of C<IP>, C<WORD>, C<HOSTNAME> and the rest, and
+without the includes those all come across and shadow the ones in F<base.yaml>.
+With them, the duplicates are recognised and handled per C<overwrite> instead.
+
+What comes back is a skeleton, not a finished rule file. There is no C<rules>
+section, no gates, no tests and no enrichment, because none of that exists in a
+grok patterns file to convert. Writing those is the part still left to do.
+
+    - file :: The grok patterns file to convert. Required.
         default :: undef
 
-    - includes :: Rules includes to include to use. The taken value is a array.
+    - includes :: Rule files to treat as includes. Their vars are loaded so
+        names already provided by one can be recognised, and they are written
+        into the skeleton's own includes list. The taken value is an array.
         default :: []
 
-    - overwrite :: Overwrite value for if something is already defined by a include.
+    - overwrite :: What to do about a name an include already defines.
         values :: ...
-            - yes :: Always overwrite.
-            - no_silent :: Silently ignore overwrites.
-            - no_warn ::  Warn on overwrites.
-            - no_die :: Die on overwrites.
+            - yes :: Take the grok file's version.
+            - no_silent :: Keep the include's version, saying nothing.
+            - no_warn :: Keep the include's version and warn about it.
+            - no_die :: Die on the first one.
         default :: no_warn
 
-    - overwrite_ignore_if_same :: If the warn/die should trigger if overwrite is set to no_warn or no_die.
-        default :: 1
+Returns the skeleton as a YAML string, ready to write to a file. Dies if C<file>
+is undef or unreadable, if C<overwrite> is not one of the four values above, if an
+include cannot be loaded, or if a line in the patterns file has a name but no
+regexp after it.
 
-    use YAML::XS;
     my $results;
-    my $file = '/tmp/some_file';
-    eval {
-        $results = Log::Munger::Degrok->string( 'file' => $file, incldues=>['base'], ) . "\n";
-    };
-    if ($@){
-        die('Failed to process "'.$file.'"... '.$@);
+    my $file = '/tmp/patterns.grok';
+    eval { $results = Log::Munger::Degrok->grok2rules( 'file' => $file, 'includes' => ['base'] ); };
+    if ($@) {
+        die( 'Failed to process "' . $file . '"... ' . $@ );
     }
-    print Dumper($results);
+    print $results;
 
 =cut
 

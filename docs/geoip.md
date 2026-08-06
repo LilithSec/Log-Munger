@@ -74,9 +74,9 @@ returns for your database (City vs Country databases differ).
 
 Lookups are best-effort and never cost the match:
 
-- a field that is undef, empty, or not a valid address is **silently skipped**;
-- an address absent from the database is skipped;
-- a lookup that throws is caught locally, so one bad value never aborts the rest of the
+- Undef, empty, or not an address :: Silently skipped.
+- Absent from the database :: Skipped.
+- A lookup that throws :: Caught locally, so one bad value never aborts the rest of the
   enrichment.
 
 If no flagged field resolves, no `geoip` key is added.
@@ -84,9 +84,10 @@ If no flagged field resolves, no `geoip` key is added.
 ## Timing
 
 GeoIP runs **after** `decompose` and **before** `convert` (see
-[architecture](architecture.md#why-the-enrichment-order-is-fixed)). That means:
+[architecture](architecture.md#why-the-enrichment-order-is-fixed)). Two things follow from
+that:
 
-- it can look up an address that a `decompose` step produced (e.g. `nf_SRC` split out of
-  the kernel firewall blob), and
-- it sees the address as a **string**, before any `convert` coercion — so putting a
-  numeric field through `convert` never interferes with geoip.
+- It can look up an address a `decompose` step produced, such as `nf_SRC` split out of the
+  kernel firewall blob.
+- It sees the address as a string, before any `convert` coercion, so putting a numeric
+  field through `convert` never interferes with a lookup.

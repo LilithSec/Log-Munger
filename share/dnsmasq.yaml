@@ -1,12 +1,29 @@
 ---
-# dnsmasq DNS query/reply log enrichment.
+# dnsmasq DNS / DHCP / TFTP log enrichment.
 #
-# Gates on the syslog PROGRAM field being "dnsmasq".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
-# namespaced with dnsmasq_ .
+# Patterns are anchored (each must match the whole MESSAGE) and first-match
+# wins.  Every capture is namespaced with dnsmasq_ ; the DHCP and TFTP captures
+# take it further as dnsmasq_dhcp_ and dnsmasq_tftp_ , since dnsmasq is three
+# services in one process and a consumer wants to be able to tell which one a
+# field came from.
+#
+# The gate covers the sub-identifiers as well as the bare name.  dnsmasq splits
+# its output by service when it has somewhere to split it to -- under journald a
+# DHCP line arrives with SYSLOG_IDENTIFIER=dnsmasq-dhcp, TFTP with
+# dnsmasq-tftp, and --dhcp-script output with dnsmasq-script -- while a plain
+# syslog setup gets all of it as "dnsmasq".  Gating on only the bare name means
+# every DHCP line on a systemd host is missed.
+#
+# NOT covered: DHCPv6.  Those lines (DHCPSOLICIT / DHCPADVERTISE / DHCPREPLY /
+# DHCPRENEW / ...) carry a DUID where the v4 ones carry a MAC, and a DUID is
+# colon-separated hex of no fixed length, so it needs a primitive of its own
+# rather than a tweak to the patterns below.
 includes:
 - base
 vars_templated:
+  #
+  # --- DNS ---
+  #
   # "query[A] example.com from 192.0.2.5"
   DNSMASQ_QUERY: 'query\[(?<dnsmasq_query_type>[% WORD %])\] (?<dnsmasq_name>[% NOTSPACE %]) from (?<dnsmasq_client_ip>[% IP %])'
   # "forwarded example.com to 8.8.8.8"
@@ -15,6 +32,54 @@ vars_templated:
   DNSMASQ_REPLY: 'reply (?<dnsmasq_name>[% NOTSPACE %]) is (?<dnsmasq_result>[% NOTSPACE %])'
   # "cached example.com is 93.184.216.34"
   DNSMASQ_CACHED: 'cached (?<dnsmasq_name>[% NOTSPACE %]) is (?<dnsmasq_result>[% NOTSPACE %])'
+  # An answer that came from somewhere local rather than from upstream or the
+  # cache.  dnsmasq logs these in the same "<source> <name> is <result>" shape
+  # as reply/cached, with the source naming where the answer came from:
+  #
+  #   "config example.com is NXDOMAIN"       -- an --address= / --server= rule
+  #   "/etc/hosts myhost is 192.0.2.1"       -- a hosts file, named by path
+  #   "cached-stale example.com is 1.2.3.4"  -- a stale cache hit
+  #
+  # The source is matched explicitly rather than as a bare token, since a
+  # generic "<word> <name> is <result>" would also swallow reply and cached.
+  # Blocklist-style setups (pi-hole and friends) land here with the source
+  # being the addn-hosts path, which is what tells a blocked lookup apart from
+  # a resolved one.
+  DNSMASQ_LOCAL: '(?<dnsmasq_source>config|cached-stale|/[% NOTSPACE %]) (?<dnsmasq_name>[% NOTSPACE %]) is (?<dnsmasq_result>[% NOTSPACE %])'
+  # "possible DNS-rebind attack detected: foo.example.com"
+  # --stop-dns-rebind refusing an upstream answer that pointed back into a
+  # local range.
+  DNSMASQ_REBIND: 'possible DNS-rebind attack detected: (?<dnsmasq_name>[% NOTSPACE %])'
+  # "Maximum number of concurrent DNS queries reached (max: 150)"
+  # "Maximum number of concurrent DNS queries to 8.8.8.8 reached (max: 150)"
+  # Worth having as its own pattern rather than being missed: it is what a
+  # resolver under a query flood says before it starts dropping.
+  DNSMASQ_MAX_QUERIES: 'Maximum number of concurrent DNS queries(?: to (?<dnsmasq_server_ip>[% IP %]))? reached \(max: (?<dnsmasq_max_queries>[% INT %])\)'
+  #
+  # --- DHCP ---
+  #
+  # dnsmasq writes "DHCPXXX(iface) [ip] mac [name]", which is a different shape
+  # from ISC dhcpd's "DHCPXXX on <ip> to <mac> via <iface>" (see dhcpd.yaml).
+  # The lease IP is absent on a DISCOVER that did not request one.
+  #
+  # "DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost"
+  # "DHCPDISCOVER(eth0) aa:bb:cc:dd:ee:ff"
+  DNSMASQ_DHCP: '(?<dnsmasq_dhcp_type>DHCPACK|DHCPOFFER|DHCPREQUEST|DHCPDISCOVER|DHCPINFORM|DHCPRELEASE|DHCPDECLINE)\((?<dnsmasq_dhcp_iface>[% NOTSPACE %])\)(?: (?<dnsmasq_dhcp_ip>[% IP %]))? (?<dnsmasq_dhcp_mac>[% MAC %])(?: (?<dnsmasq_dhcp_hostname>[% NOTSPACE %]))?'
+  # "DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network"
+  # NAK gets its own pattern because the trailing text is a refusal reason,
+  # not the client hostname the same position carries on every other type.
+  DNSMASQ_DHCP_NAK: '(?<dnsmasq_dhcp_type>DHCPNAK)\((?<dnsmasq_dhcp_iface>[% NOTSPACE %])\) (?<dnsmasq_dhcp_ip>[% IP %]) (?<dnsmasq_dhcp_mac>[% MAC %])(?: (?<dnsmasq_dhcp_reason>[% GREEDYDATA %]))?'
+  #
+  # --- TFTP ---
+  #
+  # The PXE boot path.  "sent" and "failed sending" share a shape; the error
+  # line the client sends back does not.
+  #
+  # "sent /srv/tftp/pxelinux.0 to 192.0.2.50"
+  # "failed sending /srv/tftp/pxelinux.0 to 192.0.2.50"
+  DNSMASQ_TFTP: '(?<dnsmasq_tftp_action>sent|failed sending) (?<dnsmasq_tftp_file>[% NOTSPACE %]) to (?<dnsmasq_tftp_client_ip>[% IP %])'
+  # "error 0 File not found received from 192.0.2.50"
+  DNSMASQ_TFTP_ERROR: 'error (?<dnsmasq_tftp_error_code>[% INT %]) (?<dnsmasq_tftp_error>.*?) received from (?<dnsmasq_tftp_client_ip>[% IP %])'
 vars_tests:
   DNSMASQ_QUERY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -46,16 +111,100 @@ vars_tests:
         result: 'cached example.com is 93.184.216.34'
     negative:
       - 'reply example.com is 93.184.216.34'
-# file-level default: geoip lookup on the query client IP (only used when the
-# munger is built with a geoip database)
+      # "cached-stale" is a different source and must not be eaten by this one
+      - 'cached-stale example.com is 93.184.216.34'
+  DNSMASQ_LOCAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'config example.com is NXDOMAIN'
+        result: 'config example.com is NXDOMAIN'
+      - string: '/etc/hosts myhost is 192.0.2.1'
+        result: '/etc/hosts myhost is 192.0.2.1'
+      - string: '/etc/pihole/gravity.list ads.example.com is 0.0.0.0'
+        result: '/etc/pihole/gravity.list ads.example.com is 0.0.0.0'
+      - string: 'cached-stale example.com is 93.184.216.34'
+        result: 'cached-stale example.com is 93.184.216.34'
+    negative:
+      # the sources that have their own patterns must not be swallowed here
+      - 'reply example.com is 93.184.216.34'
+      - 'cached example.com is 93.184.216.34'
+      - 'query[A] example.com from 192.0.2.5'
+  DNSMASQ_REBIND:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'possible DNS-rebind attack detected: foo.example.com'
+        result: 'possible DNS-rebind attack detected: foo.example.com'
+    negative:
+      - 'query[A] example.com from 192.0.2.5'
+  DNSMASQ_MAX_QUERIES:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Maximum number of concurrent DNS queries reached (max: 150)'
+        result: 'Maximum number of concurrent DNS queries reached (max: 150)'
+      - string: 'Maximum number of concurrent DNS queries to 8.8.8.8 reached (max: 150)'
+        result: 'Maximum number of concurrent DNS queries to 8.8.8.8 reached (max: 150)'
+    negative:
+      # the "(max: N)" clause is what makes this the message it is
+      - 'Maximum number of concurrent DNS queries reached'
+  DNSMASQ_DHCP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+        result: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+      - string: 'DHCPDISCOVER(eth0) aa:bb:cc:dd:ee:ff'
+        result: 'DHCPDISCOVER(eth0) aa:bb:cc:dd:ee:ff'
+      - string: 'DHCPDISCOVER(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+        result: 'DHCPDISCOVER(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+      - string: 'DHCPREQUEST(br-lan) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+        result: 'DHCPREQUEST(br-lan) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+      - string: 'DHCPRELEASE(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+        result: 'DHCPRELEASE(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+    negative:
+      # NAK is handled separately so its trailing reason is not read as a name
+      - 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network'
+      - 'query[A] example.com from 192.0.2.5'
+  DNSMASQ_DHCP_NAK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network'
+        result: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network'
+      - string: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+        result: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+    negative:
+      - 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+  DNSMASQ_TFTP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'sent /srv/tftp/pxelinux.0 to 192.0.2.50'
+        result: 'sent /srv/tftp/pxelinux.0 to 192.0.2.50'
+      - string: 'failed sending /srv/tftp/pxelinux.0 to 192.0.2.50'
+        result: 'failed sending /srv/tftp/pxelinux.0 to 192.0.2.50'
+    negative:
+      - 'sent /srv/tftp/pxelinux.0'
+  DNSMASQ_TFTP_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error 0 File not found received from 192.0.2.50'
+        result: 'error 0 File not found received from 192.0.2.50'
+    negative:
+      - 'sent /srv/tftp/pxelinux.0 to 192.0.2.50'
+# file-level default: geoip lookup on the addresses a peer can turn up under.
+# DHCP and TFTP peers are local by nature, but they are listed for the same
+# reason dhcpd.yaml lists its lease IP -- a relayed or routed setup can put a
+# non-local address here, and a lookup that finds nothing simply adds nothing.
 geoip:
   - dnsmasq_client_ip
+  - dnsmasq_dhcp_ip
+  - dnsmasq_tftp_client_ip
+convert:
+  dnsmasq_max_queries: int
+  dnsmasq_tftp_error_code: int
 rules:
   - name: dnsmasq
     gate:
       - field: PROGRAM
         values:
-          - '//^dnsmasq$//'
+          - '//^dnsmasq(?:-(?:dhcp|tftp|script))?$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -63,6 +212,13 @@ rules:
       - DNSMASQ_FORWARDED
       - DNSMASQ_REPLY
       - DNSMASQ_CACHED
+      - DNSMASQ_LOCAL
+      - DNSMASQ_DHCP_NAK
+      - DNSMASQ_DHCP
+      - DNSMASQ_TFTP
+      - DNSMASQ_TFTP_ERROR
+      - DNSMASQ_REBIND
+      - DNSMASQ_MAX_QUERIES
     tests:
       positive:
         - string: 'query[A] example.com from 192.0.2.5'
@@ -87,6 +243,71 @@ rules:
           result:
             dnsmasq_name: 'example.com'
             dnsmasq_result: '93.184.216.34'
+        - string: 'config example.com is NXDOMAIN'
+          result:
+            dnsmasq_source: 'config'
+            dnsmasq_name: 'example.com'
+            dnsmasq_result: 'NXDOMAIN'
+        - string: '/etc/pihole/gravity.list ads.example.com is 0.0.0.0'
+          result:
+            dnsmasq_source: '/etc/pihole/gravity.list'
+            dnsmasq_name: 'ads.example.com'
+            dnsmasq_result: '0.0.0.0'
+        - string: 'cached-stale example.com is 93.184.216.34'
+          result:
+            dnsmasq_source: 'cached-stale'
+            dnsmasq_name: 'example.com'
+            dnsmasq_result: '93.184.216.34'
+        - string: 'DHCPDISCOVER(eth0) aa:bb:cc:dd:ee:ff'
+          result:
+            dnsmasq_dhcp_type: 'DHCPDISCOVER'
+            dnsmasq_dhcp_iface: 'eth0'
+            dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+        - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+          result:
+            dnsmasq_dhcp_type: 'DHCPACK'
+            dnsmasq_dhcp_iface: 'eth0'
+            dnsmasq_dhcp_ip: '192.0.2.50'
+            dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dnsmasq_dhcp_hostname: 'myhost'
+        - string: 'DHCPREQUEST(br-lan) 192.0.2.50 aa:bb:cc:dd:ee:ff'
+          result:
+            dnsmasq_dhcp_type: 'DHCPREQUEST'
+            dnsmasq_dhcp_iface: 'br-lan'
+            dnsmasq_dhcp_ip: '192.0.2.50'
+            dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+        - string: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network'
+          result:
+            dnsmasq_dhcp_type: 'DHCPNAK'
+            dnsmasq_dhcp_iface: 'eth0'
+            dnsmasq_dhcp_ip: '192.0.2.50'
+            dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dnsmasq_dhcp_reason: 'wrong network'
+        - string: 'sent /srv/tftp/pxelinux.0 to 192.0.2.50'
+          result:
+            dnsmasq_tftp_action: 'sent'
+            dnsmasq_tftp_file: '/srv/tftp/pxelinux.0'
+            dnsmasq_tftp_client_ip: '192.0.2.50'
+        - string: 'failed sending /srv/tftp/pxelinux.0 to 192.0.2.50'
+          result:
+            dnsmasq_tftp_action: 'failed sending'
+            dnsmasq_tftp_file: '/srv/tftp/pxelinux.0'
+            dnsmasq_tftp_client_ip: '192.0.2.50'
+        - string: 'error 0 File not found received from 192.0.2.50'
+          result:
+            dnsmasq_tftp_error_code: '0'
+            dnsmasq_tftp_error: 'File not found'
+            dnsmasq_tftp_client_ip: '192.0.2.50'
+        - string: 'possible DNS-rebind attack detected: foo.example.com'
+          result:
+            dnsmasq_name: 'foo.example.com'
+        - string: 'Maximum number of concurrent DNS queries reached (max: 150)'
+          result:
+            dnsmasq_max_queries: '150'
+        - string: 'Maximum number of concurrent DNS queries to 8.8.8.8 reached (max: 150)'
+          result:
+            dnsmasq_server_ip: '8.8.8.8'
+            dnsmasq_max_queries: '150'
       negative:
         - 'this is not a dnsmasq line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

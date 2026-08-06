@@ -20,10 +20,14 @@ sub opt_spec {
 sub abstract { "Stream log lines from stdin and emit enriched NDJSON on stdout" }
 
 sub description {
-	"Reads one record per line from stdin (NDJSON, or raw log lines with --raw), runs each "
-		. "through the rules, and emits NDJSON with the extracted fields nested under a key "
-		. "(default 'enriched') or merged in with --flat. Unmatched records pass through unchanged "
-		. "unless --drop-unmatched is given.";
+	"Reads one record per line from stdin, NDJSON or raw log lines with --raw, runs each through
+the rules, and emits NDJSON. The extracted fields are nested under a key, 'enriched' unless
+--into says otherwise, or merged into the record itself with --flat.
+
+Records that matched nothing pass through unchanged unless --drop-unmatched is given. A line
+that will not decode as JSON is warned about and passed through, so nothing is ever dropped
+silently.
+";
 }
 
 sub validate { return 1 }

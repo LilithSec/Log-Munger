@@ -6,8 +6,8 @@ no Elasticsearch/Logstash stack required.
 
 Feed it a decoded log record (a hash) or a raw log line, and it runs the record
 through a set of YAML **rule files**. The first rule that matches returns the
-named captures from its regexp — optionally broken down further (`decompose`),
-type-coerced (`convert`), and enriched with GeoIP (`geoip`).
+named captures from its regexp, optionally broken down further (`decompose`),
+coerced (`convert`), and enriched with GeoIP (`geoip`).
 
 ```
 $ echo '{"PROGRAM":"sshd","MESSAGE":"Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCd"}' \
@@ -27,17 +27,17 @@ Grok patterns are great, but they live inside Logstash. Log-Munger takes the sam
 idea — a library of named regexp primitives (`%{IP}`, `%{WORD}`, …) composed into
 larger patterns — and makes it:
 
-- **Standalone.** A Perl module (`Log::Munger`) and a CLI (`log_munger`); pipe NDJSON
+- Standalone :: A Perl module (`Log::Munger`) and a CLI (`log_munger`). Pipe NDJSON
   or raw lines through it.
-- **Templated, not string-spliced.** Primitives are composed with
-  [Template Toolkit](https://metacpan.org/pod/Template) (`[% IP %]`) and resolved in
+- Templated, not string-spliced :: Primitives are composed with
+  [Template Toolkit](https://metacpan.org/pod/Template) as `[% IP %]` and resolved in
   dependency order, so a pattern can build on another pattern.
-- **Testable.** Every primitive and every rule carries its own positive/negative
+- Testable :: Every primitive and every rule carries its own positive and negative
   `tests`, checkable with `log_munger test_all`.
-- **Enriching, not just matching.** After a match it can split key=value blobs,
-  re-match sub-fields, coerce numbers, and do GeoIP lookups.
-- **Grok-compatible.** `log_munger degrok` / `grok2rules` convert existing grok
-  patterns (`%{TOKEN}` / `%{TOKEN:name}`) into Log-Munger's form.
+- Enriching, not just matching :: After a match it can split key=value blobs, decode
+  embedded JSON, re-match sub-fields, coerce values, and do GeoIP lookups.
+- Grok-compatible :: `log_munger degrok` and `grok2rules` convert existing grok
+  patterns (`%{TOKEN}` and `%{TOKEN:name}`) into Log-Munger's form.
 
 ## Install
 
@@ -50,10 +50,13 @@ make test
 make install
 ```
 
-Core dependencies (pulled in by `Makefile.PL`): `YAML::XS`, `JSON`, `File::ShareDir`,
-`File::Slurp`, `Template`, `Hash::Merge`, `App::Cmd`, `Algorithm::Dependency`.
-GeoIP enrichment additionally needs [`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB)
-(an optional/recommended dependency, only loaded when you actually pass a database).
+Core dependencies, pulled in by `Makefile.PL`: `YAML::XS`, `JSON`, `File::ShareDir`,
+`File::Slurp`, `Template`, `Hash::Merge`, `App::Cmd`,
+`Algorithm::Dependency::Source::HoA`, and `Algorithm::Dependency::Ordered`.
+
+GeoIP enrichment additionally needs
+[`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB). It is only
+recommended rather than required, and is loaded only when you actually pass a database.
 
 ## Quick start
 
@@ -103,32 +106,44 @@ The distribution ships a primitive library plus ready-to-use rule files
 
 | Rule file | Matches |
 |-----------|---------|
-| `base` | The primitive library (`IP`, `WORD`, `TIMESTAMP_ISO8601`, …) — no rules of its own; included by the others |
+| `base` | The primitive library (`IP`, `WORD`, `TIMESTAMP_ISO8601`, …). No rules of its own; included by the others |
 | `sshd` | OpenSSH auth/connection events |
 | `postfix` | Postfix mail log (smtpd, qmgr, delivery, …) |
-| `http_access_logs` | Apache/nginx Common + Combined access logs |
-| `http_error_logs` | Apache/nginx error logs |
-| `netfilter` | iptables/nftables/UFW kernel firewall logs |
-| `auditd` | Linux audit daemon records |
-| `pam` / `su` / `sudo` | PAM, `su`, and `sudo` authentication |
-| `cron` | cron/crond job execution |
-| `named` / `unbound` / `dnsmasq` | DNS server logs |
+| `exim` | Exim mail log |
 | `dovecot` | Dovecot IMAP/POP3 |
-| `squid` | Squid proxy access logs |
+| `http_access_logs` | Apache/nginx Common, Combined, and the vhost-prefixed variants |
+| `http_error_logs` | Apache/nginx error logs |
+| `squid` | Squid access.log (all three shipped logformats) and cache.log |
+| `netfilter` | iptables/nftables/UFW kernel firewall logs |
+| `ipfw` | FreeBSD ipfw firewall logs |
+| `kernel` | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, and the rest |
+| `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
+| `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication |
+| `cron` | cron/crond job execution |
+| `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
+| `named` / `unbound` | DNS server logs |
+| `dnsmasq` | dnsmasq's DNS, DHCP, and TFTP logging |
+| `dhcpd` | ISC DHCP server leases |
+| `hostapd` | hostapd wireless association events |
+| `chrony` / `ntpd` | Time synchronization daemons |
+| `fail2ban` | fail2ban ban/unban actions |
+| `mongodb` | MongoDB structured (JSON) logging |
 
 ## Documentation
 
 Full documentation lives in [`docs/`](docs/):
 
-- [Getting started](docs/getting-started.md) — install, first munge, the log-record model
-- [CLI reference](docs/cli.md) — every `log_munger` subcommand and option
-- [Rule-file format](docs/rule-files.md) — the YAML schema (`vars`, `rules`, `gate`, `decompose`, `convert`, `geoip`, `tests`)
-- [Writing a rule file](docs/writing-rules.md) — a step-by-step tutorial
-- [Primitive library](docs/primitives.md) — the named patterns in `base.yaml`
-- [Perl API](docs/api.md) — `Log::Munger` and the supporting modules
-- [Architecture](docs/architecture.md) — how loading, templating, and matching fit together
-- [GeoIP enrichment](docs/geoip.md) — enriching captured addresses
-- [Grok migration](docs/grok.md) — converting existing grok patterns
+- [Getting started](docs/getting-started.md) :: Install, first munge, the log-record model.
+- [CLI reference](docs/cli.md) :: Every `log_munger` subcommand and option.
+- [Rule-file format](docs/rule-files.md) :: The YAML schema — `vars`, `rules`, `gate`,
+  `decompose`, `convert`, `geoip`, and `tests`.
+- [Writing a rule file](docs/writing-rules.md) :: A step-by-step tutorial.
+- [Primitive library](docs/primitives.md) :: The named patterns in `base.yaml`.
+- [Perl API](docs/api.md) :: `Log::Munger` and the supporting modules.
+- [Architecture](docs/architecture.md) :: How loading, templating, and matching fit
+  together.
+- [GeoIP enrichment](docs/geoip.md) :: Enriching captured addresses.
+- [Grok migration](docs/grok.md) :: Converting existing grok patterns.
 
 ## Authors and license
 

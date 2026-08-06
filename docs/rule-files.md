@@ -2,12 +2,12 @@
 
 A rule file is a YAML document. There are two kinds:
 
-- **Primitive library** — defines reusable named patterns (`vars` / `vars_templated`) and
-  their tests, but no `rules:`. [`base`](primitives.md) is the canonical example. It is
-  legal to *load* a primitive library (it just contributes no matching rules); other files
-  pull it in with `includes:`.
-- **Consumer** — has a `rules:` section that actually matches log records. It usually
-  `includes: [base]` so it can reference `[% IP %]`, `[% WORD %]`, etc.
+- Primitive library :: Defines reusable named patterns (`vars` / `vars_templated`) and
+  their tests, but no `rules:`. [`base`](primitives.md) is the canonical example. Loading
+  one directly is legal, it just contributes no matching rules; other files pull it in
+  with `includes:`.
+- Consumer :: Has a `rules:` section that actually matches log records. It usually
+  `includes: [base]` so it can reference `[% IP %]`, `[% WORD %]`, and the rest.
 
 > **Rule of thumb:** `base.yaml` is primitives-only; consumer files carry `rules:`.
 
@@ -22,7 +22,7 @@ A rule file is a YAML document. There are two kinds:
 | `rules` | consumer | Ordered list of match rules (see below). |
 | `geoip` | consumer | File-level default list of captured fields to GeoIP-look-up. |
 | `decompose` | consumer | File-level default list of post-match field breakdowns. |
-| `convert` | consumer | File-level default map of `field: int\|float` numeric coercions. |
+| `convert` | consumer | File-level default map of `field: type` coercions. |
 
 The file-level `geoip` / `decompose` / `convert` act as **defaults**: a rule uses them
 only if it does not carry its own equivalent key. A rule-level `geoip`/`decompose`/`convert`
@@ -101,11 +101,11 @@ non-scalar target field makes the rule skip.
 
 A list of preconditions. **Every** gate must pass for the rule to be considered (logical
 AND). Each gate names a `field` and a list of `values`; the gate passes if the field's
-value matches **any** value (logical OR). A value is:
+value matches **any** value (logical OR). A value is one of:
 
-- a **literal** — matched exactly (`kernel`, `sshd`); or
-- a **regexp** wrapped in `//…//` — `'//^postfix.*/smtpd$//'`. The outer slashes are
-  stripped strictly, so an interior `//` (e.g. `http://`) survives.
+- literal :: Matched exactly, as in `kernel` or `sshd`.
+- regexp :: Wrapped in `//…//`, as in `'//^postfix.*/smtpd$//'`. The outer slashes are
+  stripped strictly, so an interior `//` such as the one in `http://` survives.
 
 An absent, undef, or non-scalar gate field fails the gate. Gates are how you keep many
 rule files loaded together from colliding — typically gating on `PROGRAM`.
@@ -128,10 +128,14 @@ substring.
 
 ### `patterns`
 
-Required, non-empty, ordered. Each entry is either:
+Required, non-empty, ordered. Each entry is one of:
 
-- a **bare var name** that resolves to a compiled `vars`/`vars_templated` value, or
-- an **inline regexp** string.
+- bare var name :: Resolves to a compiled `vars` / `vars_templated` value.
+- inline regexp :: Used as written.
+
+A name that matches no var is silently treated as an inline regexp, so a typo'd
+reference becomes a pattern that never matches. `test_all` flags any all-caps pattern
+that names no existing var, which catches the common case.
 
 The named captures (`(?<field>...)`) of the first matching pattern become the result. A
 pattern that still contains an un-degrokked `%{...}` is a load error; a pattern that will
@@ -147,7 +151,7 @@ level as a default. None of them ever clobber an existing capture.
 
 `decompose:` is an ordered list of entries, each breaking one captured `field` into more
 fields. Because it is ordered, a later entry can operate on fields an earlier one produced.
-Two `type`s:
+Three `type`s:
 
 **`type: kv`** — split a `k=v k=v` blob.
 
@@ -188,6 +192,40 @@ decompose:
     # 'mx.example.com[1.2.3.4]:25' -> postfix_relay_hostname / _ip / _port
 ```
 
+**`type: json`** — JSON-decode the field, for the daemons that write a whole JSON
+document into `MESSAGE`. MongoDB is the bundled example.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `prefix` | `''` | Prepended to each produced key name. |
+| `separator` | `'_'` | Joins the path segments of a nested key. |
+| `nested` | `false` | Store the decoded structure whole under one key instead of flattening it. |
+| `remove` | `false` | Delete the source field afterwards. |
+
+By default the decoded structure is flattened, so each leaf becomes
+`prefix + path` with the path segments joined by `separator`. Object keys and array
+indices both count as segments, so `{"attr":{"remote":"1.2.3.4"}}` with `prefix: mongo_`
+gives `mongo_attr_remote`. That means an arbitrarily-shaped payload does not need a
+pattern written for it.
+
+Three things are normalized on the way through: a MongoDB extended-JSON wrapper (a
+single-key object such as `{"$date":…}`, `{"$oid":…}`, or `{"$numberLong":…}`) collapses
+to the scalar inside it, booleans become `1` and `0`, and JSON null is skipped rather
+than stored. A field whose value is not valid JSON is left exactly as it was.
+
+```yaml
+decompose:
+  - field: mongo_json
+    type: json
+    prefix: 'mongo_'
+    remove: true
+    # {"t":{"$date":"..."},"s":"I","c":"NETWORK",...}
+    #   -> mongo_t / mongo_s / mongo_c / mongo_attr_remote / ...
+```
+
+With `nested: true` the decoded structure is stored whole instead, under `prefix` (minus
+a trailing separator) or, if there is no prefix, under the source field's own name.
+
 Each decompose entry may carry its own `tests: [ { input, result }, … ]` list, applied in
 isolation by `test_all` (the `result` reflects the entry's `remove:` setting). `tests` is
 ignored at runtime.
@@ -205,17 +243,31 @@ geoip:
   - ssh_src_ip
 ```
 
-### `convert` — coerce captured fields to numbers
+### `convert` — coerce captured fields
 
-A map of `field: type` where `type` is `int` or `float` (`integer`/`num`/`number` are
-accepted aliases). The captured value is coerced to a real number so it serializes as a
-JSON number rather than a string. A value that is absent or does not look like a number is
-left untouched. Runs last, so GeoIP still sees the original string.
+A map of `field: type`. Everything captured out of a regexp is a string, and this is how
+one becomes something else. Four types, each with a few accepted spellings:
+
+- `int` :: Coerce to an integer, so it serializes as a JSON number rather than a string.
+  Also spelled `integer`.
+- `float` :: Coerce to a floating-point number. Also spelled `num` or `number`.
+- `lc` :: Lowercase the value. Also spelled `lower` or `lowercase`.
+- `uc` :: Uppercase the value. Also spelled `upper` or `uppercase`.
+
+The case folds exist for tokens whose case varies between the sources that write them.
+SELinux logs `avc: denied` and AppArmor logs `apparmor="DENIED"` for the same verdict, so
+`auditd.yaml` captures both into `mac_result` and lowercases it. Whoever consumes the
+field then does not have to care which LSM produced the line.
+
+A field that was not captured is left alone, as is a numeric conversion of something that
+does not look like a number. `convert` runs last, so GeoIP still sees the original string
+form of an address.
 
 ```yaml
 convert:
   ssh_src_port: int
   nf_LEN: int
+  mac_result: lc
 ```
 
 ## `vars_tests` and rule `tests`

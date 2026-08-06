@@ -13,9 +13,16 @@ sub opt_spec {
 	);
 }
 
-sub abstract { "Reads in the specified rule file and dumps it (or one resolved var) to stdout" }
+sub abstract { "Dump a rule file as loaded, with includes merged and vars resolved" }
 
-sub description { "Reads in the specified rule file and dumps it (or one resolved var) to stdout" }
+sub description {
+	"Loads a rule file the way the engine does, merging its includes and resolving its templated
+vars, then dumps the result as YAML.
+
+With --var it prints only that one var's resolved value, which is how to see the regexp a
+primitive actually compiles to.
+";
+}
 
 sub validate { return 1 }
 

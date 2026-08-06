@@ -7,22 +7,23 @@ use Log::Munger::Degrok;
 
 sub opt_spec {
 	return (
-		[ 's=s',  'A string to convert' ],
-		[ 'f=s',  'File to convert' ],
-		[ 'r',    'Convert to a rules file.' ],
-		[ 'i=s@', 'Includes to use.' ],
-		[ 'o=s',  'Overwrite setting.' ],
+		[ 's=s',  'A string to convert.' ],
+		[ 'f=s',  'A file to convert.' ],
+		[ 'r',    'With -f, emit a rules file skeleton instead of the rewritten file.' ],
+		[ 'i=s@', 'Rule file to treat as an include, for -r (repeatable).' ],
+		[ 'o=s',  'Overwrite policy for names already in an include: yes|no_silent|no_warn|no_die.' ],
 	);
 }
 
-sub abstract { "Converts grok style regexp template to perl." }
+sub abstract { "Rewrite grok templating into the Log::Munger form" }
 
 sub description {
-	'Converts grok style regexp template to perl.
+	'Grok references a named pattern as "%{TEMPLATE}" and captures one as "%{TEMPLATE:VAR}".
+Log::Munger writes those as "[% TEMPLATE %]" and "(?<VAR>[% TEMPLATE %])" respectively. This
+rewrites the first form into the second.
 
-Grok uses templating in the form of "%{TEMPLATE}" and capturing templating stuff in the form
-of "%{TEMPLATE:VAR}". This is not usable with Log::Munger. This takes that and translates it
-"[% TEMPLATE %]" and "(?<VAR>[% TEMPLATE %])" respectively.
+Give it either -s for a string or -f for a file, not both. Adding -r to -f produces a rules
+file skeleton rather than the rewritten file, which is what the grok2rules command does.
 ';
 }
 

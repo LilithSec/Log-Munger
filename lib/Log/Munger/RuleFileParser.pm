@@ -13,7 +13,7 @@ use Log::Munger::RulesTemplateOrder;
 
 =head1 NAME
 
-Log::Munger::RuleFileParser - Extracts info from 
+Log::Munger::RuleFileParser - Reads a Log::Munger rule file into a rules hash.
 
 =head1 VERSION
 
@@ -25,14 +25,34 @@ our $VERSION = '0.0.1';
 
 =head1 SYNOPSIS
 
-    use Log::Munger;
+    use Log::Munger::RuleFileParser;
 
-    my $foo = Log::Munger->new();
-    ...
+    my $parser = Log::Munger::RuleFileParser->new;
+    my $rules  = $parser->load( 'file' => 'sshd' );
+
+    print $rules->{'vars'}{'SSH_FAILED_PASSWORD'} . "\n";
+
+Loading a rule file is four steps. The name is resolved to a path via
+L<Log::Munger::WhichRuleFile>, the YAML is read in, anything under C<includes> is
+merged in with right precedence so the file itself wins on a conflict, and finally
+everything under C<vars_templated> is run through L<Template> and folded into
+C<vars>.
+
+That last step is why order matters: a templated var may reference another
+templated var, so L<Log::Munger::RulesTemplateOrder> sorts them by dependency
+first and each one is resolved only once everything it references already is.
+
+Trailing newlines are stripped from every var at every step. A YAML C<|> block
+scalar keeps its terminating newline, and one of those landing in the middle of a
+composed pattern would quietly stop it matching single line logs.
 
 =head1 METHODS
 
 =head2 new
+
+Creates a parser. Takes no arguments.
+
+    my $parser = Log::Munger::RuleFileParser->new;
 
 =cut
 
@@ -52,10 +72,21 @@ sub new {
 
 =head2 load
 
-Loads a munger rule file.
+Loads a rule file, merging its includes and resolving its templated vars.
 
-    - file :: The file to load. Required.
+Every resolved C<vars_templated> entry is written back into C<< $rules->{vars} >>,
+so by the time this returns there is one flat namespace of named regexps and
+C<vars_templated> is only of interest for seeing how a var was written.
+
+    - file :: The file to load. Either a bare name resolved through the search
+        path, such as "sshd", or a path. Required.
         Default :: undef
+
+Returns the rules hash ref. Dies if the file cannot be found, is not valid YAML,
+does not parse to a hash, names an include that cannot be found, or holds a var
+that will not template.
+
+    my $rules = $parser->load( 'file' => 'sshd' );
 
 =cut
 
@@ -123,10 +154,21 @@ sub load {
 
 =head2 load_no_templating
 
-Loads the rule file without processing .vars_templates .
+Same as L</load>, but stops short of resolving C<vars_templated>. The includes are
+still merged and the plain C<vars> are still normalized, so what comes back is the
+rule file as written rather than as compiled.
 
-    - file :: The file to load. Required.
+This is what the template ordering tooling uses. Working out which var depends on
+which means reading the C<[% VAR %]> references before they are substituted away.
+
+    - file :: The file to load. Either a bare name resolved through the search
+        path, such as "sshd", or a path. Required.
         Default :: undef
+
+Returns the rules hash ref, with C<vars_templated> left untouched. Dies under the
+same conditions as L</load>, minus the templating.
+
+    my $rules = $parser->load_no_templating( 'file' => 'sshd' );
 
 =cut
 

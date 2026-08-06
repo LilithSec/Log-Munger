@@ -103,6 +103,41 @@ vars_templated:
   # USB device attach: "usb 1-1: new high-speed USB device number 5 using
   # ehci-hcd"
   KERNEL_LINUX_USB: '[% KERNEL_PRINTK %]usb (?<kernel_usb>[% NOTSPACE %]): new [% GREEDYDATA %]'
+  # ---- Linux network stack under pressure or under attack ----
+  #
+  # The three the stack complains about that are worth waking up for.  All
+  # three arrive with PROGRAM=kernel like everything else here, and all three
+  # were previously misses, which is the worst way for them to arrive: the
+  # host says it is being flooded and nothing downstream hears it.
+  #
+  # "TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.
+  #  Check SNMP counters."
+  #
+  # The wording has drifted a lot across releases -- a doubled "TCP: ", a
+  # "request_sock_<proto>: " tag, a lowercase "possible", a trailing hint to
+  # check SNMP -- and 6.x prints the local address alongside the port as
+  # "[::ffff:192.0.2.1]:80".  All of it is optional here except the sentence
+  # itself, since which variant a host emits is a function of its kernel
+  # version and says nothing about the event.
+  KERNEL_LINUX_SYNFLOOD: '[% KERNEL_PRINTK %](?:TCP: )?(?:request_sock_[A-Za-z0-9_]+: )?(?:TCP: )?[Pp]ossible SYN flooding on port (?:\[(?<kernel_syn_local_addr>[^\]]+)\]:)?(?<kernel_syn_port>[% INT %])\. Sending (?<kernel_syn_action>[% WORD %])\.(?: +[% GREEDYDATA %])?'
+  # "nf_conntrack: nf_conntrack: table full, dropping packet"
+  #
+  # The connection tracker is out of room and the host has started dropping
+  # traffic it would otherwise have passed.  The module name is doubled on
+  # newer kernels because the subsystem prefix and the message both carry it;
+  # the old ip_conntrack spelling is still around on long-lived hosts.
+  KERNEL_LINUX_CONNTRACK_FULL: '[% KERNEL_PRINTK %](?<kernel_conntrack_module>nf_conntrack|ip_conntrack): (?:(?:nf|ip)_conntrack: )?table full, dropping packet\.?(?: [% GREEDYDATA %])?'
+  # "IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0"
+  #
+  # A packet arrived whose addressing cannot be right -- the classic signature
+  # of spoofing or of a routing loop.
+  #
+  # The kernel prints the destination first and the source second, despite the
+  # message reading "martian source <a> from <b>", so the captures are named
+  # for what each address actually is rather than for its position in the
+  # sentence.  Naming them the other way round would put the wrong address in
+  # front of the geoip lookup.
+  KERNEL_LINUX_MARTIAN: '[% KERNEL_PRINTK %](?:IPv4: )?martian (?<kernel_martian_kind>source|destination) (?<kernel_martian_dst_ip>[% IP %]) from (?<kernel_martian_src_ip>[% IP %]), (?:on )?dev (?<kernel_martian_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
   # ==================================================================
   # FreeBSD kernel messages (additive). These arrive with PROGRAM=kernel
   # exactly like the Linux ones above and share the //^kernel$// gate.
@@ -277,6 +312,49 @@ vars_tests:
         result: 'usb 2-1.4: new low-speed USB device number 7 using xhci_hcd'
     negative:
       - 'blk_update_request: I/O error, dev sda, sector 12345678'
+  KERNEL_LINUX_SYNFLOOD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'
+        result: 'TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'
+      - string: 'TCP: Possible SYN flooding on port 443. Sending cookies.'
+        result: 'TCP: Possible SYN flooding on port 443. Sending cookies.'
+      # the older doubled prefix
+      - string: 'TCP: TCP: Possible SYN flooding on port 22. Sending cookies.'
+        result: 'TCP: TCP: Possible SYN flooding on port 22. Sending cookies.'
+      # 6.x prints the local address alongside the port
+      - string: 'TCP: Possible SYN flooding on port [::ffff:192.0.2.1]:80. Sending cookies.'
+        result: 'TCP: Possible SYN flooding on port [::ffff:192.0.2.1]:80. Sending cookies.'
+      # with the printk uptime the rsyslog kernel reader leaves on
+      - string: '[ 1234.567890] TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.'
+        result: '[ 1234.567890] TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.'
+    negative:
+      - 'nf_conntrack: table full, dropping packet'
+      - 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
+  KERNEL_LINUX_CONNTRACK_FULL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'nf_conntrack: nf_conntrack: table full, dropping packet'
+        result: 'nf_conntrack: nf_conntrack: table full, dropping packet'
+      - string: 'nf_conntrack: table full, dropping packet.'
+        result: 'nf_conntrack: table full, dropping packet.'
+      - string: 'ip_conntrack: table full, dropping packet.'
+        result: 'ip_conntrack: table full, dropping packet.'
+      - string: '[ 1234.567890] nf_conntrack: nf_conntrack: table full, dropping packet'
+        result: '[ 1234.567890] nf_conntrack: nf_conntrack: table full, dropping packet'
+    negative:
+      - 'TCP: Possible SYN flooding on port 80. Sending cookies.'
+  KERNEL_LINUX_MARTIAN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+        result: 'IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+      - string: 'martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+        result: 'martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+      - string: 'IPv4: martian destination 224.0.0.1 from 10.0.0.1, dev eth0'
+        result: 'IPv4: martian destination 224.0.0.1 from 10.0.0.1, dev eth0'
+    negative:
+      - 'nf_conntrack: table full, dropping packet'
   # ---- FreeBSD vars_tests ----
   KERNEL_FBSD_SIGEXIT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -434,6 +512,13 @@ vars_tests:
     negative:
       - 'panic: page fault'
 # file-level default: coerce numeric top-level captures at runtime.
+# file-level default: the martian source is the only remote address this file
+# captures. Looking it up is worth doing for the same reason netfilter.yaml
+# looks up a dropped packet's source, with the same caveat: an address the
+# stack called impossible may well be spoofed, so treat the answer as evidence
+# about the packet rather than about whoever really sent it.
+geoip:
+  - kernel_martian_src_ip
 convert:
   kernel_oom_pid: int
   kernel_segv_pid: int
@@ -448,6 +533,7 @@ convert:
   kernel_audit_serial: int
   kernel_audit_type: int
   kernel_audit_epoch: float
+  kernel_syn_port: int
   # normalized LSM verdict, shared with share/auditd.yaml: AppArmor writes
   # "DENIED" where SELinux writes "denied", so fold the case
   mac_result: lc
@@ -502,6 +588,9 @@ rules:
       - KERNEL_LINUX_BLK_IO
       - KERNEL_LINUX_APPARMOR
       - KERNEL_LINUX_USB
+      - KERNEL_LINUX_SYNFLOOD
+      - KERNEL_LINUX_CONNTRACK_FULL
+      - KERNEL_LINUX_MARTIAN
       # ---- FreeBSD patterns (appended after the Linux ones) ----
       - KERNEL_FBSD_SIGEXIT
       - KERNEL_FBSD_SWAPKILL
@@ -606,6 +695,38 @@ rules:
         - string: 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
           result:
             kernel_usb: '1-1'
+        # [Linux] KERNEL_LINUX_SYNFLOOD
+        - string: 'TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'
+          result:
+            kernel_syn_port: '80'
+            kernel_syn_action: 'cookies'
+        - string: 'TCP: Possible SYN flooding on port [::ffff:192.0.2.1]:80. Sending cookies.'
+          result:
+            kernel_syn_local_addr: '::ffff:192.0.2.1'
+            kernel_syn_port: '80'
+            kernel_syn_action: 'cookies'
+        # [Linux] KERNEL_LINUX_CONNTRACK_FULL
+        - string: 'nf_conntrack: nf_conntrack: table full, dropping packet'
+          result:
+            kernel_conntrack_module: 'nf_conntrack'
+        - string: 'ip_conntrack: table full, dropping packet.'
+          result:
+            kernel_conntrack_module: 'ip_conntrack'
+        # [Linux] KERNEL_LINUX_MARTIAN. the kernel prints the destination first
+        # even though the sentence reads "source", so check both land in the
+        # field named for what they are
+        - string: 'IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+          result:
+            kernel_martian_kind: 'source'
+            kernel_martian_dst_ip: '192.0.2.1'
+            kernel_martian_src_ip: '10.0.0.1'
+            kernel_martian_iface: 'eth0'
+        - string: 'IPv4: martian destination 224.0.0.1 from 10.0.0.1, dev eth0'
+          result:
+            kernel_martian_kind: 'destination'
+            kernel_martian_dst_ip: '224.0.0.1'
+            kernel_martian_src_ip: '10.0.0.1'
+            kernel_martian_iface: 'eth0'
         # [Linux] the prefix is not the AppArmor pattern's business alone... it
         # rides in front of any Linux ring-buffer message, so one more type
         # proves it is handled file-wide

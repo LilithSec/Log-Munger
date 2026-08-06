@@ -8,11 +8,24 @@
 includes:
 - base
 vars_templated:
+  # The authentication methods sshd names in its Accepted / Failed / Postponed /
+  # Partial lines, shared so the four stay in step.
+  #
+  # "none" and "keyboard-interactive/pam" both have to be here.  A scan opens
+  # with a "none" probe to find out which methods a host will offer, so
+  # "Failed none for invalid user ..." is one of the most common lines on an
+  # exposed host, and any PAM-backed sshd -- which is to say most of them --
+  # writes "keyboard-interactive/pam" rather than the bare method name.
+  #
+  # The longer keyboard-interactive form is listed before the shorter one.  The
+  # engine would backtrack into the right branch either way, but there is no
+  # reason to make it.
+  SSH_AUTH_METHOD: 'publickey|password|keyboard-interactive/pam|keyboard-interactive|gssapi-with-mic|hostbased|none'
   # Accepted publickey/password/keyboard-interactive.  For publickey OpenSSH
   # appends the key type + fingerprint ("ssh2: RSA SHA256:...").
-  SSH_ACCEPTED: 'Accepted (?<ssh_method>publickey|password|keyboard-interactive) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2(?::? (?<ssh_key_type>[% WORD %]) (?<ssh_key_fingerprint>[% NOTSPACE %]))?)?'
+  SSH_ACCEPTED: 'Accepted (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2(?::? (?<ssh_key_type>[% WORD %]) (?<ssh_key_fingerprint>[% NOTSPACE %]))?)?'
   # Failed password/publickey, optionally "for invalid user X".
-  SSH_FAILED: 'Failed (?<ssh_method>publickey|password|keyboard-interactive) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  SSH_FAILED: 'Failed (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
   # "Invalid user oracle from 203.0.113.7 port 40000"
   SSH_INVALID_USER: 'Invalid user (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Connection closed by 192.0.2.5 port 40000 [preauth]" and the
@@ -37,20 +50,72 @@ vars_templated:
   SSH_REVERSE_MAP: 'Address (?<ssh_src_ip>[% IP %]) maps to (?<ssh_rev_host>[% HOSTNAME %]), but this does not map back to the address - POSSIBLE BREAK-IN ATTEMPT!(?: [% GREEDYDATA %])?'
   # "Did not receive identification string from <ip> port <port>".
   SSH_NO_IDENT: 'Did not receive identification string from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
-  # "Timeout before authentication for <ip> port <port>".
-  SSH_TIMEOUT: 'Timeout before authentication for (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # "fatal: Timeout before authentication for <ip> port <port>".
+  # sshd raises this through fatal(), so the line normally carries the "fatal: "
+  # prefix.  It is optional here because the prefix is added by the logging
+  # call rather than being part of the message, and a relay or a reformatter
+  # in front of the file being read can have taken it off.
+  SSH_TIMEOUT: '(?:fatal: )?Timeout before authentication for (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # "Connection reset by <ip> port <port> [preauth]" (optionally with a
   # "authenticating/invalid user X" prefix, mirroring SSH_CONN_CLOSED).
   SSH_CONN_RESET: 'Connection reset by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # Startup: "Server listening on 0.0.0.0 port 22." (IPv4 or IPv6 bind addr).
   SSH_LISTENING: 'Server listening on (?<ssh_listen_addr>[% NOTSPACE %]) port (?<ssh_listen_port>[% INT %])\.(?: [% GREEDYDATA %])?'
   # MFA: "Postponed publickey for <user> from <ip> port <port> ssh2 [preauth]".
-  SSH_POSTPONED: 'Postponed (?<ssh_method>publickey|keyboard-interactive|password) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  SSH_POSTPONED: 'Postponed (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
   # MFA: "Partial authentication for <user> from <ip> port <port> ssh2 [preauth]".
   SSH_PARTIAL: 'Partial authentication(?: for)? (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
   # "Accepted publickey ... ssh2: ED25519-CERT SHA256:... ID user (serial N) CA ...".
   # Captures the certificate identity clause when present.
   SSH_ACCEPTED_CERT: 'Accepted (?<ssh_method>publickey) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]) ssh2: (?<ssh_key_type>[% NOTSPACE %]) (?<ssh_key_fingerprint>[% NOTSPACE %]) ID (?<ssh_cert_id>[% NOTSPACE %]) \(serial (?<ssh_cert_serial>[% INT %])\)(?: [% GREEDYDATA %])?'
+  # ------------------------------------------------------------------
+  # Connections that never reached authentication.
+  #
+  # These are what an exposed host mostly logs.  A scanner that opens a socket
+  # and speaks something other than SSH, or offers only ciphers the host
+  # retired years ago, never gets as far as a username, so none of the auth
+  # patterns above see it at all.  Left unmatched they are invisible, which
+  # makes the auth log look far quieter than the host actually is.
+  # ------------------------------------------------------------------
+  # "error: kex_exchange_identification: Connection closed by remote host"
+  # "error: kex_exchange_identification: client sent invalid protocol identifier"
+  # "error: kex_exchange_identification: read: Connection reset by peer"
+  #
+  # Almost certainly the single highest-volume sshd line on anything reachable
+  # from the internet.  The message carries no address of its own -- the peer
+  # is on the neighbouring "Connection closed by <ip>" line, which
+  # SSH_CONN_CLOSED picks up -- so this captures the reason and leaves the
+  # correlation to the consumer.
+  SSH_KEX_ERROR: 'error: kex_exchange_identification: (?<ssh_kex_error>[% GREEDYDATA %])'
+  # "Unable to negotiate with 203.0.113.7 port 44444: no matching host key type
+  #  found. Their offer: ssh-rsa"
+  #
+  # Worth capturing the offer separately: it is the closest thing sshd gives to
+  # a fingerprint of the client, and a host that has just tightened its
+  # KexAlgorithms or Ciphers will show its locked-out clients here.
+  SSH_NO_NEGOTIATE: 'Unable to negotiate with (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_negotiate_error>.*?)(?:\. Their offer: (?<ssh_peer_offer>[% GREEDYDATA %]))?'
+  # "banner exchange: Connection from 203.0.113.7 port 44444: invalid format"
+  SSH_BANNER_EXCHANGE: 'banner exchange: Connection from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_banner_error>[% GREEDYDATA %])'
+  # "Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444"
+  #
+  # What a web crawler, a TLS probe, or a mistargeted health check looks like
+  # when it lands on port 22.  The identifier is captured verbatim because what
+  # was sent is the whole point of the line.
+  SSH_BAD_PROTOCOL: 'Bad protocol version identification ''(?<ssh_bad_protocol>[^'']*)'' from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22"
+  #
+  # Only logged at LogLevel VERBOSE, but that is also the level at which the
+  # kex and banner failures above become worth correlating, since this is the
+  # line that says which peer they belonged to.
+  SSH_CONN_FROM: 'Connection from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: on (?<ssh_dst_ip>[% IP %]) port (?<ssh_dst_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "error: PAM: Authentication failure for root from 203.0.113.7"
+  # "error: PAM: Authentication failure for illegal user admin from mail.example.net"
+  #
+  # PAM reports the peer as whatever it resolved, so the source is matched as
+  # an address first and a hostname second.  Only one of the two captures is
+  # ever set, which keeps the address in ssh_src_ip where the geoip lookup
+  # expects it instead of burying it in a field that is sometimes a name.
+  SSH_PAM_ERROR: 'error: PAM: (?<ssh_pam_error>.*?) for (?:(?<ssh_invalid>illegal|invalid) user )?(?<ssh_user>[% USERNAME %]) from (?:(?<ssh_src_ip>[% IP %])|(?<ssh_src_host>[% HOSTNAME %]))'
 vars_tests:
   SSH_ACCEPTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -186,6 +251,93 @@ vars_tests:
         result: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
     negative:
       - 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+  SSH_AUTH_METHOD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'publickey'
+        result: 'publickey'
+      - string: 'password'
+        result: 'password'
+      - string: 'none'
+        result: 'none'
+      # the longer form has to come out whole rather than as the shorter one
+      # with a stray "/pam" left over
+      - string: 'keyboard-interactive/pam'
+        result: 'keyboard-interactive/pam'
+      - string: 'keyboard-interactive'
+        result: 'keyboard-interactive'
+      - string: 'gssapi-with-mic'
+        result: 'gssapi-with-mic'
+      - string: 'hostbased'
+        result: 'hostbased'
+    negative:
+      - 'notanauthmethod'
+      - 'publickeys'
+  SSH_KEX_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: kex_exchange_identification: Connection closed by remote host'
+        result: 'error: kex_exchange_identification: Connection closed by remote host'
+      - string: 'error: kex_exchange_identification: read: Connection reset by peer'
+        result: 'error: kex_exchange_identification: read: Connection reset by peer'
+      - string: 'error: kex_exchange_identification: banner line contains invalid characters'
+        result: 'error: kex_exchange_identification: banner line contains invalid characters'
+    negative:
+      - 'error: maximum authentication attempts exceeded for root from 203.0.113.7 port 44444 ssh2'
+      - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+  SSH_NO_NEGOTIATE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Unable to negotiate with 203.0.113.7 port 44444: no matching host key type found. Their offer: ssh-rsa'
+        result: 'Unable to negotiate with 203.0.113.7 port 44444: no matching host key type found. Their offer: ssh-rsa'
+      - string: 'Unable to negotiate with 198.51.100.9 port 40000: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
+        result: 'Unable to negotiate with 198.51.100.9 port 40000: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
+      # the offer clause is not always there
+      - string: 'Unable to negotiate with 203.0.113.7 port 44444: no matching cipher found'
+        result: 'Unable to negotiate with 203.0.113.7 port 44444: no matching cipher found'
+    negative:
+      - 'banner exchange: Connection from 203.0.113.7 port 44444: invalid format'
+  SSH_BANNER_EXCHANGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'banner exchange: Connection from 203.0.113.7 port 44444: invalid format'
+        result: 'banner exchange: Connection from 203.0.113.7 port 44444: invalid format'
+    negative:
+      - 'Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22'
+  SSH_BAD_PROTOCOL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444'
+        result: 'Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444'
+      - string: 'Bad protocol version identification ''\x16\x03\x01'' from 198.51.100.9 port 40000'
+        result: 'Bad protocol version identification ''\x16\x03\x01'' from 198.51.100.9 port 40000'
+      # older sshd left the port off
+      - string: 'Bad protocol version identification ''QUIT'' from 203.0.113.7'
+        result: 'Bad protocol version identification ''QUIT'' from 203.0.113.7'
+    negative:
+      - 'Did not receive identification string from 203.0.113.7 port 44444'
+  SSH_CONN_FROM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22'
+        result: 'Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22'
+      - string: 'Connection from 203.0.113.7 port 44444'
+        result: 'Connection from 203.0.113.7 port 44444'
+    negative:
+      - 'banner exchange: Connection from 203.0.113.7 port 44444: invalid format'
+      - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
+  SSH_PAM_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: PAM: Authentication failure for root from 203.0.113.7'
+        result: 'error: PAM: Authentication failure for root from 203.0.113.7'
+      - string: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
+        result: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
+      # PAM logs whatever it resolved, which is often a name
+      - string: 'error: PAM: User account has expired for kitsune from mail.example.net'
+        result: 'error: PAM: User account has expired for kitsune from mail.example.net'
+    negative:
+      - 'error: kex_exchange_identification: Connection closed by remote host'
 # file-level default: geoip lookup on the source IP (only used when the munger
 # is built with a geoip database)
 geoip:
@@ -193,6 +345,7 @@ geoip:
 # file-level default: coerce the source port to an integer at runtime
 convert:
   ssh_src_port: int
+  ssh_dst_port: int
   ssh_listen_port: int
   ssh_cert_serial: int
 rules:
@@ -220,6 +373,15 @@ rules:
       - SSH_LISTENING
       - SSH_POSTPONED
       - SSH_PARTIAL
+      - SSH_KEX_ERROR
+      - SSH_NO_NEGOTIATE
+      - SSH_BANNER_EXCHANGE
+      - SSH_BAD_PROTOCOL
+      - SSH_PAM_ERROR
+      # last of the connection patterns: "Connection from <ip> port <port>" is
+      # the loosest of them, so anything with a more specific shape gets first
+      # refusal even though anchoring already keeps them apart
+      - SSH_CONN_FROM
     tests:
       positive:
         - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
@@ -356,6 +518,75 @@ rules:
             ssh_user: 'alice'
             ssh_src_ip: '198.51.100.9'
             ssh_src_port: '40000'
+        # -- the auth methods the shared SSH_AUTH_METHOD list added --
+        - string: 'Failed none for invalid user admin from 203.0.113.7 port 44444 ssh2'
+          result:
+            ssh_invalid: 'invalid'
+            ssh_method: 'none'
+            ssh_user: 'admin'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Failed keyboard-interactive/pam for root from 203.0.113.7 port 44444 ssh2'
+          result:
+            ssh_method: 'keyboard-interactive/pam'
+            ssh_user: 'root'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'Accepted keyboard-interactive/pam for kitsune from 192.0.2.5 port 54321 ssh2'
+          result:
+            ssh_method: 'keyboard-interactive/pam'
+            ssh_user: 'kitsune'
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '54321'
+        # -- connections that never reached authentication --
+        - string: 'error: kex_exchange_identification: Connection closed by remote host'
+          result:
+            ssh_kex_error: 'Connection closed by remote host'
+        - string: 'error: kex_exchange_identification: client sent invalid protocol identifier'
+          result:
+            ssh_kex_error: 'client sent invalid protocol identifier'
+        - string: 'Unable to negotiate with 203.0.113.7 port 44444: no matching host key type found. Their offer: ssh-rsa'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+            ssh_negotiate_error: 'no matching host key type found'
+            ssh_peer_offer: 'ssh-rsa'
+        - string: 'Unable to negotiate with 203.0.113.7 port 44444: no matching cipher found'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+            ssh_negotiate_error: 'no matching cipher found'
+        - string: 'banner exchange: Connection from 203.0.113.7 port 44444: invalid format'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+            ssh_banner_error: 'invalid format'
+        - string: 'Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444'
+          result:
+            ssh_bad_protocol: 'GET / HTTP/1.1'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+        - string: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
+          result:
+            ssh_pam_error: 'Authentication failure'
+            ssh_invalid: 'illegal'
+            ssh_user: 'admin'
+            ssh_src_ip: '198.51.100.9'
+        - string: 'error: PAM: User account has expired for kitsune from mail.example.net'
+          result:
+            ssh_pam_error: 'User account has expired'
+            ssh_user: 'kitsune'
+            ssh_src_host: 'mail.example.net'
+        - string: 'Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
+            ssh_dst_ip: '192.0.2.1'
+            ssh_dst_port: '22'
+        - string: 'fatal: Timeout before authentication for 203.0.113.7 port 44444'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44444'
       negative:
         - 'this is not an sshd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

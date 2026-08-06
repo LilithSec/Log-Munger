@@ -714,27 +714,35 @@ sub _convert {
 Internal. Compiles a single C<rules:> entry into the runtime structure:
 
     {
-        name     => ...,          # optional, diagnostics only
-        field    => 'MESSAGE',    # target field, defaults to MESSAGE
-        gate     => [ { field => ..., literals => {...}, regexps => [ qr//, ... ] }, ... ],
-        patterns => [ qr//, ... ],
+        name      => ...,          # optional, diagnostics only
+        field     => 'MESSAGE',    # target field, defaults to MESSAGE
+        gate      => [ { field => ..., literals => {...}, regexps => [ qr//, ... ] }, ... ],
+        patterns  => [ qr//, ... ],
+        geoip     => [ 'field_name', ... ],
+        decompose => [ ... ],      # see _compile_decompose
+        convert   => { field_name => 'int'|'float'|'lc'|'uc', ... },
     }
 
     - rule :: The raw rule hash ref.
     - vars :: The compiled vars hash ref (pattern names resolve against this).
+    - default_geoip :: The file-level geoip list, used when the rule has none.
+    - default_decompose :: The file-level decompose list, used when the rule has none.
+    - default_convert :: The file-level convert map, used when the rule has none.
 
 A rule may set C<< anchored: true >>, in which case each pattern is wrapped as
 C<< \A(?:...)\z >> so it must match the whole target field (the equivalent of a
 logstash C<< ^...$ >> grok) rather than any substring.
 
-A rule (or a file-level default) may carry a C<decompose:> list to break
-captured fields down further at match time -- see L</_compile_decompose> -- and a
-C<convert:> map (field => C<int>|C<float>|C<lc>|C<uc>) to coerce captured fields
-to numbers or to a case-folded string.
+A rule, or a file-level default, may carry a C<decompose:> list to break captured
+fields down further at match time (see L</_compile_decompose>) and a C<convert:>
+map of field => C<int>|C<float>|C<lc>|C<uc> to coerce captured fields to numbers
+or to a case-folded string.
+
 C<geoip:>, C<decompose:>, and C<convert:> may each be given per-rule or once at
-the top of the file as a default for every rule. They run in order
+the top of the file as a default for every rule. A rule-level one replaces the
+file-level default rather than merging with it. They run in the order
 decompose -> geoip -> convert, so geoip can look up a field a decompose step
-produced and convert only coerces after geoip has seen the string addresses.
+produced, and convert only coerces once geoip has seen the string addresses.
 
 Dies on a malformed rule, an un-degrokked C<%{...}> remnant, or a pattern that
 will not compile (which is where an illegal named capture such as a C<-> in the

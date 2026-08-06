@@ -12,12 +12,33 @@ sub opt_spec {
 sub abstract { "List the rule files discoverable across the search path" }
 
 sub description {
-	"Lists the rule files found across /etc/log_munger/rules, /usr/local/etc/log_munger/rules, "
-		. "and the dist share dir (in that precedence order -- an earlier one shadows a later one).";
+	"Lists the rule files found across /etc/log_munger/rules, /usr/local/etc/log_munger/rules, and
+the dist share dir, in that precedence order. A name found in an earlier directory shadows the
+same name in a later one, and only the one that would actually be used is listed.
+
+Add -p to see what each name resolves to.
+";
 }
 
 sub validate { return 1 }
 
+# The directories rule files are looked for in, in precedence order.
+#
+# This mirrors the search order in Log::Munger::WhichRuleFile, which resolves one
+# name at a time and so has no need to enumerate the directories. Listing wants
+# them as a list, hence the second copy.
+#
+# The share dir lookup is wrapped in an eval because File::ShareDir::dist_dir dies
+# when the distribution is not installed. Running out of a checkout is a perfectly
+# normal thing to be doing, so that is treated as one fewer place to look rather
+# than as an error.
+#
+# Takes no args.
+#
+# Returns a list of directory paths, highest precedence first. They are not
+# checked for existence here; the caller skips any that are missing.
+#
+#     foreach my $dir ( _search_dirs() ) { ... }
 sub _search_dirs {
 	my @dirs = ( '/etc/log_munger/rules', '/usr/local/etc/log_munger/rules' );
 	my $share;
