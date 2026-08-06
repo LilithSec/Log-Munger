@@ -1,0 +1,177 @@
+---
+# PostgreSQL server-log enrichment.
+#
+# Gates on the syslog PROGRAM field being "postgres" or "postgresql".  Patterns
+# are anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# capture is namespaced with pgsql_ .
+#
+# PostgreSQL's log_line_prefix is configurable, which means the front of a line
+# is whatever the administrator made it and cannot be parsed in general.  What
+# IS fixed is the severity word and the two spaces after its colon:
+#
+#   ... FATAL:  password authentication failed for user "kitsune"
+#
+# So every pattern here treats the prefix as text to be stepped over and keys
+# on the severity instead.  The prefix is still captured whole as pgsql_prefix
+# for anyone who knows their own log_line_prefix and wants to pick it apart.
+#
+# The connection lines are the ones to watch: "connection received" names the
+# peer, "connection authorized" says who it turned out to be, and a FATAL
+# "password authentication failed" between the two is a failed login.
+includes:
+- base
+vars_templated:
+  # The severity words postgres emits, in the order the manual lists them.
+  PGSQL_LEVEL: 'DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|LOG|FATAL|PANIC|STATEMENT|DETAIL|HINT|CONTEXT'
+  # Whatever log_line_prefix produced, stepped over rather than parsed.
+  #
+  # Matched lazily so it gives up the first severity it reaches.  A greedy run
+  # would sail past "LOG:" in the prefix of a line whose body mentions another
+  # severity word and key on the wrong one.
+  PGSQL_PREFIX: '(?<pgsql_prefix>.*?)'
+  # "FATAL:  password authentication failed for user "kitsune""
+  #
+  # postgres writes two spaces after the colon; one is tolerated as well, since
+  # some log shippers collapse runs of whitespace.
+  PGSQL_AUTH_FAILED: '[% PGSQL_PREFIX %](?<pgsql_level>FATAL): {1,2}(?<pgsql_auth_error>password authentication failed|no pg_hba\.conf entry|[A-Za-z ]*authentication failed) for (?:user "(?<pgsql_user>[^"]*)"|host "(?<pgsql_src_host>[^"]*)")(?<pgsql_auth_detail>[% GREEDYDATA %])'
+  # "LOG:  connection received: host=192.0.2.5 port=49152"
+  PGSQL_CONN_RECEIVED: '[% PGSQL_PREFIX %](?<pgsql_level>LOG): {1,2}connection received: host=(?:(?<pgsql_src_ip>[% IP %])|(?<pgsql_src_host>[% NOTSPACE %]))(?: port=(?<pgsql_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  # "LOG:  connection authorized: user=kitsune database=mydb"
+  PGSQL_CONN_AUTHORIZED: '[% PGSQL_PREFIX %](?<pgsql_level>LOG): {1,2}connection authorized: user=(?<pgsql_user>[% NOTSPACE %])(?: database=(?<pgsql_db>[% NOTSPACE %]))?(?: [% GREEDYDATA %])?'
+  # "FATAL:  database "nope" does not exist"
+  # "FATAL:  role "nope" does not exist"
+  #
+  # Worth its own pattern because it is what a sweep looking for default
+  # databases produces, and it names what was guessed at.
+  PGSQL_NOT_EXIST: '[% PGSQL_PREFIX %](?<pgsql_level>FATAL): {1,2}(?<pgsql_object_kind>database|role|user) "(?<pgsql_object>[^"]*)" does not exist(?: [% GREEDYDATA %])?'
+  # Anything else, keyed on the severity so it can at least be sorted by
+  # importance.
+  PGSQL_MESSAGE: '[% PGSQL_PREFIX %](?<pgsql_level>[% PGSQL_LEVEL %]): {1,2}(?<pgsql_message>.+)'
+vars_tests:
+  PGSQL_LEVEL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'FATAL'
+        result: 'FATAL'
+      - string: 'LOG'
+        result: 'LOG'
+      - string: 'DEBUG3'
+        result: 'DEBUG3'
+    negative:
+      - 'TRACE'
+  PGSQL_PREFIX:
+    test_template: '^(?<TEST>[% TEST_VAR %])x$'
+    positive:
+      - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb x'
+        result: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb '
+      # the prefix can be empty
+      - string: 'x'
+        result: ''
+    negative:
+      # the trailing anchor in the template has to be there
+      - '2026-07-15 10:00:00.123 UTC [1234]'
+  PGSQL_AUTH_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
+        result: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
+      - string: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
+        result: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
+    negative:
+      - 'LOG:  connection received: host=192.0.2.5 port=49152'
+  PGSQL_CONN_RECEIVED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'LOG:  connection received: host=192.0.2.5 port=49152'
+        result: 'LOG:  connection received: host=192.0.2.5 port=49152'
+      - string: '2026-07-15 10:00:00.123 UTC [1234] LOG:  connection received: host=192.0.2.5 port=49152'
+        result: '2026-07-15 10:00:00.123 UTC [1234] LOG:  connection received: host=192.0.2.5 port=49152'
+    negative:
+      - 'LOG:  connection authorized: user=kitsune database=mydb'
+  PGSQL_CONN_AUTHORIZED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'LOG:  connection authorized: user=kitsune database=mydb'
+        result: 'LOG:  connection authorized: user=kitsune database=mydb'
+    negative:
+      - 'LOG:  connection received: host=192.0.2.5 port=49152'
+  PGSQL_NOT_EXIST:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'FATAL:  database "nope" does not exist'
+        result: 'FATAL:  database "nope" does not exist'
+      - string: 'FATAL:  role "admin" does not exist'
+        result: 'FATAL:  role "admin" does not exist'
+    negative:
+      - 'FATAL:  password authentication failed for user "kitsune"'
+  PGSQL_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'LOG:  database system is ready to accept connections'
+        result: 'LOG:  database system is ready to accept connections'
+      - string: '2026-07-15 10:00:00.123 UTC [1234] ERROR:  relation "nope" does not exist at character 15'
+        result: '2026-07-15 10:00:00.123 UTC [1234] ERROR:  relation "nope" does not exist at character 15'
+    negative:
+      # no severity word, so nothing here to key on
+      - 'this is not a postgres line at all'
+geoip:
+  - pgsql_src_ip
+convert:
+  pgsql_src_port: int
+rules:
+  - name: postgresql
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^postgre(?:s|sql)$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - PGSQL_AUTH_FAILED
+      - PGSQL_NOT_EXIST
+      - PGSQL_CONN_RECEIVED
+      - PGSQL_CONN_AUTHORIZED
+      # last: matches any line carrying a severity, so the named ones go first
+      - PGSQL_MESSAGE
+    tests:
+      positive:
+        - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
+          result:
+            pgsql_prefix: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb '
+            pgsql_level: 'FATAL'
+            pgsql_auth_error: 'password authentication failed'
+            pgsql_user: 'kitsune'
+            pgsql_auth_detail: ''
+        - string: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
+          result:
+            pgsql_prefix: ''
+            pgsql_level: 'FATAL'
+            pgsql_auth_error: 'no pg_hba.conf entry'
+            pgsql_src_host: '203.0.113.7'
+            pgsql_auth_detail: ', user "admin", database "postgres", SSL off'
+        - string: 'LOG:  connection received: host=192.0.2.5 port=49152'
+          result:
+            pgsql_prefix: ''
+            pgsql_level: 'LOG'
+            pgsql_src_ip: '192.0.2.5'
+            pgsql_src_port: '49152'
+        - string: 'LOG:  connection authorized: user=kitsune database=mydb'
+          result:
+            pgsql_prefix: ''
+            pgsql_level: 'LOG'
+            pgsql_user: 'kitsune'
+            pgsql_db: 'mydb'
+        - string: 'FATAL:  database "nope" does not exist'
+          result:
+            pgsql_prefix: ''
+            pgsql_level: 'FATAL'
+            pgsql_object_kind: 'database'
+            pgsql_object: 'nope'
+        - string: '2026-07-15 10:00:00.123 UTC [1234] ERROR:  relation "nope" does not exist at character 15'
+          result:
+            pgsql_prefix: '2026-07-15 10:00:00.123 UTC [1234] '
+            pgsql_level: 'ERROR'
+            pgsql_message: 'relation "nope" does not exist at character 15'
+      negative:
+        - 'this is not a postgres line at all'
+        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

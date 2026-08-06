@@ -107,27 +107,66 @@ The distribution ships a primitive library plus ready-to-use rule files
 | Rule file | Matches |
 |-----------|---------|
 | `base` | The primitive library (`IP`, `WORD`, `TIMESTAMP_ISO8601`, …). No rules of its own; included by the others |
-| `sshd` | OpenSSH auth/connection events |
+
+**Authentication and privilege**
+
+| Rule file | Matches |
+|-----------|---------|
+| `sshd` | OpenSSH auth events, plus the scan traffic that never reaches auth |
+| `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication |
+| `polkit` | polkit authorization decisions — the third way to gain privilege |
+| `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
+| `slapd` | OpenLDAP binds, searches, and result codes |
+| `openvpn` | OpenVPN handshakes, certificate verification, and auth failures |
+| `samba` | Samba (`smbd`/`nmbd`/`winbindd`) auth audit and share access |
+
+**Mail**
+
+| Rule file | Matches |
+|-----------|---------|
 | `postfix` | Postfix mail log (smtpd, qmgr, delivery, …) |
-| `exim` | Exim mail log |
+| `exim` | Exim mail log, including SMTP AUTH and TLS failures |
 | `dovecot` | Dovecot IMAP/POP3 |
+| `rspamd` | Rspamd scan results — score, action, and symbols |
+| `spamd` | SpamAssassin scan results |
+| `clamav` | ClamAV detections and signature-database freshness |
+| `opendkim` / `opendmarc` | DKIM and DMARC results, joined to the MTA by queue id |
+
+**Web, proxy, and network services**
+
+| Rule file | Matches |
+|-----------|---------|
 | `http_access_logs` | Apache/nginx Common, Combined, and the vhost-prefixed variants |
 | `http_error_logs` | Apache/nginx error logs |
+| `haproxy` | HAProxy HTTP and TCP traffic, plus health-check state changes |
 | `squid` | Squid access.log (all three shipped logformats) and cache.log |
-| `netfilter` | iptables/nftables/UFW kernel firewall logs |
-| `ipfw` | FreeBSD ipfw firewall logs |
-| `kernel` | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, and the rest |
-| `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
-| `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication |
-| `cron` | cron/crond job execution |
-| `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
+| `vsftpd` / `proftpd` | FTP logins and transfers |
 | `named` / `unbound` | DNS server logs |
 | `dnsmasq` | dnsmasq's DNS, DHCP, and TFTP logging |
 | `dhcpd` | ISC DHCP server leases |
 | `hostapd` | hostapd wireless association events |
 | `chrony` / `ntpd` | Time synchronization daemons |
+
+**Firewalls**
+
+| Rule file | Matches |
+|-----------|---------|
+| `netfilter` | iptables/nftables/UFW kernel firewall logs |
+| `ipfw` | FreeBSD ipfw firewall logs |
+| `pf` | OpenBSD/FreeBSD pf, read from `tcpdump -r /var/log/pflog` |
 | `fail2ban` | fail2ban ban/unban actions |
+
+**Databases, storage, and the host itself**
+
+| Rule file | Matches |
+|-----------|---------|
+| `mysql` | MySQL/MariaDB access denials and aborted connections |
+| `postgresql` | PostgreSQL authentication and connection logging |
 | `mongodb` | MongoDB structured (JSON) logging |
+| `kernel` | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, SYN floods |
+| `smartd` | Disk health: failing attributes, bad sectors, temperature |
+| `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
+| `cron` | cron/crond job execution |
 
 ## Documentation
 
