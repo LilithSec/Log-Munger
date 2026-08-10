@@ -42,6 +42,7 @@ share/fortinet.yaml
 share/freeradius.yaml
 share/haproxy.yaml
 share/hostapd.yaml
+share/huawei.yaml
 share/http_access_logs.yaml
 share/http_error_logs.yaml
 share/ipfw.yaml
