@@ -76,6 +76,8 @@ vars_templated:
     terminating on signal (?<postfix_termination_signal>[% INT %])
   POSTFIX_MASTER_START: |
     (daemon started|reload) -- version (?<postfix_version>[% DATA %]), configuration (?<postfix_config_path>[% PATH %])
+  POSTFIX_ORIG_CLIENT_INFO: |
+    (?<postfix_orig_client_hostname>[% HOSTNAME %])?\[(?<postfix_orig_client_ip>[% IP %])\](:(?<postfix_orig_client_port>[% INT %]))?
   POSTFIX_PICKUP: "[% POSTFIX_KEYVALUE %]\n"
   POSTFIX_PIPE: "[% POSTFIX_PIPE_ANY %]\n"
   POSTFIX_PIPE_ANY: |
@@ -175,6 +177,7 @@ vars_templated:
 # lookup on it (only used when the munger is built with a geoip database)
 geoip:
   - postfix_client_ip
+  - postfix_orig_client_ip
   - postfix_relay_ip
 # file-level default: after a rule matches, break these captured fields down
 # further (mirrors the logstash postfix kv + re-grok post-processing). Order
@@ -195,6 +198,17 @@ decompose:
           postfix_delay: '0.12'
           postfix_delays: '0.05/0/0/0.07'
           postfix_dsn: '2.0.0'
+      - input: 'client=mail.example[203.0.113.31], sasl_method=LOGIN, sasl_username=neti'
+        result:
+          postfix_client: 'mail.example[203.0.113.31]'
+          postfix_sasl_method: 'LOGIN'
+          postfix_sasl_username: 'neti'
+      - input: 'client=mail.example[203.0.113.31]:56789, sasl_method=PLAIN, sasl_username=neti@example.com, sasl_sender=neti@example.com'
+        result:
+          postfix_client: 'mail.example[203.0.113.31]:56789'
+          postfix_sasl_method: 'PLAIN'
+          postfix_sasl_username: 'neti@example.com'
+          postfix_sasl_sender: 'neti@example.com'
   - field: postfix_client
     type: pattern
     pattern: POSTFIX_CLIENT_INFO
@@ -205,6 +219,32 @@ decompose:
           postfix_client_hostname: 'mail.example.com'
           postfix_client_ip: '1.2.3.4'
           postfix_client_port: '26'
+      - input: 'mail.example[203.0.113.31]'
+        result:
+          postfix_client_hostname: 'mail.example'
+          postfix_client_ip: '203.0.113.31'
+      - input: 'unknown[2001:db8::1]'
+        result:
+          postfix_client_hostname: 'unknown'
+          postfix_client_ip: '2001:db8::1'
+  - field: postfix_orig_client
+    type: pattern
+    pattern: POSTFIX_ORIG_CLIENT_INFO
+    remove: true
+    tests:
+      - input: 'mail.example[203.0.113.31]'
+        result:
+          postfix_orig_client_hostname: 'mail.example'
+          postfix_orig_client_ip: '203.0.113.31'
+      - input: 'mail.example.com[192.0.2.5]:26'
+        result:
+          postfix_orig_client_hostname: 'mail.example.com'
+          postfix_orig_client_ip: '192.0.2.5'
+          postfix_orig_client_port: '26'
+      - input: 'unknown[2001:db8::1]'
+        result:
+          postfix_orig_client_hostname: 'unknown'
+          postfix_orig_client_ip: '2001:db8::1'
   - field: postfix_relay
     type: pattern
     pattern: POSTFIX_RELAY_INFO
@@ -281,8 +321,25 @@ rules:
             postfix_tls_cipher: 'TLS_AES_256_GCM_SHA384'
             postfix_tls_cipher_size: '256/256'
             postfix_tls_version: 'TLSv1.3'
+        - string: '4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31], sasl_method=LOGIN, sasl_username=neti'
+          result:
+            postfix_keyvalue_data: 'client=mail.example[203.0.113.31], sasl_method=LOGIN, sasl_username=neti'
+            postfix_queueid: '4Zx1Qk2Y3Zz0jK'
+        - string: '4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31]:56789, sasl_method=PLAIN, sasl_username=neti@example.com, sasl_sender=neti@example.com'
+          result:
+            postfix_keyvalue_data: 'client=mail.example[203.0.113.31]:56789, sasl_method=PLAIN, sasl_username=neti@example.com, sasl_sender=neti@example.com'
+            postfix_queueid: '4Zx1Qk2Y3Zz0jK'
+        - string: '3F8B2A9C1D5E: client=unknown[192.0.2.5]'
+          result:
+            postfix_keyvalue_data: 'client=unknown[192.0.2.5]'
+            postfix_queueid: '3F8B2A9C1D5E'
+        - string: '4Zx1Qk2Y3Zz0jK: client=localhost[127.0.0.1], orig_queue_id=3F8B2A9C1D5E, orig_client=mail.example[203.0.113.31]'
+          result:
+            postfix_keyvalue_data: 'client=localhost[127.0.0.1], orig_queue_id=3F8B2A9C1D5E, orig_client=mail.example[203.0.113.31]'
+            postfix_queueid: '4Zx1Qk2Y3Zz0jK'
       negative:
         - 'this is not a valid smtpd line at all'
+        - 'junk before 4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31], sasl_username=neti'
 
   - name: postfix_smtp
     gate:
@@ -943,6 +1000,8 @@ vars_tests:
         result: '4A2B1F'
       - string: 'a c=NOQUEUE d'
         result: 'NOQUEUE'
+      - string: 'a c=4Zx1Qk2Y3Zz0jK d'
+        result: '4Zx1Qk2Y3Zz0jK'
     negative:
       - 'a c=zz d'
       - 'a x=NOQUEUE d'
@@ -1089,6 +1148,16 @@ vars_tests:
       - 'no prepend'
 
   POSTFIX_CLIENT_INFO:
+    test_template: '(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: 'mail.example.com[192.0.2.5]:26'
+        result: 'mail.example.com[192.0.2.5]:26'
+      - string: '[192.0.2.5]'
+        result: '[192.0.2.5]'
+    negative:
+      - 'no client info here'
+
+  POSTFIX_ORIG_CLIENT_INFO:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: 'mail.example.com[192.0.2.5]:26'
