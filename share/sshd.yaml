@@ -30,9 +30,9 @@ vars_templated:
   SSH_INVALID_USER: 'Invalid user (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Connection closed by 192.0.2.5 port 40000 [preauth]" and the
   # "authenticating user root" variant.
-  SSH_CONN_CLOSED: 'Connection closed by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  SSH_CONN_CLOSED: 'Connection closed by (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # "Disconnected from ..." and "Received disconnect from ...".
-  SSH_DISCONNECT: '(?:Disconnected|Received disconnect) from (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?::[% GREEDYDATA %]| [% GREEDYDATA %])?'
+  SSH_DISCONNECT: '(?:Disconnected|Received disconnect) from (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?::[% GREEDYDATA %]| [% GREEDYDATA %])?'
   # ------------------------------------------------------------------
   # New (additive) message types.
   # ------------------------------------------------------------------
@@ -58,7 +58,7 @@ vars_templated:
   SSH_TIMEOUT: '(?:fatal: )?Timeout before authentication for (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # "Connection reset by <ip> port <port> [preauth]" (optionally with a
   # "authenticating/invalid user X" prefix, mirroring SSH_CONN_CLOSED).
-  SSH_CONN_RESET: 'Connection reset by (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  SSH_CONN_RESET: 'Connection reset by (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # Startup: "Server listening on 0.0.0.0 port 22." (IPv4 or IPv6 bind addr).
   SSH_LISTENING: 'Server listening on (?<ssh_listen_addr>[% NOTSPACE %]) port (?<ssh_listen_port>[% INT %])\.(?: [% GREEDYDATA %])?'
   # MFA: "Postponed publickey for <user> from <ip> port <port> ssh2 [preauth]".
@@ -86,7 +86,14 @@ vars_templated:
   # is on the neighbouring "Connection closed by <ip>" line, which
   # SSH_CONN_CLOSED picks up -- so this captures the reason and leaves the
   # correlation to the consumer.
-  SSH_KEX_ERROR: 'error: kex_exchange_identification: (?<ssh_kex_error>[% GREEDYDATA %])'
+  #
+  # FreeBSD builds its base OpenSSH with internal symbols renamed to an Fssh_
+  # prefix so they cannot collide with a libssh linked into the same process,
+  # and the renamed symbol is what reaches the log:
+  #   error: Fssh_kex_exchange_identification: read: Connection reset by peer
+  # The prefix is optional here and is not captured, so both spellings land in
+  # the same field.
+  SSH_KEX_ERROR: 'error: (?:Fssh_)?kex_exchange_identification: (?<ssh_kex_error>[% GREEDYDATA %])'
   # "Unable to negotiate with 203.0.113.7 port 44444: no matching host key type
   #  found. Their offer: ssh-rsa"
   #
@@ -116,6 +123,29 @@ vars_templated:
   # ever set, which keeps the address in ssh_src_ip where the geoip lookup
   # expects it instead of burying it in a field that is sometimes a name.
   SSH_PAM_ERROR: 'error: PAM: (?<ssh_pam_error>.*?) for (?:(?<ssh_invalid>illegal|invalid) user )?(?<ssh_user>[% USERNAME %]) from (?:(?<ssh_src_ip>[% IP %])|(?<ssh_src_host>[% HOSTNAME %]))'
+  # "error: Bind to port 2222 on 0.0.0.0 failed: Address already in use."
+  #
+  # A listener that never came up. Worth its own pattern because the port is
+  # the whole point of the line, and because it is otherwise indistinguishable
+  # from the generic error tail below.
+  SSH_BIND_FAILED: 'error: Bind to port (?<ssh_listen_port>[% INT %]) on (?<ssh_listen_addr>[% NOTSPACE %]) failed: (?<ssh_error>[% GREEDYDATA %])'
+  # "fatal: rexec of /usr/libexec/sshd-session failed: No such file or directory"
+  #
+  # OpenSSH 9.8 moved the per-connection worker into a separate sshd-session
+  # binary that the listener re-executes. If the two are out of step -- a
+  # partial upgrade, a chroot missing the new path -- every connection dies
+  # here, and nothing else in the log says why.
+  SSH_REXEC_FAILED: 'fatal: rexec of (?<ssh_rexec_path>[% NOTSPACE %]) failed: (?<ssh_error>[% GREEDYDATA %])'
+  # The generic "<level>: <function>: <detail>" tail sshd uses for failures that
+  # have no message of their own, e.g.
+  #   fatal: userauth_pubkey: parse publickey packet: incomplete message [preauth]
+  #   error: send_rexec_state: ssh_msg_send failed
+  #   error: Fssh_ssh_msg_send: write: Broken pipe
+  #
+  # Kept last of the error patterns because it matches the shape of most of
+  # them. The Fssh_ prefix is stripped for the same reason as in SSH_KEX_ERROR,
+  # so a FreeBSD host and a Linux host name the same function identically.
+  SSH_ERROR: '(?<ssh_level>error|fatal): (?:Fssh_)?(?<ssh_function>[% NOTSPACE_NO_COLON %]): (?<ssh_error>.*?)(?: \[(?<ssh_preauth>preauth)\])?'
 vars_tests:
   SSH_ACCEPTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -338,11 +368,56 @@ vars_tests:
         result: 'error: PAM: User account has expired for neti from mail.example.net'
     negative:
       - 'error: kex_exchange_identification: Connection closed by remote host'
+  NOTSPACE_NO_COLON:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'userauth_pubkey'
+        result: 'userauth_pubkey'
+      - string: 'send_rexec_state'
+        result: 'send_rexec_state'
+    negative:
+      - 'has a space'
+      - 'userauth_pubkey:'
+  SSH_BIND_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'error: Bind to port 2222 on 0.0.0.0 failed: Address already in use.'
+        result: 'error: Bind to port 2222 on 0.0.0.0 failed: Address already in use.'
+      - string: 'error: Bind to port 22 on :: failed: Address already in use.'
+        result: 'error: Bind to port 22 on :: failed: Address already in use.'
+    negative:
+      - 'error: kex_exchange_identification: Connection closed by remote host'
+  SSH_REXEC_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'fatal: rexec of /usr/libexec/sshd-session failed: No such file or directory'
+        result: 'fatal: rexec of /usr/libexec/sshd-session failed: No such file or directory'
+      - string: 'fatal: rexec of /usr/sbin/sshd failed: Permission denied'
+        result: 'fatal: rexec of /usr/sbin/sshd failed: Permission denied'
+    negative:
+      - 'error: Bind to port 2222 on 0.0.0.0 failed: Address already in use.'
+  SSH_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'fatal: userauth_pubkey: parse publickey packet: incomplete message [preauth]'
+        result: 'fatal: userauth_pubkey: parse publickey packet: incomplete message [preauth]'
+      - string: 'error: send_rexec_state: ssh_msg_send failed'
+        result: 'error: send_rexec_state: ssh_msg_send failed'
+      # FreeBSD's Fssh_-prefixed symbol name
+      - string: 'error: Fssh_ssh_msg_send: write: Broken pipe'
+        result: 'error: Fssh_ssh_msg_send: write: Broken pipe'
+    negative:
+      - 'Connection closed by 192.0.2.5 port 40000 [preauth]'
 # file-level default: geoip lookup on the source IP (only used when the munger
 # is built with a geoip database)
 geoip:
   - ssh_src_ip
 # file-level default: coerce the source port to an integer at runtime
+# additional primitives used above that are not in base.yaml.
+vars:
+  # NOTSPACE that also excludes ":" (used to bound a bare function name that is
+  # followed by ": ")
+  NOTSPACE_NO_COLON: '[^\s:]+'
 convert:
   ssh_src_port: int
   ssh_dst_port: int
@@ -378,6 +453,11 @@ rules:
       - SSH_BANNER_EXCHANGE
       - SSH_BAD_PROTOCOL
       - SSH_PAM_ERROR
+      - SSH_BIND_FAILED
+      - SSH_REXEC_FAILED
+      # after every other "error: ..." / "fatal: ..." pattern, because it
+      # matches the shape of most of them
+      - SSH_ERROR
       # last of the connection patterns: "Connection from <ip> port <port>" is
       # the loosest of them, so anything with a more specific shape gets first
       # refusal even though anchoring already keeps them apart
@@ -587,6 +667,34 @@ rules:
           result:
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
+        - string: 'Disconnected from user root 192.0.2.5 port 44398'
+          result:
+            ssh_user: 'root'
+            ssh_src_ip: '192.0.2.5'
+            ssh_src_port: '44398'
+        - string: 'error: Fssh_kex_exchange_identification: read: Connection reset by peer'
+          result:
+            ssh_kex_error: 'read: Connection reset by peer'
+        - string: 'error: Bind to port 2222 on 0.0.0.0 failed: Address already in use.'
+          result:
+            ssh_listen_port: '2222'
+            ssh_listen_addr: '0.0.0.0'
+            ssh_error: 'Address already in use.'
+        - string: 'fatal: rexec of /usr/libexec/sshd-session failed: No such file or directory'
+          result:
+            ssh_rexec_path: '/usr/libexec/sshd-session'
+            ssh_error: 'No such file or directory'
+        - string: 'fatal: userauth_pubkey: parse publickey packet: incomplete message [preauth]'
+          result:
+            ssh_level: 'fatal'
+            ssh_function: 'userauth_pubkey'
+            ssh_error: 'parse publickey packet: incomplete message'
+            ssh_preauth: 'preauth'
+        - string: 'error: send_rexec_state: ssh_msg_send failed'
+          result:
+            ssh_level: 'error'
+            ssh_function: 'send_rexec_state'
+            ssh_error: 'ssh_msg_send failed'
       negative:
         - 'this is not an sshd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

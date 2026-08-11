@@ -55,6 +55,29 @@ vars_templated:
   # Worth having as its own pattern rather than being missed: it is what a
   # resolver under a query flood says before it starts dropping.
   DNSMASQ_MAX_QUERIES: 'Maximum number of concurrent DNS queries(?: to (?<dnsmasq_server_ip>[% IP %]))? reached \(max: (?<dnsmasq_max_queries>[% INT %])\)'
+  # "read /etc/hosts - 12 names" / "read /tmp/hosts/odhcpd - 6 addresses"
+  # Logged at start-up and on every SIGHUP for each hosts file dnsmasq reads.
+  # The count is what says whether a reload actually picked the file up, which
+  # on anything generating hosts files at runtime -- an OpenWRT router writing
+  # /tmp/hosts/odhcpd, a pi-hole rebuilding a blocklist -- is the thing worth
+  # watching.
+  DNSMASQ_READ_HOSTS: 'read (?<dnsmasq_hosts_file>[% NOTSPACE %]) - (?<dnsmasq_hosts_count>[% INT %]) (?<dnsmasq_hosts_kind>names|addresses)'
+  # "using only locally-known addresses for local"
+  # "using nameserver 192.0.2.1#53 for domain example.com"
+  # "using standard nameservers for domain example.net"
+  # "using nameserver 192.0.2.1#53"
+  # The server-selection table dnsmasq prints after reading its configuration.
+  # The trailing "for <domain>" is what makes an entry domain-specific; the
+  # line for the default upstream has no such clause, so it is optional.
+  DNSMASQ_USING: 'using (?:(?<dnsmasq_resolution>only locally-known addresses|standard nameservers)|nameserver (?<dnsmasq_server_ip>[% IP %])(?:#(?<dnsmasq_server_port>[% INT %]))?)(?: for (?:domain )?(?<dnsmasq_domain>[% NOTSPACE %]))?'
+  # "reading /tmp/resolv.conf.d/resolv.conf.auto" -- dnsmasq picking up the
+  # upstream server list, which is the line before the "using nameserver ..."
+  # entries that came out of it.
+  DNSMASQ_READING: 'reading (?<dnsmasq_resolv_file>[% NOTSPACE %])'
+  # "started, version 2.93 cachesize 1000"
+  DNSMASQ_STARTED: 'started, version (?<dnsmasq_version>[% NOTSPACE %]) cachesize (?<dnsmasq_cachesize>[% INT %])'
+  # "exiting on receipt of SIGTERM"
+  DNSMASQ_EXITING: 'exiting on receipt of (?<dnsmasq_signal_name>[% NOTSPACE %])'
   #
   # --- DHCP ---
   #
@@ -146,6 +169,56 @@ vars_tests:
     negative:
       # the "(max: N)" clause is what makes this the message it is
       - 'Maximum number of concurrent DNS queries reached'
+  DNSMASQ_READ_HOSTS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'read /etc/hosts - 12 names'
+        result: 'read /etc/hosts - 12 names'
+      - string: 'read /tmp/hosts/odhcpd - 6 addresses'
+        result: 'read /tmp/hosts/odhcpd - 6 addresses'
+    negative:
+      - 'exiting on receipt of SIGTERM'
+  DNSMASQ_USING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'using only locally-known addresses for local'
+        result: 'using only locally-known addresses for local'
+      - string: 'using nameserver 192.0.2.1#53 for domain example.com'
+        result: 'using nameserver 192.0.2.1#53 for domain example.com'
+      - string: 'using standard nameservers for domain example.net'
+        result: 'using standard nameservers for domain example.net'
+      # the default upstream, with no domain clause
+      - string: 'using nameserver 192.0.2.1#53'
+        result: 'using nameserver 192.0.2.1#53'
+    negative:
+      - 'read /etc/hosts - 12 names'
+  DNSMASQ_READING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'reading /tmp/resolv.conf.d/resolv.conf.auto'
+        result: 'reading /tmp/resolv.conf.d/resolv.conf.auto'
+      - string: 'reading /etc/resolv.conf'
+        result: 'reading /etc/resolv.conf'
+    negative:
+      - 'read /etc/hosts - 12 names'
+  DNSMASQ_STARTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'started, version 2.93 cachesize 1000'
+        result: 'started, version 2.93 cachesize 1000'
+      - string: 'started, version 2.90 cachesize 150'
+        result: 'started, version 2.90 cachesize 150'
+    negative:
+      - 'exiting on receipt of SIGTERM'
+  DNSMASQ_EXITING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'exiting on receipt of SIGTERM'
+        result: 'exiting on receipt of SIGTERM'
+      - string: 'exiting on receipt of SIGINT'
+        result: 'exiting on receipt of SIGINT'
+    negative:
+      - 'read /etc/hosts - 12 names'
   DNSMASQ_DHCP:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -198,6 +271,9 @@ geoip:
   - dnsmasq_tftp_client_ip
 convert:
   dnsmasq_max_queries: int
+  dnsmasq_hosts_count: int
+  dnsmasq_server_port: int
+  dnsmasq_cachesize: int
   dnsmasq_tftp_error_code: int
 rules:
   - name: dnsmasq
@@ -219,6 +295,11 @@ rules:
       - DNSMASQ_TFTP_ERROR
       - DNSMASQ_REBIND
       - DNSMASQ_MAX_QUERIES
+      - DNSMASQ_READ_HOSTS
+      - DNSMASQ_READING
+      - DNSMASQ_STARTED
+      - DNSMASQ_USING
+      - DNSMASQ_EXITING
     tests:
       positive:
         - string: 'query[A] example.com from 192.0.2.5'
@@ -308,6 +389,23 @@ rules:
           result:
             dnsmasq_server_ip: '8.8.8.8'
             dnsmasq_max_queries: '150'
+        - string: 'read /etc/hosts - 12 names'
+          result:
+            dnsmasq_hosts_file: '/etc/hosts'
+            dnsmasq_hosts_count: '12'
+            dnsmasq_hosts_kind: 'names'
+        - string: 'using only locally-known addresses for local'
+          result:
+            dnsmasq_resolution: 'only locally-known addresses'
+            dnsmasq_domain: 'local'
+        - string: 'using nameserver 192.0.2.1#53 for domain example.com'
+          result:
+            dnsmasq_server_ip: '192.0.2.1'
+            dnsmasq_server_port: '53'
+            dnsmasq_domain: 'example.com'
+        - string: 'exiting on receipt of SIGTERM'
+          result:
+            dnsmasq_signal_name: 'SIGTERM'
       negative:
         - 'this is not a dnsmasq line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

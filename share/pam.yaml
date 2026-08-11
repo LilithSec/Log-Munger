@@ -3,8 +3,9 @@
 #
 # pam_unix lines are emitted under MANY syslog programs (sshd, su, sudo, cron,
 # login, ...), so this file is GATELESS: the rule has no gate and instead relies
-# on being anchored (each pattern must match the whole MESSAGE) plus the leading
-# "pam_" literal so that only genuine pam_unix lines match.  First match wins.
+# on being anchored (each pattern must match the whole MESSAGE) plus a leading
+# literal -- "pam_" for the Linux-PAM shapes, "in " for the OpenPAM one -- so
+# that only genuine PAM lines match.  First match wins.
 #
 # Every capture is namespaced with pam_ .
 #
@@ -53,6 +54,20 @@ vars_templated:
   # pam_succeed_if requirement not met, e.g.
   #   pam_succeed_if(sshd:auth): requirement "uid >= 1000" not met by user "root"
   PAM_SUCCEED_IF: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): requirement "(?<pam_requirement>[^"]*)" not met by user "(?<pam_user>[% USERNAME %])"(?: [% GREEDYDATA %])?'
+  # -------------------------------------------------------------------------
+  # OpenPAM, the implementation FreeBSD and macOS ship, logs nothing like the
+  # above.  openpam_log() prefixes the calling function and gives no
+  # module/service/type header at all:
+  #   in openpam_load_module(): no pam_nologin.so found
+  #   in pam_group(): (pam_group) neither luser nor ruser specified, assuming ruser
+  #   in try_dlopen(): /usr/lib/pam_nologin.so.6: Undefined symbol "initgroups"
+  #
+  # The only clue as to which service was involved is the syslog program name,
+  # which is the binary that called into PAM rather than a PAM service name, so
+  # there is nothing here to fill pam_service with.  Some modules name
+  # themselves again in a leading "(pam_group)"; where they do, that is pulled
+  # out into pam_module so it lines up with the Linux-PAM patterns above.
+  PAM_OPENPAM: 'in (?<pam_function>[% PAM_FUNCTION %])\(\): (?:\(pam_(?<pam_module>[% USERNAME %])\) )?(?<pam_message>[% GREEDYDATA %])'
 vars_tests:
   PAM_AUTH_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -119,6 +134,32 @@ vars_tests:
         result: 'pam_succeed_if(sudo:auth): requirement "uid >= 1000" not met by user "daemon"'
     negative:
       - 'pam_unix(sshd:account): password has expired'
+  PAM_OPENPAM:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'in openpam_load_module(): no pam_nologin.so found'
+        result: 'in openpam_load_module(): no pam_nologin.so found'
+      - string: 'in pam_group(): (pam_group) neither luser nor ruser specified, assuming ruser'
+        result: 'in pam_group(): (pam_group) neither luser nor ruser specified, assuming ruser'
+    negative:
+      - 'pam_unix(sshd:account): password has expired'
+      - 'in the middle of a sentence'
+  PAM_FUNCTION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'openpam_load_module'
+        result: 'openpam_load_module'
+      - string: 'pam_group'
+        result: 'pam_group'
+    negative:
+      - 'has a space'
+      - 'openpam_load_module()'
+# additional primitives used above that are not in base.yaml.
+vars:
+  # A C function name, as OpenPAM reports it. base WORD would do the job but
+  # carries \b anchors on both ends, which do not fire cleanly against the
+  # literal "(" that follows.
+  PAM_FUNCTION: '\w+'
 # file-level default: geoip the remote host from auth failures (empty rhost is
 # skipped by the geoip step)
 geoip:
@@ -170,6 +211,7 @@ rules:
       - PAM_FAILLOCK
       - PAM_TALLY2
       - PAM_SUCCEED_IF
+      - PAM_OPENPAM
     tests:
       positive:
         # auth-failure lines -- decompose does NOT run in rule-tests, so the
@@ -261,5 +303,15 @@ rules:
             pam_type: 'auth'
             pam_requirement: 'uid >= 1000'
             pam_user: 'root'
+        # OpenPAM
+        - string: 'in openpam_load_module(): no pam_nologin.so found'
+          result:
+            pam_function: 'openpam_load_module'
+            pam_message: 'no pam_nologin.so found'
+        - string: 'in pam_group(): (pam_group) neither luser nor ruser specified, assuming ruser'
+          result:
+            pam_function: 'pam_group'
+            pam_module: 'group'
+            pam_message: 'neither luser nor ruser specified, assuming ruser'
       negative:
         - 'this is not a pam line at all'

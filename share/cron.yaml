@@ -1,7 +1,9 @@
 ---
 # cron / crond job execution and session log enrichment.
 #
-# Gates on the syslog PROGRAM field being "cron", "crond" or "CRON".  Patterns
+# Gates on the syslog PROGRAM field being "cron", "crond", "CRON" or
+# "anacron", optionally with a leading path -- FreeBSD cron logs under its
+# full "/usr/sbin/cron" argv[0] rather than a bare name.  Patterns
 # are anchored (each must match the whole MESSAGE) and first-match wins.  Every
 # capture is namespaced with cron_ .
 #
@@ -18,7 +20,12 @@ vars_templated:
   CRON_SESSION: 'pam_unix\(cron:session\): session (?<cron_session_action>opened|closed) for user (?<cron_user>[% USERNAME %])(?:\(uid=(?<cron_uid>[% INT %])\))?(?: by (?:(?<cron_by_user>[% USERNAME %]))?\(uid=(?<cron_by_uid>[% INT %])\))?'
   # "(CRON) INFO (Running @reboot jobs)" / "(*system*) RELOAD (/etc/crontab)".
   # NOTSPACE is used for the user field so "(*system*)" matches.
-  CRON_INFO: '\((?<cron_user>[% NOTSPACE %])\) (?<cron_info_type>INFO|RELOAD|STARTUP|LIST) \((?<cron_info>[% GREEDYDATA %])\)'
+  #
+  # WARNING and DEATH come from FreeBSD cron -- "(CRON) WARNING (madvise()
+  # failed)" is what a jailed cron says on every start. REPLACE, DELETE and the
+  # BEGIN/END EDIT pair are crontab(1) announcing that someone changed a
+  # crontab, which is the only record of the change that reaches the log.
+  CRON_INFO: '\((?<cron_user>[% NOTSPACE %])\) (?<cron_info_type>INFO|RELOAD|STARTUP|LIST|WARNING|DEATH|REPLACE|DELETE|BEGIN EDIT|END EDIT) \((?<cron_info>[% GREEDYDATA %])\)'
   # "(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)".
   # The mailed byte count is coerced to int; the MTA status (hex like 0x004b) is
   # kept verbatim as it is not always numeric.
@@ -26,8 +33,12 @@ vars_templated:
   # "(CRON) error (grandchild #1234 failed with exit status 1)" -- the lowercase
   # crond "error" line reporting a failed grandchild + its exit status (int).
   CRON_GRANDCHILD: '\((?<cron_user>[% NOTSPACE %])\) error \(grandchild #(?<cron_grandchild_pid>[% INT %]) failed with exit status (?<cron_exit_status>[% INT %])\)'
-  # "(root) ERROR (Mailing user)" -- the uppercase parenthesised ERROR line.
-  CRON_ERROR: '\((?<cron_user>[% NOTSPACE %])\) ERROR \((?<cron_error>[% GREEDYDATA %])\)'
+  # "(root) ERROR (Mailing user)" -- the parenthesised error line. Vixie cron
+  # and its descendants are inconsistent about the case: FreeBSD writes
+  # "(CRON) error (can't start PAM)" in lower case for the same class of
+  # failure, so both spellings are accepted. Sits after CRON_GRANDCHILD, which
+  # is the one lowercase "error (...)" line with structure worth pulling apart.
+  CRON_ERROR: '\((?<cron_user>[% NOTSPACE %])\) (?:ERROR|error) \((?<cron_error>[% GREEDYDATA %])\)'
   # "Error: bad minute; while reading /etc/crontab" -- a crontab parse error.
   # No invoking user is present in this shape.
   CRON_PARSE_ERROR: 'Error: (?<cron_error>[% GREEDYDATA_NO_SEMICOLON %]); while reading (?<cron_crontab>[% PATH %])'
@@ -60,6 +71,10 @@ vars_tests:
         result: '(CRON) INFO (Running @reboot jobs)'
       - string: '(*system*) RELOAD (/etc/crontab)'
         result: '(*system*) RELOAD (/etc/crontab)'
+      - string: '(CRON) WARNING (madvise() failed)'
+        result: '(CRON) WARNING (madvise() failed)'
+      - string: '(root) BEGIN EDIT (neti)'
+        result: '(root) BEGIN EDIT (neti)'
     negative:
       - 'pam_unix(cron:session): session closed for user root'
   CRON_MAIL:
@@ -87,8 +102,11 @@ vars_tests:
         result: '(root) ERROR (Mailing user)'
       - string: '(neti) ERROR (getpwnam() failed)'
         result: '(neti) ERROR (getpwnam() failed)'
+      # FreeBSD spells it in lower case
+      - string: "(CRON) error (can't start PAM)"
+        result: "(CRON) error (can't start PAM)"
     negative:
-      - '(CRON) error (grandchild #1234 failed with exit status 1)'
+      - '(root) CMD (/usr/bin/foo --flag)'
   CRON_PARSE_ERROR:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -120,7 +138,7 @@ rules:
     gate:
       - field: PROGRAM
         values:
-          - '//^(?:cron|crond|CRON|anacron)$//'
+          - '//^(?:/\S+/)?(?:cron|crond|CRON|anacron)$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -190,5 +208,14 @@ rules:
             cron_anacron_pid: '1234'
             cron_anacron_job: 'cron.daily'
             cron_anacron_action: 'started'
+        - string: '(CRON) WARNING (madvise() failed)'
+          result:
+            cron_user: 'CRON'
+            cron_info_type: 'WARNING'
+            cron_info: 'madvise() failed'
+        - string: "(CRON) error (can't start PAM)"
+          result:
+            cron_user: 'CRON'
+            cron_error: "can't start PAM"
       negative:
         - 'this is not a valid cron line at all'

@@ -6,9 +6,16 @@
 # Every capture is namespaced with ntpd_ .
 includes:
 - base
+# additional primitives used below that are not in base.yaml.
+vars:
+  # NOTSPACE that also excludes ":" (used to bound a bare function or syscall
+  # name that is followed by ": ")
+  NOTSPACE_NO_COLON: '[^\s:]+'
 vars_templated:
   # "ntpd 4.2.8p15@1.3728-o Fri Jun 5 ... starting" — daemon startup banner.
-  NTPD_VERSION: 'ntpd (?<ntpd_version>[% NOTSPACE %])(?: [% GREEDYDATA %])? starting(?: [% GREEDYDATA %])?'
+  # 4.2.8p18 capitalised it ("ntpd 4.2.8p18-a (1): Starting"), so both cases
+  # have to be accepted.
+  NTPD_VERSION: 'ntpd (?<ntpd_version>[% NOTSPACE %])(?: [% GREEDYDATA %])? [Ss]tarting(?: [% GREEDYDATA %])?'
   # "ntpd exiting on signal 15 (Terminated)".
   NTPD_SIGNAL: 'ntpd exiting on signal (?<ntpd_signal>[% INT %])(?: \([% GREEDYDATA %]\))?(?: [% GREEDYDATA %])?'
   # "Listen normally on 3 eth0 192.0.2.1:123".
@@ -27,6 +34,27 @@ vars_templated:
   NTPD_STATUS: 'kernel time sync status change (?<ntpd_status>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
   # "frequency error 1024 PPM exceeds tolerance 500 PPM".
   NTPD_FREQ_ERROR: 'frequency error (?<ntpd_freq_error>[-+]?[% INTorFLOAT %]) PPM exceeds tolerance (?<ntpd_freq_tolerance>[% INT %]) PPM(?: [% GREEDYDATA %])?'
+  # The leap-second table, e.g.:
+  #   leapsecond file ('/var/db/ntpd.leap-seconds.list'): good hash signature
+  #   leapsecond file ('/var/db/ntpd.leap-seconds.list'): loaded, expire=2025-06-28T00:00:00Z last=2017-01-01T00:00:00Z ofs=37
+  NTPD_LEAPSECOND: 'leapsecond file \(''(?<ntpd_leapfile>[^'']*)''\): (?<ntpd_leapfile_status>[% GREEDYDATA %])'
+  # "Command line: /usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf".
+  NTPD_COMMAND_LINE: 'Command line: (?<ntpd_command_line>[% GREEDYDATA %])'
+  # A failed system call, reported by ntpd with the source file and line it was
+  # made from, e.g.:
+  #   local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted
+  # This is what a jailed or otherwise unprivileged ntpd logs on every poll, so
+  # it is worth pulling the syscall and errno out rather than leaving the whole
+  # line as prose.
+  NTPD_SYSCALL_ERROR: '(?<ntpd_function>[% NOTSPACE_NO_COLON %]): (?<ntpd_source_file>[% NOTSPACE %]) line (?<ntpd_source_line>[% INT %]): (?<ntpd_syscall>[% NOTSPACE_NO_COLON %]): (?<ntpd_error>[% GREEDYDATA %])'
+  # The same class of failure logged without a source location, e.g.:
+  #   adj_systime: Operation not permitted
+  #   local_clock: ntp_adjtime(TAI) failed: Operation not permitted
+  # Kept after NTPD_SYSCALL_ERROR because it also matches that shape.
+  NTPD_FUNC_ERROR: '(?<ntpd_function>[% NOTSPACE_NO_COLON %]): (?<ntpd_error>[% GREEDYDATA %])'
+  # Anything else ntpd said: the startup banner prose, the rule of dashes it
+  # prints around it, and any message a future release adds.
+  NTPD_MESSAGE: '(?<ntpd_message>.+)'
 vars_tests:
   NTPD_VERSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -116,6 +144,61 @@ vars_tests:
         result: 'frequency error -750.5 PPM exceeds tolerance 500 PPM'
     negative:
       - 'no servers reachable'
+  NOTSPACE_NO_COLON:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'local_clock'
+        result: 'local_clock'
+      - string: 'ntp_adjtime'
+        result: 'ntp_adjtime'
+    negative:
+      - 'has a space'
+      - 'local_clock:'
+  NTPD_LEAPSECOND:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): good hash signature"
+        result: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): good hash signature"
+      - string: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): loaded, expire=2025-06-28T00:00:00Z last=2017-01-01T00:00:00Z ofs=37"
+        result: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): loaded, expire=2025-06-28T00:00:00Z last=2017-01-01T00:00:00Z ofs=37"
+    negative:
+      - 'no servers reachable'
+  NTPD_COMMAND_LINE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Command line: /usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf'
+        result: 'Command line: /usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf'
+      - string: 'Command line: /usr/sbin/ntpd -g'
+        result: 'Command line: /usr/sbin/ntpd -g'
+    negative:
+      - 'no servers reachable'
+  NTPD_SYSCALL_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted'
+        result: 'local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted'
+      - string: 'set_freq: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 1105: ntp_adjtime: Operation not permitted'
+        result: 'set_freq: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 1105: ntp_adjtime: Operation not permitted'
+    negative:
+      - 'adj_systime: Operation not permitted'
+  NTPD_FUNC_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'adj_systime: Operation not permitted'
+        result: 'adj_systime: Operation not permitted'
+      - string: 'local_clock: ntp_adjtime(TAI) failed: Operation not permitted'
+        result: 'local_clock: ntp_adjtime(TAI) failed: Operation not permitted'
+    negative:
+      - 'no servers reachable'
+  NTPD_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ntp-4 is maintained by Network Time Foundation,'
+        result: 'ntp-4 is maintained by Network Time Foundation,'
+      - string: '----------------------------------------------------'
+        result: '----------------------------------------------------'
+    negative:
+      - ''
 # file-level default: geoip lookup on peer / listen source IPs (only used when
 # the munger is built with a geoip database)
 geoip:
@@ -126,6 +209,7 @@ convert:
   ntpd_stratum: int
   ntpd_listen_port: int
   ntpd_offset: float
+  ntpd_source_line: int
 rules:
   - name: ntpd
     gate:
@@ -145,6 +229,13 @@ rules:
       - NTPD_NO_SERVERS
       - NTPD_STATUS
       - NTPD_FREQ_ERROR
+      - NTPD_LEAPSECOND
+      - NTPD_COMMAND_LINE
+      - NTPD_SYSCALL_ERROR
+      # after NTPD_SYSCALL_ERROR, because it also matches that shape
+      - NTPD_FUNC_ERROR
+      # last: matches anything, which is only safe because the rule is gated
+      - NTPD_MESSAGE
     tests:
       positive:
         - string: 'ntpd 4.2.8p15@1.3728-o starting'
@@ -184,6 +275,30 @@ rules:
           result:
             ntpd_freq_error: '1024'
             ntpd_freq_tolerance: '500'
+        - string: 'ntpd 4.2.8p18-a (1): Starting'
+          result:
+            ntpd_version: '4.2.8p18-a'
+        - string: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): good hash signature"
+          result:
+            ntpd_leapfile: '/var/db/ntpd.leap-seconds.list'
+            ntpd_leapfile_status: 'good hash signature'
+        - string: 'Command line: /usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf'
+          result:
+            ntpd_command_line: '/usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf'
+        - string: 'local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted'
+          result:
+            ntpd_function: 'local_clock'
+            ntpd_source_file: 'usr/src/contrib/ntp/ntpd/ntp_loopfilter.c'
+            ntpd_source_line: '814'
+            ntpd_syscall: 'ntp_adjtime'
+            ntpd_error: 'Operation not permitted'
+        - string: 'adj_systime: Operation not permitted'
+          result:
+            ntpd_function: 'adj_systime'
+            ntpd_error: 'Operation not permitted'
+        # falls through to the catch-all -- part of the startup banner
+        - string: 'ntp-4 is maintained by Network Time Foundation,'
+          result:
+            ntpd_message: 'ntp-4 is maintained by Network Time Foundation,'
       negative:
-        - 'this is not an ntpd line at all'
-        - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - ''

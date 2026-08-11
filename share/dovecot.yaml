@@ -14,6 +14,11 @@
 # dovecot_mpid is converted to an int.
 includes:
 - base
+# additional primitives used below that are not in base.yaml.
+vars:
+  # A dovecot service name. Like base WORD but with the hyphen allowed, since
+  # auth-worker, indexer-worker, config-dump and dict-async all carry one.
+  DOVECOT_SERVICE_NAME: '[\w-]+'
 vars_templated:
   # The (user)<pid><session> triplet a post-login process stamps on every line
   # it writes, e.g. "lda(neti)<40961><NjSbCOQgcmoBoAAAHlxYLA>: ". lmtp writes
@@ -89,7 +94,12 @@ vars_templated:
   # Anything a non-login service said with a severity keyword on it, e.g.
   #   auth: Error: auth client 0 disconnected with 1 pending requests: EOF
   #   master: Warning: Killed with signal 15 (by pid=86843 uid=0 code=kill)
-  DOVECOT_SERVICE_LEVEL: '(?<dovecot_service>[% WORD %]): [% DOVECOT_LEVEL %]: (?<dovecot_message>[% GREEDYDATA %])'
+  #   auth-worker: Fatal: master: service(auth-worker): child 53847 killed with signal 9
+  #
+  # The service name is matched with DOVECOT_SERVICE_NAME rather than WORD
+  # because several of dovecot's own services have a hyphen in the name --
+  # auth-worker, config-dump, indexer-worker, dict-async -- and WORD is \w only.
+  DOVECOT_SERVICE_LEVEL: '(?<dovecot_service>[% DOVECOT_SERVICE_NAME %]): [% DOVECOT_LEVEL %]: (?<dovecot_message>[% GREEDYDATA %])'
 vars_tests:
   DOVECOT_LOGIN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -225,8 +235,20 @@ vars_tests:
         result: 'auth: Error: auth client 0 disconnected with 1 pending requests: EOF'
       - string: 'master: Warning: Killed with signal 15 (by pid=86843 uid=0 code=kill)'
         result: 'master: Warning: Killed with signal 15 (by pid=86843 uid=0 code=kill)'
+      # hyphenated service name
+      - string: 'auth-worker: Fatal: master: service(auth-worker): child 53847 killed with signal 9'
+        result: 'auth-worker: Fatal: master: service(auth-worker): child 53847 killed with signal 9'
     negative:
       - 'auth: passwd-file(neti,203.0.113.7): unknown user'
+  DOVECOT_SERVICE_NAME:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'auth'
+        result: 'auth'
+      - string: 'auth-worker'
+        result: 'auth-worker'
+    negative:
+      - 'has a space'
   DOVECOT_LMTP_CONNECT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:

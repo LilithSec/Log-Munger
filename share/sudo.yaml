@@ -15,10 +15,26 @@
 #       pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)
 includes:
 - base
+# additional primitives used below that are not in base.yaml.
+vars:
+  # sudo right-aligns the invoking user in an eight-character field, so all but
+  # the longest names arrive with leading spaces:
+  #
+  #     root : TTY=pts/0 ; ...
+  #    snmpd : PWD=/ ; ...
+  #
+  # Not every build does this, so the pad is optional rather than required.
+  SUDO_USER_PAD: ' *'
+  # First key of the "KEY=VALUE ; KEY=VALUE" blob. sudo logs TTY, PWD, USER,
+  # GROUP, TSID, ENV and COMMAND in that order and drops any it has no value
+  # for, so a command run without a controlling terminal -- from cron, or an
+  # snmpd extend script -- starts the blob at PWD= instead of TTY=. Anchoring
+  # on TTY= alone silently dropped every one of those.
+  SUDO_KV_START: '(?:TTY|PWD)='
 vars_templated:
   # classic sudo command line -- the invoking user, then the KEY=VALUE ; ...
   # blob (captured whole for the decompose step below).
-  SUDO_COMMAND: '(?<sudo_user>[% USERNAME %]) : (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  SUDO_COMMAND: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %])'
   # pam_unix session open/close line.
   SUDO_SESSION: 'pam_unix\(sudo:session\): session (?<sudo_session_action>opened|closed) for user (?<sudo_target_user>[% USERNAME %])(?:\(uid=(?<sudo_target_uid>[% INT %])\))?(?: by (?<sudo_by_user>[% USERNAME %])\(uid=(?<sudo_by_uid>[% INT %])\))?'
   # --- security-relevant DENIALS -------------------------------------------
@@ -28,17 +44,17 @@ vars_templated:
   # kv decompose splits out sudo_TTY / sudo_PWD / sudo_USER / sudo_COMMAND.
   #
   # "<user> : user NOT in sudoers ; TTY=... ; ..."
-  SUDO_NOT_IN_SUDOERS: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT in sudoers) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  SUDO_NOT_IN_SUDOERS: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT in sudoers) ; (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %])'
   # "<user> : command not allowed ; TTY=... ; ..."
-  SUDO_COMMAND_NOT_ALLOWED: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>command not allowed) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  SUDO_COMMAND_NOT_ALLOWED: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_error>command not allowed) ; (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %])'
   # "<user> : user NOT allowed to execute '\''...'\'' as root ; TTY=... ; ..."
   # (some distros) -- the reason (including the quoted command + "as <user>")
   # runs up to the " ; TTY=" that starts the kv blob.
-  SUDO_NOT_ALLOWED_EXECUTE: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT allowed to execute [% GREEDYDATA_NO_SEMICOLON %]) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  SUDO_NOT_ALLOWED_EXECUTE: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_error>user NOT allowed to execute [% GREEDYDATA_NO_SEMICOLON %]) ; (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %])'
   # "<user> : N incorrect password attempts ; TTY=... ; ..."
-  SUDO_INCORRECT_PASSWORD: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>(?<sudo_pw_attempts>[% INT %]) incorrect password attempts?) ; (?<sudo_kv>TTY=[% GREEDYDATA %])'
+  SUDO_INCORRECT_PASSWORD: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_error>(?<sudo_pw_attempts>[% INT %]) incorrect password attempts?) ; (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %])'
   # "<user> : sorry, you must have a tty to run sudo ; ..."
-  SUDO_NEED_TTY: '(?<sudo_user>[% USERNAME %]) : (?<sudo_error>sorry, you must have a tty to run sudo)(?: ; (?<sudo_kv>TTY=[% GREEDYDATA %]))?'
+  SUDO_NEED_TTY: '[% SUDO_USER_PAD %](?<sudo_user>[% USERNAME %]) : (?<sudo_error>sorry, you must have a tty to run sudo)(?: ; (?<sudo_kv>[% SUDO_KV_START %][% GREEDYDATA %]))?'
   # pam_unix auth-failure line, gated to sudo by this file's PROGRAM=sudo gate.
   # The trailing "logname= uid= euid= tty= ruser= rhost= user=" blob is
   # captured whole as sudo_pam_kv and split by the second decompose below.
@@ -51,6 +67,12 @@ vars_tests:
         result: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
       - string: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
         result: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+      # right-aligned in an eight-character field, and no TTY= because there was
+      # no controlling terminal
+      - string: '   snmpd : PWD=/ ; USER=root ; COMMAND=/usr/local/etc/snmp-extends/bind'
+        result: '   snmpd : PWD=/ ; USER=root ; COMMAND=/usr/local/etc/snmp-extends/bind'
+      - string: '    root : TTY=pts/6 ; PWD=/root ; USER=root ; COMMAND=/usr/bin/true'
+        result: '    root : TTY=pts/6 ; PWD=/root ; USER=root ; COMMAND=/usr/bin/true'
     negative:
       - 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
   SUDO_SESSION:
@@ -116,6 +138,24 @@ vars_tests:
         result: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
     negative:
       - 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
+  SUDO_USER_PAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '    '
+        result: '    '
+      - string: ''
+        result: ''
+    negative:
+      - 'root'
+  SUDO_KV_START:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'TTY='
+        result: 'TTY='
+      - string: 'PWD='
+        result: 'PWD='
+    negative:
+      - 'USER='
 # file-level default: coerce the session uids to integers at runtime
 convert:
   sudo_target_uid: int
@@ -138,6 +178,11 @@ decompose:
           sudo_PWD: '/home/neti'
           sudo_USER: 'root'
           sudo_COMMAND: '/bin/ls -la'
+      - input: 'PWD=/ ; USER=root ; COMMAND=/usr/local/etc/snmp-extends/bind'
+        result:
+          sudo_PWD: '/'
+          sudo_USER: 'root'
+          sudo_COMMAND: '/usr/local/etc/snmp-extends/bind'
   # pam_unix auth-failure blob (space-separated) -> sudo_logname / sudo_uid /
   # sudo_euid / sudo_tty / sudo_ruser / sudo_rhost / sudo_user.  Empty values
   # (e.g. "rhost= ") yield empty-string fields.
@@ -183,6 +228,14 @@ rules:
           result:
             sudo_user: 'www-data'
             sudo_kv: 'TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
+        - string: '   snmpd : PWD=/ ; USER=root ; COMMAND=/usr/local/etc/snmp-extends/bind'
+          result:
+            sudo_user: 'snmpd'
+            sudo_kv: 'PWD=/ ; USER=root ; COMMAND=/usr/local/etc/snmp-extends/bind'
+        - string: '    root : TTY=pts/6 ; PWD=/root ; USER=root ; COMMAND=/usr/bin/true'
+          result:
+            sudo_user: 'root'
+            sudo_kv: 'TTY=pts/6 ; PWD=/root ; USER=root ; COMMAND=/usr/bin/true'
         - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
           result:
             sudo_session_action: 'opened'

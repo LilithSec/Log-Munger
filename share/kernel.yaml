@@ -53,6 +53,29 @@ vars_templated:
   # OOM killer (older format, no "Out of memory:" prefix): "Killed process 1234
   # (mysqld) total-vm:100kB, anon-rss:50kB, ..."
   KERNEL_LINUX_OOM_OLD: '[% KERNEL_PRINTK %]Killed process (?<kernel_oom_pid>[% INT %]) \((?<kernel_oom_process>[% NOTSPACE %])\)(?: total-vm:(?<kernel_oom_total_vm>[^, ]+))?(?:, anon-rss:(?<kernel_oom_anon_rss>[^, ]+))?(?:,? [% GREEDYDATA %])?'
+  # A bridge port changing STP state:
+  #   br-lan: port 10(phy0-ap2) entered disabled state
+  #   br0: port 2(veth1a2b3c) entered forwarding state
+  # Logged on every wifi client roam on an access point and on every container
+  # or VM interface coming and going, so on anything running a bridge it is one
+  # of the higher-volume kernel messages there is.
+  KERNEL_LINUX_BRIDGE_PORT: '[% KERNEL_PRINTK %](?<kernel_bridge>[^\s:]+): port (?<kernel_bridge_port>[% INT %])\((?<kernel_iface>[^)]+)\) entered (?<kernel_bridge_state>[% NOTSPACE %]) state'
+  # An interface entering or leaving promiscuous / allmulticast mode:
+  #   mwlwifi 0000:01:00.0 phy0-ap2: entered promiscuous mode
+  #   mwlwifi 0000:01:00.0 phy0-ap2 (unregistering): left allmulticast mode
+  #   eth0: entered promiscuous mode
+  # The driver and bus id in front are what netdev_info() adds when the message
+  # comes from a driver-bound device; a message about a software device has
+  # neither, so both are optional. "(unregistering)" is the kernel noting the
+  # device was on its way out, and adds nothing worth a field.
+  KERNEL_LINUX_NETDEV_MODE: '[% KERNEL_PRINTK %](?:(?<kernel_driver>[^\s:]+) (?<kernel_bus_id>[% NOTSPACE %]) )?(?<kernel_iface>[^\s:]+)(?: \(unregistering\))?: (?<kernel_netdev_action>entered|left) (?<kernel_netdev_mode>promiscuous|allmulticast) mode'
+  # A physical link coming up or going down, as phylib reports it:
+  #   mv88e6085 f1072004.mdio-mii:00 lan2: Link is Down
+  #   igb 0000:04:00.0 eth0: Link is Up - 1Gbps/Full - flow control rx/tx
+  # The speed/duplex and flow-control clauses are only on the "Up" form. This
+  # is the message that says a cable was pulled or a switch port flapped, and
+  # it is the same on every driver that uses phylib -- which is most of them.
+  KERNEL_LINUX_LINK: '[% KERNEL_PRINTK %](?:(?<kernel_driver>[^\s:]+) (?<kernel_bus_id>[% NOTSPACE %]) )?(?<kernel_iface>[^\s:]+): Link is (?<kernel_link_state>Up|Down)(?: - (?<kernel_link_speed>[^/]+)/(?<kernel_link_duplex>[% NOTSPACE %]))?(?: - flow control (?<kernel_link_flow_control>[% GREEDYDATA %]))?'
   # segfault: "php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in
   # libc-2.31.so[7f00+1c000]"
   KERNEL_LINUX_SEGV: '[% KERNEL_PRINTK %](?<kernel_segv_comm>[% NOTSPACE %])\[(?<kernel_segv_pid>[% INT %])\]: segfault at (?<kernel_segv_addr>[% NOTSPACE %]) ip (?<kernel_segv_ip>[% NOTSPACE %]) sp (?<kernel_segv_sp>[% NOTSPACE %]) error (?<kernel_segv_error>[% INT %])(?: in [% GREEDYDATA %])?'
@@ -233,6 +256,36 @@ vars_tests:
         result: 'Killed process 999 (sshd) total-vm:512kB, anon-rss:256kB'
     negative:
       - 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB'
+  KERNEL_LINUX_BRIDGE_PORT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
+        result: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
+      # with the printk uptime stripped by the reader
+      - string: 'br0: port 2(veth1a2b3c) entered forwarding state'
+        result: 'br0: port 2(veth1a2b3c) entered forwarding state'
+    negative:
+      - 'eth0: entered promiscuous mode'
+  KERNEL_LINUX_NETDEV_MODE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[ 4684.598846] mwlwifi 0000:01:00.0 phy0-ap2: entered promiscuous mode'
+        result: '[ 4684.598846] mwlwifi 0000:01:00.0 phy0-ap2: entered promiscuous mode'
+      - string: 'mwlwifi 0000:01:00.0 phy0-ap2 (unregistering): left allmulticast mode'
+        result: 'mwlwifi 0000:01:00.0 phy0-ap2 (unregistering): left allmulticast mode'
+      - string: 'eth0: entered promiscuous mode'
+        result: 'eth0: entered promiscuous mode'
+    negative:
+      - 'br-lan: port 10(phy0-ap2) entered disabled state'
+  KERNEL_LINUX_LINK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[4902418.465459] mv88e6085 f1072004.mdio-mii:00 lan2: Link is Down'
+        result: '[4902418.465459] mv88e6085 f1072004.mdio-mii:00 lan2: Link is Down'
+      - string: 'igb 0000:04:00.0 eth0: Link is Up - 1Gbps/Full - flow control rx/tx'
+        result: 'igb 0000:04:00.0 eth0: Link is Up - 1Gbps/Full - flow control rx/tx'
+    negative:
+      - 'eth0: entered promiscuous mode'
   KERNEL_LINUX_SEGV:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -521,6 +574,7 @@ geoip:
   - kernel_martian_src_ip
 convert:
   kernel_oom_pid: int
+  kernel_bridge_port: int
   kernel_segv_pid: int
   kernel_trap_pid: int
   kernel_io_sector: int
@@ -591,6 +645,9 @@ rules:
       - KERNEL_LINUX_SYNFLOOD
       - KERNEL_LINUX_CONNTRACK_FULL
       - KERNEL_LINUX_MARTIAN
+      - KERNEL_LINUX_BRIDGE_PORT
+      - KERNEL_LINUX_NETDEV_MODE
+      - KERNEL_LINUX_LINK
       # ---- FreeBSD patterns (appended after the Linux ones) ----
       - KERNEL_FBSD_SIGEXIT
       - KERNEL_FBSD_SWAPKILL
@@ -860,6 +917,39 @@ rules:
           result:
             kernel_trap_num: '12'
             kernel_trap_desc: 'page fault while in kernel mode'
+        - string: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
+          result:
+            kernel_bridge: 'br-lan'
+            kernel_bridge_port: '10'
+            kernel_iface: 'phy0-ap2'
+            kernel_bridge_state: 'disabled'
+        - string: 'mwlwifi 0000:01:00.0 phy0-ap2 (unregistering): left allmulticast mode'
+          result:
+            kernel_driver: 'mwlwifi'
+            kernel_bus_id: '0000:01:00.0'
+            kernel_iface: 'phy0-ap2'
+            kernel_netdev_action: 'left'
+            kernel_netdev_mode: 'allmulticast'
+        - string: 'eth0: entered promiscuous mode'
+          result:
+            kernel_iface: 'eth0'
+            kernel_netdev_action: 'entered'
+            kernel_netdev_mode: 'promiscuous'
+        - string: 'mv88e6085 f1072004.mdio-mii:00 lan2: Link is Down'
+          result:
+            kernel_driver: 'mv88e6085'
+            kernel_bus_id: 'f1072004.mdio-mii:00'
+            kernel_iface: 'lan2'
+            kernel_link_state: 'Down'
+        - string: 'igb 0000:04:00.0 eth0: Link is Up - 1Gbps/Full - flow control rx/tx'
+          result:
+            kernel_driver: 'igb'
+            kernel_bus_id: '0000:04:00.0'
+            kernel_iface: 'eth0'
+            kernel_link_state: 'Up'
+            kernel_link_speed: '1Gbps'
+            kernel_link_duplex: 'Full'
+            kernel_link_flow_control: 'rx/tx'
       negative:
         - 'this is not a kernel line at all'
         - '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'

@@ -31,7 +31,7 @@ vars:
   POSTFIX_WARNING_LEVEL: "(warning|fatal|info)\n"
 vars_templated:
   POSTFIX_ANVIL: |
-    [% POSTFIX_ANVIL_CONN_RATE %]|[% POSTFIX_ANVIL_CONN_CACHE %]|[% POSTFIX_ANVIL_CONN_COUNT %]
+    [% POSTFIX_ANVIL_CONN_RATE %]|[% POSTFIX_ANVIL_CONN_CACHE %]|[% POSTFIX_ANVIL_CONN_COUNT %]|[% POSTFIX_WARNING %]
   POSTFIX_ANVIL_CONN_CACHE: |
     statistics: max cache size (?<postfix_anvil_cache_size>[% NUMBER %]) at (?<postfix_anvil_timestamp>[% SYSLOGTIMESTAMP %])
   POSTFIX_ANVIL_CONN_COUNT: |
@@ -39,7 +39,7 @@ vars_templated:
   POSTFIX_ANVIL_CONN_RATE: |
     statistics: max connection rate (?<postfix_anvil_conn_rate>[% NUMBER %])/(?<postfix_anvil_conn_period>[% POSTFIX_TIME_UNIT %]) for \((?<postfix_service>[% DATA %]):(?<postfix_client_ip>[% IP %])\) at (?<postfix_anvil_timestamp>[% SYSLOGTIMESTAMP %])
   POSTFIX_BOUNCE: |
-    [% POSTFIX_BOUNCE_NOTIFICATION %]
+    [% POSTFIX_BOUNCE_NOTIFICATION %]|[% POSTFIX_WARNING %]
   POSTFIX_BOUNCE_NOTIFICATION: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): sender (non-delivery|delivery status|delay) notification: (?<postfix_bounce_queueid>[% POSTFIX_QUEUEID %])
   POSTFIX_CLEANUP: |
@@ -81,7 +81,8 @@ vars_templated:
     addr (?<postfix_client_ip>[% IP %]) listed by domain (?<postfix_dnsbl_domain>[% HOSTNAME %]) as (?<postfix_dnsbl_result>[% IP %])
   POSTFIX_DNSBL_MESSAGE: |
     Service unavailable; .* \[(?<postfix_status_data>[% GREEDYDATA %])\] (?<postfix_status_message>[% GREEDYDATA %]);
-  POSTFIX_ERROR: "[% POSTFIX_ERROR_ANY %]\n"
+  POSTFIX_ERROR: |
+    [% POSTFIX_ERROR_ANY %]|[% POSTFIX_WARNING %]
   POSTFIX_ERROR_ANY: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]), status=(?<postfix_status>[% STATUS_WORD %]) \((?<postfix_error_response>[% GREEDYDATA %])\)
   POSTFIX_KEYVALUE: |
@@ -97,15 +98,17 @@ vars_templated:
     (daemon started|reload) -- version (?<postfix_version>[% DATA %]), configuration (?<postfix_config_path>[% PATH %])
   POSTFIX_ORIG_CLIENT_INFO: |
     (?<postfix_orig_client_hostname>[% HOSTNAME %])?\[(?<postfix_orig_client_ip>[% IP %])\](:(?<postfix_orig_client_port>[% INT %]))?
-  POSTFIX_PICKUP: "[% POSTFIX_KEYVALUE %]\n"
-  POSTFIX_PIPE: "[% POSTFIX_PIPE_ANY %]\n"
+  POSTFIX_PICKUP: |
+    [% POSTFIX_KEYVALUE %]|[% POSTFIX_WARNING %]
+  POSTFIX_PIPE: |
+    [% POSTFIX_PIPE_ANY %]|[% POSTFIX_WARNING %]
   POSTFIX_PIPE_ANY: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]), status=(?<postfix_status>[% STATUS_WORD %]) \((?<postfix_pipe_response>[% GREEDYDATA %])\)
   POSTFIX_POSTDROP: "[% POSTFIX_WARNING %]\n"
   POSTFIX_POSTSCREEN: |
     [% POSTFIX_PS_CONNECT %]|[% POSTFIX_PS_ACCESS %]|[% POSTFIX_PS_NOQUEUE %]|[% POSTFIX_PS_TOOBUSY %]|[% POSTFIX_PS_CACHE %]|[% POSTFIX_PS_DNSBL %]|[% POSTFIX_PS_VIOLATIONS %]|[% POSTFIX_WARNING %]
   POSTFIX_POSTSUPER: |
-    [% POSTFIX_POSTSUPER_ACTION %]|[% POSTFIX_POSTSUPER_SUMMARY %]
+    [% POSTFIX_POSTSUPER_ACTION %]|[% POSTFIX_POSTSUPER_SUMMARY %]|[% POSTFIX_WARNING %]
   POSTFIX_POSTSUPER_ACTION: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_postsuper_action>[% POSTFIX_POSTSUPER_ACTIONS %])
   POSTFIX_POSTSUPER_SUMMARY: |
@@ -147,7 +150,7 @@ vars_templated:
   POSTFIX_RELAY_INFO: |
     (?:(?<postfix_relay_hostname>[% HOSTNAME %])?\[((?<postfix_relay_ip>[% IP %])|(?<postfix_relay_service>[% DATA %]))\](:(?<postfix_relay_port>[% INT %]))?|(?<postfix_relay_service>[% WORD %]))
   POSTFIX_SCACHE: |
-    [% POSTFIX_SCACHE_LOOKUPS %]|[% POSTFIX_SCACHE_SIMULTANEOUS %]|[% POSTFIX_SCACHE_TIMESTAMP %]
+    [% POSTFIX_SCACHE_LOOKUPS %]|[% POSTFIX_SCACHE_SIMULTANEOUS %]|[% POSTFIX_SCACHE_TIMESTAMP %]|[% POSTFIX_WARNING %]
   POSTFIX_SCACHE_LOOKUPS: |
     statistics: (address|domain) lookup hits=(?<postfix_scache_hits>[% INT %]) miss=(?<postfix_scache_miss>[% INT %]) success=(?<postfix_scache_success>[% INT %])%
   POSTFIX_SCACHE_SIMULTANEOUS: |
@@ -203,7 +206,8 @@ vars_templated:
   POSTFIX_TLSVERIFICATION: |
     certificate verification failed for [% POSTFIX_RELAY_INFO %]: (?<postfix_tls_error>[% GREEDYDATA %])
   POSTFIX_TRIVIAL_REWRITE: "[% POSTFIX_WARNING %]\n"
-  POSTFIX_VIRTUAL: "[% POSTFIX_SMTP_DELIVERY %]\n"
+  POSTFIX_VIRTUAL: |
+    [% POSTFIX_SMTP_DELIVERY %]|[% POSTFIX_WARNING %]
   POSTFIX_WARNING: |
     [% POSTFIX_WARNING_WITH_KV %]|[% POSTFIX_WARNING_WITHOUT_KV %]
   POSTFIX_WARNING_WITHOUT_KV: |
@@ -634,14 +638,17 @@ rules:
       negative:
         - 'this is not a valid master line at all'
 
-  # The postfix(1) command and postfix-script log under the bare program name
-  # rather than under postfix/<daemon>, which is why this gate has no slash in
-  # it. What comes out of them is the compatibility banner and the odd warning.
+  # The postfix(1) command and postfix-script. Which program name these arrive
+  # under depends on how the start-up script was invoked: the bare "postfix" or
+  # "postfix-script" on some systems, "postfix/postfix-script" on others, so
+  # the gate has to allow both. What comes out of them is the compatibility
+  # banner and the odd warning.
   - name: postfix_command
     gate:
       - field: PROGRAM
         values:
           - '//^postfix(-script)?$//'
+          - '//^postfix.*/postfix-script$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -662,6 +669,33 @@ rules:
       negative:
         - 'this is not a valid postfix command line at all'
 
+  # The postfix command-line utilities. None of them has a message format of
+  # its own -- everything they log goes through the same msg_syslog() as the
+  # daemons and comes out as "warning:" / "fatal:" / "info:" -- so they share
+  # one rule rather than getting one apiece. postdrop and postsuper are absent
+  # because they do have message formats of their own and are handled above.
+  - name: postfix_utility
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^postfix.*/(postalias|postcat|postconf|postkick|postlock|postlog|postmap|postmulti|postqueue)$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - POSTFIX_WARNING
+    tests:
+      positive:
+        - string: 'fatal: open database /etc/postfix/aliases.db: Permission denied'
+          result:
+            postfix_message_level: 'fatal'
+            postfix_message: 'open database /etc/postfix/aliases.db: Permission denied'
+        - string: 'warning: /etc/postfix/main.cf, line 42: overriding earlier entry'
+          result:
+            postfix_message_level: 'warning'
+            postfix_message: '/etc/postfix/main.cf, line 42: overriding earlier entry'
+      negative:
+        - 'this is not a valid postfix utility line at all'
+
   - name: postfix_pickup
     gate:
       - field: PROGRAM
@@ -681,6 +715,10 @@ rules:
           result:
             postfix_keyvalue_data: 'uid=1000 from=<alice>'
             postfix_queueid: 'ABCDEF123456'
+        - string: 'fatal: scan_dir_push: open directory maildrop: No such file or directory'
+          result:
+            postfix_message_level: 'fatal'
+            postfix_message: 'scan_dir_push: open directory maildrop: No such file or directory'
       negative:
         - 'this is not a valid pickup line at all'
   - name: postfix_pipe
@@ -1141,6 +1179,8 @@ vars_tests:
         result: 'statistics: max cache size 42 at Jul 15 10:00:00'
       - string: 'statistics: max connection count 5 for (smtp:192.0.2.5) at Jul 15 10:00:00'
         result: 'statistics: max connection count 5 for (smtp:192.0.2.5) at Jul 15 10:00:00'
+      - string: 'fatal: watchdog timeout'
+        result: 'fatal: watchdog timeout'
     negative:
       - 'no anvil stats here at all'
 
@@ -1173,6 +1213,8 @@ vars_tests:
     positive:
       - string: '3F8B2A9C1D5E: sender non-delivery notification: 4A2B1F9C8D7E'
         result: '3F8B2A9C1D5E: sender non-delivery notification: 4A2B1F9C8D7E'
+      - string: 'warning: cannot find bounce template'
+        result: 'warning: cannot find bounce template'
     negative:
       - 'just a plain line'
 
@@ -1301,6 +1343,8 @@ vars_tests:
     positive:
       - string: '3F8B2A9C1D5E: to=<user@example.com>, relay=none, delay=0.1, status=bounced (mailbox full)'
         result: '3F8B2A9C1D5E: to=<user@example.com>, relay=none, delay=0.1, status=bounced (mailbox full)'
+      - string: 'fatal: unknown service: error/unix'
+        result: 'fatal: unknown service: error/unix'
     negative:
       - 'plain'
 
@@ -1358,6 +1402,8 @@ vars_tests:
     positive:
       - string: 'ABCDEF123456: uid=0 from=<root>'
         result: 'ABCDEF123456: uid=0 from=<root>'
+      - string: 'fatal: scan_dir_push: open directory maildrop: No such file or directory'
+        result: 'fatal: scan_dir_push: open directory maildrop: No such file or directory'
     negative:
       - 'nothing relevant here'
   POSTFIX_PIPE:
@@ -1365,6 +1411,8 @@ vars_tests:
     positive:
       - string: 'ABCDEF123456: to=<u@example.com>, relay=dovecot, status=sent (delivered via dovecot)'
         result: 'ABCDEF123456: to=<u@example.com>, relay=dovecot, status=sent (delivered via dovecot)'
+      - string: 'fatal: unknown service: dovecot/unix'
+        result: 'fatal: unknown service: dovecot/unix'
     negative:
       - 'nothing relevant here'
   POSTFIX_PIPE_ANY:
@@ -1395,6 +1443,8 @@ vars_tests:
         result: '3F8B2A9C1D5E: removed'
       - string: 'Deleted: 3 messages'
         result: 'Deleted: 3 messages'
+      - string: 'fatal: Queue report unavailable - mail system is down'
+        result: 'fatal: Queue report unavailable - mail system is down'
     negative:
       - 'nothing relevant here'
   POSTFIX_POSTSUPER_ACTION:
@@ -1547,6 +1597,8 @@ vars_tests:
     positive:
       - string: 'statistics: start interval Jul 15 10:00:00'
         result: 'statistics: start interval Jul 15 10:00:00'
+      - string: 'warning: connection cache: unexpected EOF'
+        result: 'warning: connection cache: unexpected EOF'
     negative:
       - 'nothing relevant here'
 
@@ -1759,9 +1811,10 @@ vars_tests:
     positive:
       - string: '3F8B2A9C1D5E: to=<u@example.com>, relay=virtual, delay=0.05, status=sent (delivered to maildir)'
         result: '3F8B2A9C1D5E: to=<u@example.com>, relay=virtual, delay=0.05, status=sent (delivered to maildir)'
+      - string: 'warning: no status here'
+        result: 'warning: no status here'
     negative:
       - 'nothing relevant'
-      - 'warning: no status here'
 
   POSTFIX_WARNING:
     test_template: '(?<TEST>[% TEST_VAR %])'
