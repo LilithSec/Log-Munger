@@ -188,9 +188,9 @@ decompose:
           audit_msg_terminal: 'ssh'
           audit_msg_res: 'success'
       # USER_CMD nested blob: hex cmd, cwd, terminal, res
-      - input: 'cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'
+      - input: 'cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'
         result:
-          audit_msg_cwd: '/home/kitsune'
+          audit_msg_cwd: '/home/neti'
           audit_msg_cmd: '6C73202D6C61'
           audit_msg_terminal: 'pts/0'
           audit_msg_res: 'success'
@@ -239,8 +239,8 @@ vars_tests:
   AUDITD_USER_CMD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
-        result: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+      - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+        result: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'''
       - string: 'type=USER_CMD msg=audit(1700000005.000:461): pid=2223 uid=1000 auid=1000 ses=3 msg=''cwd="/root" cmd=6964 terminal=pts/1 res=failed'''
         result: 'type=USER_CMD msg=audit(1700000005.000:461): pid=2223 uid=1000 auid=1000 ses=3 msg=''cwd="/root" cmd=6964 terminal=pts/1 res=failed'''
     negative:
@@ -369,14 +369,14 @@ rules:
             audit_fields: 'pid=999 uid=0 auid=0 ses=1'
             audit_msg: 'op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'
         # USER_CMD: hex-encoded cmd, cwd, terminal, res in the nested sub-record
-        - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'''
+        - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'''
           result:
             audit_type: 'USER_CMD'
             audit_id: '1700000004.000:460'
             audit_epoch: '1700000004.000'
             audit_serial: '460'
             audit_fields: 'pid=2222 uid=1000 auid=1000 ses=3'
-            audit_msg: 'cwd="/home/kitsune" cmd=6C73202D6C61 terminal=pts/0 res=success'
+            audit_msg: 'cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'
         # ADD_USER: op + acct/id from the nested sub-record
         - string: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''
           result:

@@ -55,8 +55,8 @@ vars_tests:
     positive:
       - string: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
         result: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
-      - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
-        result: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
+      - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ neti NONE/- text/html'
+        result: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ neti NONE/- text/html'
     negative:
       - 'this is not a squid access log line'
   SQUID_QS:
@@ -81,8 +81,8 @@ vars_tests:
   SQUID_HTTP_HEAD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234'
-        result: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234'
+      - string: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234'
+        result: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234'
       - string: '192.0.2.5 - - [15/Jul/2026:10:00:00 +0000] "CONNECT example.com:443 HTTP/1.1" 200 0'
         result: '192.0.2.5 - - [15/Jul/2026:10:00:00 +0000] "CONNECT example.com:443 HTTP/1.1" 200 0'
     negative:
@@ -90,16 +90,16 @@ vars_tests:
   SQUID_COMMON:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 TCP_MISS:HIER_DIRECT'
-        result: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 TCP_MISS:HIER_DIRECT'
+      - string: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 TCP_MISS:HIER_DIRECT'
+        result: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 TCP_MISS:HIER_DIRECT'
     negative:
       # a plain apache line has no squid tail, and must not be taken for one
       - '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326'
   SQUID_COMBINED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
-        result: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
+      - string: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
+        result: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
     negative:
       # apache combined, again with no squid tail
       - '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
@@ -160,7 +160,7 @@ rules:
             squid_hierarchy: 'DIRECT'
             squid_peer: '93.184.216.34'
             squid_content_type: 'text/html'
-        - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ kitsune NONE/- text/html'
+        - string: '1626345601.000 5 198.51.100.9 TCP_DENIED/403 210 GET http://blocked.example/ neti NONE/- text/html'
           result:
             squid_timestamp: '1626345601.000'
             squid_elapsed: '5'
@@ -170,15 +170,15 @@ rules:
             squid_bytes: '210'
             squid_method: 'GET'
             squid_url: 'http://blocked.example/'
-            squid_user: 'kitsune'
+            squid_user: 'neti'
             squid_hierarchy: 'NONE'
             squid_peer: '-'
             squid_content_type: 'text/html'
-        - string: '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
+        - string: '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT'
           result:
             squid_client_ip: '192.0.2.5'
             squid_ident: '-'
-            squid_user: 'kitsune'
+            squid_user: 'neti'
             squid_timestamp: '15/Jul/2026:10:00:00 +0000'
             squid_method: 'GET'
             squid_url: 'http://example.com/'
@@ -204,7 +204,7 @@ rules:
             squid_hierarchy: 'HIER_DIRECT'
       negative:
         - 'this is not a squid access log line at all'
-        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
         # an apache line: squid must not claim it, since this rule is gateless
         - '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
   # cache.log.  Gated, because its patterns match far too much to be let loose

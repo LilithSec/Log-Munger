@@ -16,7 +16,7 @@
 #     pam_euid / pam_tty / pam_ruser / pam_rhost / pam_user by the file-level
 #     decompose (kv, field_split ' ').
 #   * the session open/close line, e.g.
-#       pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)
+#       pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)
 includes:
 - base
 vars_templated:
@@ -59,19 +59,19 @@ vars_tests:
     positive:
       - string: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
         result: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
-      - string: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
-        result: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+      - string: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
+        result: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
     negative:
-      - 'pam_unix(sshd:session): session closed for user kitsune'
+      - 'pam_unix(sshd:session): session closed for user neti'
   PAM_SESSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
-        result: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - string: 'pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)'
+        result: 'pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)'
       - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
         result: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
-      - string: 'pam_unix(sshd:session): session closed for user kitsune'
-        result: 'pam_unix(sshd:session): session closed for user kitsune'
+      - string: 'pam_unix(sshd:session): session closed for user neti'
+        result: 'pam_unix(sshd:session): session closed for user neti'
     negative:
       - 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
   PAM_CHECK_PASS_USER_UNKNOWN:
@@ -91,14 +91,14 @@ vars_tests:
       - string: 'pam_unix(sshd:account): password has expired'
         result: 'pam_unix(sshd:account): password has expired'
     negative:
-      - 'pam_unix(sshd:session): session closed for user kitsune'
+      - 'pam_unix(sshd:session): session closed for user neti'
   PAM_FAILLOCK:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
       - string: 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
         result: 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
-      - string: 'pam_faillock(login:auth): Consecutive login failures for user kitsune account temporarily locked'
-        result: 'pam_faillock(login:auth): Consecutive login failures for user kitsune account temporarily locked'
+      - string: 'pam_faillock(login:auth): Consecutive login failures for user neti account temporarily locked'
+        result: 'pam_faillock(login:auth): Consecutive login failures for user neti account temporarily locked'
     negative:
       - 'pam_unix(sshd:auth): check pass; user unknown'
   PAM_TALLY2:
@@ -106,8 +106,8 @@ vars_tests:
     positive:
       - string: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
         result: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
-      - string: 'pam_tally2(login:auth): user kitsune (1001) has 3 login failures; the account is locked'
-        result: 'pam_tally2(login:auth): user kitsune (1001) has 3 login failures; the account is locked'
+      - string: 'pam_tally2(login:auth): user neti (1001) has 3 login failures; the account is locked'
+        result: 'pam_tally2(login:auth): user neti (1001) has 3 login failures; the account is locked'
     negative:
       - 'pam_faillock(sshd:auth): Consecutive login failures for user root account temporarily locked'
   PAM_SUCCEED_IF:
@@ -149,13 +149,13 @@ decompose:
           pam_ruser: ''
           pam_rhost: '203.0.113.7'
           pam_user: 'root'
-      - input: 'logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+      - input: 'logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
         result:
-          pam_logname: 'kitsune'
+          pam_logname: 'neti'
           pam_uid: '1000'
           pam_euid: '0'
           pam_tty: 'pts/0'
-          pam_ruser: 'kitsune'
+          pam_ruser: 'neti'
           pam_rhost: ''
           pam_user: 'root'
 rules:
@@ -180,14 +180,14 @@ rules:
             pam_service: 'sshd'
             pam_type: 'auth'
             pam_kv: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
-        - string: 'pam_unix(su:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+        - string: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
           result:
             pam_module: 'unix'
             pam_service: 'su'
             pam_type: 'auth'
-            pam_kv: 'logname=kitsune uid=1000 euid=0 tty=pts/0 ruser=kitsune rhost= user=root'
+            pam_kv: 'logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
         # session lines
-        - string: 'pam_unix(su:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+        - string: 'pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)'
           result:
             pam_module: 'unix'
             pam_service: 'su'
@@ -195,7 +195,7 @@ rules:
             pam_session_action: 'opened'
             pam_user: 'root'
             pam_uid: '0'
-            pam_by_user: 'kitsune'
+            pam_by_user: 'neti'
             pam_by_uid: '1000'
         - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
           result:
@@ -206,13 +206,13 @@ rules:
             pam_user: 'root'
             pam_uid: '0'
             pam_by_uid: '0'
-        - string: 'pam_unix(sshd:session): session closed for user kitsune'
+        - string: 'pam_unix(sshd:session): session closed for user neti'
           result:
             pam_module: 'unix'
             pam_service: 'sshd'
             pam_type: 'session'
             pam_session_action: 'closed'
-            pam_user: 'kitsune'
+            pam_user: 'neti'
         # check pass; user unknown
         - string: 'pam_unix(sshd:auth): check pass; user unknown'
           result:

@@ -26,7 +26,7 @@ vars_templated:
   # the calling station -- the supplicant's MAC on 802.1X -- and is absent on
   # transports that have no such thing.
   RADIUS_CLIENT: '(?: \(from client (?<radius_client>[% NOTSPACE %]) port (?<radius_nas_port>[% INT %])(?: cli (?<radius_calling_station>[% NOTSPACE %]))?\))?'
-  # "Login OK: [kitsune/<via Auth-Type = mschap>] (from client wifi port 0)"
+  # "Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0)"
   # "Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/pw] (...)"
   #
   # The bracketed field is user/credential, and the credential half is either
@@ -43,7 +43,7 @@ vars_templated:
   # port this is a scan; on a working network it is a NAS someone forgot to
   # add.
   RADIUS_UNKNOWN_CLIENT: '[% RADIUS_REQUEST %]Ignoring request to (?<radius_socket>[% GREEDYDATA %]) from unknown client (?<radius_src_ip>[% IP %]) port (?<radius_src_port>[% INT %])(?: [% GREEDYDATA %])?'
-  # "Login incorrect: [kitsune] (from client wifi port 0)" without the reason,
+  # "Login incorrect: [neti] (from client wifi port 0)" without the reason,
   # and everything else radiusd says.
   RADIUS_MESSAGE: '[% RADIUS_REQUEST %](?<radius_message>.+)'
 vars_tests:
@@ -72,12 +72,12 @@ vars_tests:
   RADIUS_LOGIN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Login OK: [kitsune/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
-        result: 'Login OK: [kitsune/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
+      - string: 'Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
+        result: 'Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
       - string: 'Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
         result: 'Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
-      - string: '(12) Login OK: [kitsune] (from client localhost port 0)'
-        result: '(12) Login OK: [kitsune] (from client localhost port 0)'
+      - string: '(12) Login OK: [neti] (from client localhost port 0)'
+        result: '(12) Login OK: [neti] (from client localhost port 0)'
     negative:
       - 'Invalid user: [admin] (from client wifi port 0)'
   RADIUS_INVALID_USER:
@@ -123,10 +123,10 @@ rules:
       - RADIUS_MESSAGE
     tests:
       positive:
-        - string: 'Login OK: [kitsune/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
+        - string: 'Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
           result:
             radius_result: 'OK'
-            radius_user: 'kitsune'
+            radius_user: 'neti'
             radius_credential: '<via Auth-Type = mschap>'
             radius_client: 'wifi'
             radius_nas_port: '0'
@@ -140,11 +140,11 @@ rules:
             radius_client: 'wifi'
             radius_nas_port: '0'
             radius_calling_station: 'aa-bb-cc-dd-ee-ff'
-        - string: '(12) Login OK: [kitsune] (from client localhost port 0)'
+        - string: '(12) Login OK: [neti] (from client localhost port 0)'
           result:
             radius_request: '12'
             radius_result: 'OK'
-            radius_user: 'kitsune'
+            radius_user: 'neti'
             radius_client: 'localhost'
             radius_nas_port: '0'
         - string: 'Invalid user (mschap: External script says Logon failure): [admin/password] (from client wifi port 0)'

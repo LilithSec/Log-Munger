@@ -20,8 +20,12 @@ vars:
     (BARE NEWLINE|COMMAND (TIME|COUNT|LENGTH) LIMIT|COMMAND PIPELINING|DNSBL|HANGUP|NON-SMTP COMMAND|PREGREET)
   POSTFIX_QUEUEID: |
     ([0-9A-F]{6,}|[0-9a-zA-Z]{12,}|NOQUEUE)
+  # The protocol stage a session was in when something happened. Alongside the
+  # commands that carry mail this has to list the ones a scanner will throw at
+  # the server and get logged for -- HELP, NOOP, QUIT and the rest -- because
+  # they turn up in "lost connection after <stage>" lines.
   POSTFIX_SMTP_STAGE: |
-    (CONNECT|HELO|EHLO|STARTTLS|AUTH|MAIL( FROM)?|RCPT( TO)?|(end of )?DATA|RSET|UNKNOWN|END-OF-MESSAGE|VRFY|\.)
+    (CONNECT|HELO|EHLO|STARTTLS|AUTH|MAIL( FROM)?|RCPT( TO)?|(end of )?DATA|BDAT|RSET|NOOP|QUIT|HELP|ETRN|EXPN|XCLIENT|XFORWARD|UNKNOWN|END-OF-MESSAGE|VRFY|\.)
   POSTFIX_STATUS_CODE: "\\d{3}\n"
   POSTFIX_STATUS_CODE_ENHANCED: "\\d\\.\\d\\.\\d\n"
   POSTFIX_WARNING_LEVEL: "(warning|fatal|info)\n"
@@ -39,7 +43,7 @@ vars_templated:
   POSTFIX_BOUNCE_NOTIFICATION: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): sender (non-delivery|delivery status|delay) notification: (?<postfix_bounce_queueid>[% POSTFIX_QUEUEID %])
   POSTFIX_CLEANUP: |
-    [% POSTFIX_CLEANUP_MESSAGEID %]|[% POSTFIX_CLEANUP_MILTER %]|[% POSTFIX_CLEANUP_PREPEND %]|[% POSTFIX_WARNING %]|[% POSTFIX_KEYVALUE %]
+    [% POSTFIX_CLEANUP_MESSAGEID %]|[% POSTFIX_CLEANUP_MILTER %]|[% POSTFIX_CLEANUP_PREPEND %]|[% POSTFIX_REMOVED %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]|[% POSTFIX_KEYVALUE %]
   POSTFIX_CLEANUP_MESSAGEID: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): message-id=<?(?<postfix_message_id>[% GREEDYDATA_NO_BRACKET %])>?
   POSTFIX_CLEANUP_MILTER: |
@@ -52,6 +56,21 @@ vars_templated:
     (helo=((?<postfix_cmd_helo_accepted>[% INT %])/)?(?<postfix_cmd_helo>[% INT %]) )?(ehlo=((?<postfix_cmd_ehlo_accepted>[% INT %])/)?(?<postfix_cmd_ehlo>[% INT %]) )?(starttls=((?<postfix_cmd_starttls_accepted>[% INT %])/)?(?<postfix_cmd_starttls>[% INT %]) )?(auth=((?<postfix_cmd_auth_accepted>[% INT %])/)?(?<postfix_cmd_auth>[% INT %]) )?(mail=((?<postfix_cmd_mail_accepted>[% INT %])/)?(?<postfix_cmd_mail>[% INT %]) )?(rcpt=((?<postfix_cmd_rcpt_accepted>[% INT %])/)?(?<postfix_cmd_rcpt>[% INT %]) )?(data=((?<postfix_cmd_data_accepted>[% INT %])/)?(?<postfix_cmd_data>[% INT %]) )?(rset=((?<postfix_cmd_rset_accepted>[% INT %])/)?(?<postfix_cmd_rset>[% INT %]) )?(quit=((?<postfix_cmd_quit_accepted>[% INT %])/)?(?<postfix_cmd_quit>[% INT %]) )?(unknown=((?<postfix_cmd_unknown_accepted>[% INT %])/)?(?<postfix_cmd_unknown>[% INT %]) )?commands=((?<postfix_cmd_count_accepted>[% INT %])/)?(?<postfix_cmd_count>[% INT %])
   POSTFIX_DELAYS: |
     (?<postfix_delay_before_qmgr>[% NUMBER %])/(?<postfix_delay_in_qmgr>[% NUMBER %])/(?<postfix_delay_conn_setup>[% NUMBER %])/(?<postfix_delay_transmission>[% NUMBER %])
+  # The compatibility_level nag.  A daemon left on an older compatibility level
+  # names each setting it is still defaulting the old way:
+  #
+  #   using backwards-compatible default setting smtp_tls_security_level=(empty)
+  #   3F8B2A9C1D5E: using backwards-compatible default setting smtputf8_enable=no
+  #
+  # and the postfix command itself prints a three-line banner pointing at the
+  # documentation.  The banner carries nothing worth naming a field for, so it
+  # is kept whole in postfix_compat_message.
+  POSTFIX_COMPAT: |
+    [% POSTFIX_COMPAT_SETTING %]|[% POSTFIX_COMPAT_BANNER %]
+  POSTFIX_COMPAT_BANNER: |
+    (?<postfix_compat_message>(Postfix is using backwards-compatible default settings|To disable backwards compatibility use [% GREEDYDATA %]|See [% GREEDYDATA %] for details))
+  POSTFIX_COMPAT_SETTING: |
+    ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?using backwards-compatible default setting (?<postfix_compat_setting>[\w-]+)=(?<postfix_compat_value>[% GREEDYDATA %])
   POSTFIX_DISCARD: |
     [% POSTFIX_DISCARD_ANY %]|[% POSTFIX_WARNING %]
   POSTFIX_DISCARD_ANY: |
@@ -69,9 +88,9 @@ vars_templated:
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
   POSTFIX_LMTP: "[% POSTFIX_SMTP %]\n"
   POSTFIX_LOCAL: |
-    [% POSTFIX_KEYVALUE %]|[% POSTFIX_WARNING %]
+    [% POSTFIX_COMPAT %]|[% POSTFIX_KEYVALUE %]|[% POSTFIX_WARNING %]
   POSTFIX_MASTER: |
-    [% POSTFIX_MASTER_START %]|[% POSTFIX_MASTER_EXIT %]|[% POSTFIX_WARNING %]
+    [% POSTFIX_MASTER_START %]|[% POSTFIX_MASTER_EXIT %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]
   POSTFIX_MASTER_EXIT: |
     terminating on signal (?<postfix_termination_signal>[% INT %])
   POSTFIX_MASTER_START: |
@@ -107,15 +126,26 @@ vars_templated:
   POSTFIX_PS_VIOLATIONS: |
     (?<postfix_postscreen_violation>[% POSTFIX_PS_VIOLATION %])( [% INT %])?( after (?<postfix_postscreen_violation_time>[% NUMBER %]))? from [% POSTFIX_CLIENT_INFO %](( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]))?(: (?<postfix_postscreen_data>[% GREEDYDATA %]))?| in tests (after|before) SMTP handshake)
   POSTFIX_QMGR: |
-    [% POSTFIX_QMGR_REMOVED %]|[% POSTFIX_QMGR_ACTIVE %]|[% POSTFIX_QMGR_EXPIRED %]|[% POSTFIX_WARNING %]
+    [% POSTFIX_REMOVED %]|[% POSTFIX_QMGR_ACTIVE %]|[% POSTFIX_QMGR_EXPIRED %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]
   POSTFIX_QMGR_ACTIVE: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %]) \(queue active\)
   POSTFIX_QMGR_EXPIRED: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): from=<(?<postfix_from>[% DATA %])>, status=(?<postfix_status>[% STATUS_WORD %]), returned to sender
-  POSTFIX_QMGR_REMOVED: |
-    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): removed
+  # Logged by qmgr when a message leaves the queue, and by cleanup when a
+  # message is abandoned before it ever gets there, in which case the reason
+  # follows in parentheses: "842C71C5ADD: removed (canceled)".
+  POSTFIX_REMOVED: |
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): removed( \((?<postfix_removed_reason>[% GREEDYDATA %])\))?
+  # The two forms a relay is logged in: "host[addr]:port" for a network peer and
+  # a bare service name such as "local" or "virtual" for an internal transport.
+  #
+  # The whole thing is wrapped in a non-capturing group because every user of it
+  # embeds it mid-pattern. Without the wrapper the top-level alternation binds to
+  # the entire surrounding regexp instead of to this primitive, so "connect to
+  # mx.example.com[192.0.2.5]:25: Connection refused" would match only as far as
+  # the port and then fail the anchor.
   POSTFIX_RELAY_INFO: |
-    (?<postfix_relay_hostname>[% HOSTNAME %])?\[((?<postfix_relay_ip>[% IP %])|(?<postfix_relay_service>[% DATA %]))\](:(?<postfix_relay_port>[% INT %]))?|(?<postfix_relay_service>[% WORD %])
+    (?:(?<postfix_relay_hostname>[% HOSTNAME %])?\[((?<postfix_relay_ip>[% IP %])|(?<postfix_relay_service>[% DATA %]))\](:(?<postfix_relay_port>[% INT %]))?|(?<postfix_relay_service>[% WORD %]))
   POSTFIX_SCACHE: |
     [% POSTFIX_SCACHE_LOOKUPS %]|[% POSTFIX_SCACHE_SIMULTANEOUS %]|[% POSTFIX_SCACHE_TIMESTAMP %]
   POSTFIX_SCACHE_LOOKUPS: |
@@ -126,15 +156,22 @@ vars_templated:
     statistics: start interval (?<postfix_scache_timestamp>[% SYSLOGTIMESTAMP %])
   POSTFIX_SENDMAIL: "[% POSTFIX_WARNING %]\n"
   POSTFIX_SMTP: |
-    [% POSTFIX_SMTP_DELIVERY %]|[% POSTFIX_SMTP_CONNERR %]|[% POSTFIX_SMTP_SSLCONNERR %]|[% POSTFIX_SMTP_LOSTCONN %]|[% POSTFIX_SMTP_TIMEOUT %]|[% POSTFIX_SMTP_RELAYERR %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTP_UTF8 %]|[% POSTFIX_TLSVERIFICATION %]
+    [% POSTFIX_SMTP_DELIVERY %]|[% POSTFIX_SMTP_CONNERR %]|[% POSTFIX_SMTP_SSLCONNERR %]|[% POSTFIX_SMTP_LOSTCONN %]|[% POSTFIX_SMTP_TIMEOUT %]|[% POSTFIX_SMTP_RELAYERR %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTP_UTF8 %]|[% POSTFIX_TLSVERIFICATION %]
   POSTFIX_SMTPD: |
-    [% POSTFIX_SMTPD_CONNECT %]|[% POSTFIX_SMTPD_DISCONNECT %]|[% POSTFIX_SMTPD_LOSTCONN %]|[% POSTFIX_SMTPD_NOQUEUE %]|[% POSTFIX_SMTPD_PIPELINING %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTPD_PROXY %]|[% POSTFIX_KEYVALUE %]
+    [% POSTFIX_SMTPD_CONNECT %]|[% POSTFIX_SMTPD_DISCONNECT %]|[% POSTFIX_SMTPD_LOSTCONN %]|[% POSTFIX_SMTPD_NOQUEUE %]|[% POSTFIX_SMTPD_PIPELINING %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTPD_PROXY %]|[% POSTFIX_KEYVALUE %]
   POSTFIX_SMTPD_CONNECT: |
     connect from [% POSTFIX_CLIENT_INFO %]
   POSTFIX_SMTPD_DISCONNECT: |
     disconnect from [% POSTFIX_CLIENT_INFO %]( (?<postfix_command_counter_data>[% GREEDYDATA %]))?
+  # Postfix 3.x puts the queue id in front of these, and for a session that
+  # never got as far as a queue file that id is the literal NOQUEUE:
+  #
+  #   NOQUEUE: lost connection after AUTH from unknown[192.0.2.5]
+  #   NOQUEUE: timeout after CONNECT from unknown[192.0.2.5]
+  #
+  # Older releases logged the same line without the prefix, so it is optional.
   POSTFIX_SMTPD_LOSTCONN: |
-    (?<postfix_smtpd_lostconn_data>[% POSTFIX_LOSTCONN %])( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %])( \([% INT %] bytes\))?)? from [% POSTFIX_CLIENT_INFO %](: (?<postfix_smtpd_lostconn_reason>[% GREEDYDATA %]))?
+    ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_smtpd_lostconn_data>[% POSTFIX_LOSTCONN %])( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %])( \([% INT %] bytes\))?)? from [% POSTFIX_CLIENT_INFO %](: (?<postfix_smtpd_lostconn_reason>[% GREEDYDATA %]))?
   POSTFIX_SMTPD_NOQUEUE: |
     (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_action>[% POSTFIX_ACTION %]): (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]:( (?<postfix_status_code>[% POSTFIX_STATUS_CODE %]) (?<postfix_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?( <(?<postfix_status_data>[% DATA %])>:)? ([% POSTFIX_DNSBL_MESSAGE %]|(?<postfix_status_message>[% GREEDYDATA %]);) (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
   POSTFIX_SMTPD_PIPELINING: |
@@ -360,8 +397,11 @@ rules:
             postfix_status: 'sent'
         - string: '3F8B2A9C1D5E: host mx.x.com[198.51.100.2] said: 451 try again (in reply to RCPT TO command)'
           result:
-            postfix_relay_service: '3F8B2A9C1D5E'
-            postfix_tls_error: 'host mx.x.com[198.51.100.2] said: 451 try again (in reply to RCPT TO command)'
+            postfix_queueid: '3F8B2A9C1D5E'
+            postfix_relay_hostname: 'mx.x.com'
+            postfix_relay_ip: '198.51.100.2'
+            postfix_smtp_response: '451 try again'
+            postfix_smtp_stage: 'RCPT TO'
       negative:
         - 'this is not a valid smtp line at all'
 
@@ -384,8 +424,11 @@ rules:
             postfix_status: 'sent'
         - string: '3F8B2A9C1D5E: host mx.x.com[198.51.100.2] said: 451 try again (in reply to RCPT TO command)'
           result:
-            postfix_relay_service: '3F8B2A9C1D5E'
-            postfix_tls_error: 'host mx.x.com[198.51.100.2] said: 451 try again (in reply to RCPT TO command)'
+            postfix_queueid: '3F8B2A9C1D5E'
+            postfix_relay_hostname: 'mx.x.com'
+            postfix_relay_ip: '198.51.100.2'
+            postfix_smtp_response: '451 try again'
+            postfix_smtp_stage: 'RCPT TO'
       negative:
         - 'this is not a valid lmtp line at all'
 
@@ -590,6 +633,34 @@ rules:
             postfix_message_level: 'warning'
       negative:
         - 'this is not a valid master line at all'
+
+  # The postfix(1) command and postfix-script log under the bare program name
+  # rather than under postfix/<daemon>, which is why this gate has no slash in
+  # it. What comes out of them is the compatibility banner and the odd warning.
+  - name: postfix_command
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^postfix(-script)?$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - POSTFIX_COMPAT
+      - POSTFIX_WARNING
+    tests:
+      positive:
+        - string: 'Postfix is using backwards-compatible default settings'
+          result:
+            postfix_compat_message: 'Postfix is using backwards-compatible default settings'
+        - string: 'See https://www.postfix.org/COMPATIBILITY_README.html for details'
+          result:
+            postfix_compat_message: 'See https://www.postfix.org/COMPATIBILITY_README.html for details'
+        - string: 'warning: /etc/postfix/main.cf, line 42: overriding earlier entry'
+          result:
+            postfix_message: '/etc/postfix/main.cf, line 42: overriding earlier entry'
+            postfix_message_level: 'warning'
+      negative:
+        - 'this is not a valid postfix command line at all'
 
   - name: postfix_pickup
     gate:
@@ -1421,13 +1492,47 @@ vars_tests:
     negative:
       - 'nothing relevant here'
 
-  POSTFIX_QMGR_REMOVED:
+  POSTFIX_REMOVED:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '3F8B2A9C1D5E: removed'
         result: '3F8B2A9C1D5E: removed'
+      - string: '842C71C5ADD: removed (canceled)'
+        result: '842C71C5ADD: removed (canceled)'
     negative:
       - 'nothing relevant here'
+
+  POSTFIX_COMPAT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'using backwards-compatible default setting smtp_tls_security_level=(empty)'
+        result: 'using backwards-compatible default setting smtp_tls_security_level=(empty)'
+      - string: 'Postfix is using backwards-compatible default settings'
+        result: 'Postfix is using backwards-compatible default settings'
+    negative:
+      - 'nothing relevant here'
+
+  POSTFIX_COMPAT_SETTING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'using backwards-compatible default setting smtp_tls_security_level=(empty)'
+        result: 'using backwards-compatible default setting smtp_tls_security_level=(empty)'
+      - string: '3F8B2A9C1D5E: using backwards-compatible default setting smtputf8_enable=no'
+        result: '3F8B2A9C1D5E: using backwards-compatible default setting smtputf8_enable=no'
+    negative:
+      - 'Postfix is using backwards-compatible default settings'
+
+  POSTFIX_COMPAT_BANNER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Postfix is using backwards-compatible default settings'
+        result: 'Postfix is using backwards-compatible default settings'
+      - string: 'To disable backwards compatibility use "postconf compatibility_level=3.11" and "postfix reload"'
+        result: 'To disable backwards compatibility use "postconf compatibility_level=3.11" and "postfix reload"'
+      - string: 'See https://www.postfix.org/COMPATIBILITY_README.html for details'
+        result: 'See https://www.postfix.org/COMPATIBILITY_README.html for details'
+    negative:
+      - 'using backwards-compatible default setting smtp_tls_security_level=(empty)'
 
   POSTFIX_RELAY_INFO:
     test_template: '(?<TEST>[% TEST_VAR %])'
@@ -1544,7 +1649,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: 'connect to mx.example.com[198.51.100.2]:25: Connection refused'
-        result: 'connect to mx.example.com[198.51.100.2]:25'
+        result: 'connect to mx.example.com[198.51.100.2]:25: Connection refused'
     negative:
       - 'nothing relevant'
 
@@ -1561,7 +1666,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '3F8B2A9C1D5E: lost connection with mx.example.com[198.51.100.2]:25 while sending message body'
-        result: '3F8B2A9C1D5E: lost connection with mx.example.com[198.51.100.2]:25'
+        result: '3F8B2A9C1D5E: lost connection with mx.example.com[198.51.100.2]:25 while sending message body'
     negative:
       - '!!! ---'
 
@@ -1569,7 +1674,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '3F8B2A9C1D5E: host mx.example.com[198.51.100.2]:25 said: 550 5.1.1 User unknown (in reply to RCPT TO command)'
-        result: '3F8B2A9C1D5E: host mx.example.com[198.51.100.2]:25'
+        result: '3F8B2A9C1D5E: host mx.example.com[198.51.100.2]:25 said: 550 5.1.1 User unknown (in reply to RCPT TO command)'
     negative:
       - 'nothing relevant'
 
@@ -1577,7 +1682,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: 'SSL_connect error to mx.example.com[198.51.100.2]:25: lost connection'
-        result: 'SSL_connect error to mx.example.com[198.51.100.2]:25'
+        result: 'SSL_connect error to mx.example.com[198.51.100.2]:25: lost connection'
     negative:
       - 'nothing relevant'
 
@@ -1585,7 +1690,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: '3F8B2A9C1D5E: conversation with mx.example.com[198.51.100.2]:25 timed out while sending message body'
-        result: '3F8B2A9C1D5E: conversation with mx.example.com[198.51.100.2]:25'
+        result: '3F8B2A9C1D5E: conversation with mx.example.com[198.51.100.2]:25 timed out while sending message body'
     negative:
       - 'nothing relevant'
 
@@ -1593,7 +1698,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: 'host mx.example.com[198.51.100.2]:25 offers SMTPUTF8 support, but not 8BITMIME'
-        result: 'host mx.example.com[198.51.100.2]:25'
+        result: 'host mx.example.com[198.51.100.2]:25 offers SMTPUTF8 support, but not 8BITMIME'
     negative:
       - 'nothing relevant'
 
@@ -1637,7 +1742,7 @@ vars_tests:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
       - string: 'certificate verification failed for mx.example.com[198.51.100.2]:25: untrusted issuer /C=US/O=Example'
-        result: 'certificate verification failed for mx.example.com[198.51.100.2]:25'
+        result: 'certificate verification failed for mx.example.com[198.51.100.2]:25: untrusted issuer /C=US/O=Example'
     negative:
       - 'nothing relevant'
 

@@ -22,8 +22,8 @@ includes:
 - base
 vars_templated:
   # The forms seen across versions:
-  #   "Starting job 5 (a000050192abc) for user 'kitsune' (1000)"
-  #   "Running job 5 as kitsune"
+  #   "Starting job 5 (a000050192abc) for user 'neti' (1000)"
+  #   "Running job 5 as neti"
   #
   # The job identifier and the user are the two things every wording carries,
   # so those are what is captured; everything else is left alone.
@@ -36,10 +36,10 @@ vars_tests:
   ATD_JOB:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Starting job 5 (a000050192abc) for user ''kitsune'' (1000)'
-        result: 'Starting job 5 (a000050192abc) for user ''kitsune'' (1000)'
-      - string: 'Running job 5 as kitsune'
-        result: 'Running job 5 as kitsune'
+      - string: 'Starting job 5 (a000050192abc) for user ''neti'' (1000)'
+        result: 'Starting job 5 (a000050192abc) for user ''neti'' (1000)'
+      - string: 'Running job 5 as neti'
+        result: 'Running job 5 as neti'
       - string: 'Deleting job 7'
         result: 'Deleting job 7'
     negative:
@@ -50,7 +50,7 @@ vars_tests:
       - string: 'Exec failed for mail command: No such file or directory'
         result: 'Exec failed for mail command: No such file or directory'
     negative:
-      - 'Running job 5 as kitsune'
+      - 'Running job 5 as neti'
   ATD_MESSAGE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -76,18 +76,18 @@ rules:
       - ATD_MESSAGE
     tests:
       positive:
-        - string: 'Starting job 5 (a000050192abc) for user ''kitsune'' (1000)'
+        - string: 'Starting job 5 (a000050192abc) for user ''neti'' (1000)'
           result:
             atd_action: 'Starting'
             atd_job: '5'
             atd_job_file: 'a000050192abc'
-            atd_user: 'kitsune'
+            atd_user: 'neti'
             atd_uid: '1000'
-        - string: 'Running job 5 as kitsune'
+        - string: 'Running job 5 as neti'
           result:
             atd_action: 'Running'
             atd_job: '5'
-            atd_user: 'kitsune'
+            atd_user: 'neti'
         - string: 'Exec failed for mail command: No such file or directory'
           result:
             atd_failed_command: 'mail command'

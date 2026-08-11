@@ -200,4 +200,4 @@ rules:
             http_bytes: '2326'
       negative:
         - 'this is not an access log line at all'
-        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

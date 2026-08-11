@@ -13,7 +13,7 @@
 includes:
 - base
 vars_templated:
-  # "/home/kitsune/file.exe: Win.Test.EICAR_HDB-1 FOUND"
+  # "/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND"
   #
   # The path is matched as "anything up to the last colon-space" because a file
   # name may contain a colon, and the signature name may not contain a space.
@@ -46,8 +46,8 @@ vars_tests:
   CLAMAV_FOUND:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '/home/kitsune/file.exe: Win.Test.EICAR_HDB-1 FOUND'
-        result: '/home/kitsune/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+      - string: '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+        result: '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
       - string: '/var/spool/x: Eicar-Signature FOUND'
         result: '/var/spool/x: Eicar-Signature FOUND'
     negative:
@@ -58,7 +58,7 @@ vars_tests:
       - string: '/tmp/x: OK'
         result: '/tmp/x: OK'
     negative:
-      - '/home/kitsune/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+      - '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
   CLAMAV_ERROR:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -128,9 +128,9 @@ rules:
       - CLAMAV_MESSAGE
     tests:
       positive:
-        - string: '/home/kitsune/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+        - string: '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
           result:
-            clamav_path: '/home/kitsune/file.exe'
+            clamav_path: '/home/neti/file.exe'
             clamav_signature: 'Win.Test.EICAR_HDB-1'
         - string: '/tmp/x: Can''t open file or directory ERROR'
           result:

@@ -10,7 +10,7 @@ named captures from its regexp, optionally broken down further (`decompose`),
 coerced (`convert`), and enriched with GeoIP (`geoip`).
 
 ```
-$ echo '{"PROGRAM":"sshd","MESSAGE":"Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCd"}' \
+$ echo '{"PROGRAM":"sshd","MESSAGE":"Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCd"}' \
     | log_munger munge --rules sshd
 ---
 ssh_key_fingerprint: SHA256:AbCd
@@ -18,7 +18,7 @@ ssh_key_type: RSA
 ssh_method: publickey
 ssh_src_ip: 192.0.2.5
 ssh_src_port: 54321
-ssh_user: kitsune
+ssh_user: neti
 ```
 
 ## Why

@@ -66,10 +66,10 @@ ok( !exists( $p->{'pam_kv'} ), 'pam: kv blob removed' );
 
 # su
 my $su = Log::Munger->new( 'rules' => ['su'] )->process_item(
-	'item' => { PROGRAM => 'su', MESSAGE => 'FAILED SU (to root) kitsune on pts/0' } );
+	'item' => { PROGRAM => 'su', MESSAGE => 'FAILED SU (to root) neti on pts/0' } );
 is( $su->{'su_result'},      'FAILED',  'su: result' );
 is( $su->{'su_target_user'}, 'root',    'su: target user' );
-is( $su->{'su_by_user'},     'kitsune', 'su: invoking user' );
+is( $su->{'su_by_user'},     'neti', 'su: invoking user' );
 
 # geoip on the flagged source fields
 SKIP: {

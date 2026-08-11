@@ -35,7 +35,7 @@ vars_templated:
   # newer slapd and are left to the trailing GREEDYDATA.
   SLAPD_RESULT: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) RESULT (?:oid=(?<slapd_oid>[% NOTSPACE %]) )?tag=(?<slapd_tag>[% INT %]) err=(?<slapd_err>[% INT %])(?: qtime=[% NOTSPACE %])?(?: etime=[% NOTSPACE %])?(?: text=(?<slapd_text>[% GREEDYDATA %]))?'
   # "conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0
-  #  filter="(uid=kitsune)""
+  #  filter="(uid=neti)""
   SLAPD_SEARCH: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) SRCH base="(?<slapd_base>[^"]*)" scope=(?<slapd_scope>[% INT %]) deref=(?<slapd_deref>[% INT %]) filter="(?<slapd_filter>.*)"'
   # "conn=1000 fd=12 closed (connection lost)"
   SLAPD_CLOSED: 'conn=(?<slapd_conn>[% INT %]) fd=(?<slapd_fd>[% INT %]) closed(?: \((?<slapd_close_reason>[^)]*)\))?(?: [% GREEDYDATA %])?'
@@ -77,8 +77,8 @@ vars_tests:
   SLAPD_SEARCH:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=kitsune)"'
-        result: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=kitsune)"'
+      - string: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=neti)"'
+        result: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=neti)"'
     negative:
       - 'conn=1000 op=0 RESULT tag=97 err=49 text='
   SLAPD_CLOSED:
@@ -93,8 +93,8 @@ vars_tests:
   SLAPD_OP:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'conn=1000 op=2 MOD dn="uid=kitsune,dc=example,dc=com"'
-        result: 'conn=1000 op=2 MOD dn="uid=kitsune,dc=example,dc=com"'
+      - string: 'conn=1000 op=2 MOD dn="uid=neti,dc=example,dc=com"'
+        result: 'conn=1000 op=2 MOD dn="uid=neti,dc=example,dc=com"'
       - string: 'conn=1000 op=3 UNBIND'
         result: 'conn=1000 op=3 UNBIND'
     negative:
@@ -155,14 +155,14 @@ rules:
             # slapd writes the key with nothing after it on a bind failure, so
             # the capture is present and empty rather than absent
             slapd_text: ''
-        - string: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=kitsune)"'
+        - string: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=neti)"'
           result:
             slapd_conn: '1000'
             slapd_op: '1'
             slapd_base: 'dc=example,dc=com'
             slapd_scope: '2'
             slapd_deref: '0'
-            slapd_filter: '(uid=kitsune)'
+            slapd_filter: '(uid=neti)'
         - string: 'conn=1000 fd=12 closed (connection lost)'
           result:
             slapd_conn: '1000'

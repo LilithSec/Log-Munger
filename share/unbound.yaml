@@ -250,4 +250,4 @@ rules:
             unbound_error: 'SERVFAIL <example.com. A IN>: all servers failed'
       negative:
         - 'this is not an unbound query line at all'
-        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

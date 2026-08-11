@@ -87,8 +87,8 @@ is( $kern->process_item(
 my $dc = Log::Munger->new( 'rules' => ['dovecot'] );
 my $d  = $dc->process_item(
 	'item' => { PROGRAM => 'dovecot',
-		MESSAGE => 'imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>' } );
-is( $d->{'dovecot_user'},   'kitsune',     'dovecot: user unwrapped from <>' );
+		MESSAGE => 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>' } );
+is( $d->{'dovecot_user'},   'neti',     'dovecot: user unwrapped from <>' );
 is( $d->{'dovecot_rip'},    '203.0.113.7', 'dovecot: remote ip' );
 is( $d->{'dovecot_service'}, 'imap',       'dovecot: service' );
 ok( looks_like_number( $d->{'dovecot_mpid'} ), 'dovecot: mpid is numeric (convert)' );
@@ -96,8 +96,8 @@ ok( looks_like_number( $d->{'dovecot_mpid'} ), 'dovecot: mpid is numeric (conver
 # sudo: kv decompose with a " ; " field split
 my $su = Log::Munger->new( 'rules' => ['sudo'] );
 my $u  = $su->process_item(
-	'item' => { PROGRAM => 'sudo', MESSAGE => 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la' } );
-is( $u->{'sudo_user'},    'kitsune',     'sudo: invoking user' );
+	'item' => { PROGRAM => 'sudo', MESSAGE => 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la' } );
+is( $u->{'sudo_user'},    'neti',     'sudo: invoking user' );
 is( $u->{'sudo_USER'},    'root',        'sudo: target user from kv' );
 is( $u->{'sudo_TTY'},     'pts/0',       'sudo: tty from kv' );
 is( $u->{'sudo_COMMAND'}, '/bin/ls -la', 'sudo: command from kv' );

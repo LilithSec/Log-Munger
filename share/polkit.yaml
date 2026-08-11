@@ -19,14 +19,14 @@ includes:
 vars_templated:
   # "Operator of unix-session:1 FAILED to authenticate to gain authorization
   #  for action org.freedesktop.systemd1.manage-units for
-  #  system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:kitsune)"
+  #  system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)"
   #
   # Someone was asked for a password and did not produce the right one.  In
   # bulk on a desktop this is a user fumbling; on a server it is worth a look.
   POLKIT_AUTH_FAILED: 'Operator of (?<polkit_subject>[% NOTSPACE %]) FAILED to authenticate to gain (?<polkit_scope>[A-Z-]+ )?authorization for action (?<polkit_action>[% NOTSPACE %]) for (?<polkit_caller>[% NOTSPACE %]) \[(?<polkit_command>[^\]]*)\](?: \(owned by (?<polkit_owner>[^)]*)\))?(?: [% GREEDYDATA %])?'
-  # "Operator of unix-session:1 successfully authenticated as unix-user:kitsune
+  # "Operator of unix-session:1 successfully authenticated as unix-user:neti
   #  to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units
-  #  for system-bus-name::1.234 [systemctl] (owned by unix-user:kitsune)"
+  #  for system-bus-name::1.234 [systemctl] (owned by unix-user:neti)"
   #
   # The scope word matters: ONE-SHOT is a single grant, while a plain
   # "authorization" is one that has been retained for the session.
@@ -45,17 +45,17 @@ vars_tests:
   POLKIT_AUTH_FAILED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:kitsune)'
-        result: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:kitsune)'
+      - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)'
+        result: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)'
       - string: 'Operator of unix-session:2 FAILED to authenticate to gain ONE-SHOT authorization for action org.freedesktop.udisks2.filesystem-mount for system-bus-name::1.99 [udisksctl mount] (owned by unix-user:alice)'
         result: 'Operator of unix-session:2 FAILED to authenticate to gain ONE-SHOT authorization for action org.freedesktop.udisks2.filesystem-mount for system-bus-name::1.99 [udisksctl mount] (owned by unix-user:alice)'
     negative:
-      - 'Operator of unix-session:1 successfully authenticated as unix-user:kitsune to gain authorization for action x for y [z]'
+      - 'Operator of unix-session:1 successfully authenticated as unix-user:neti to gain authorization for action x for y [z]'
   POLKIT_AUTH_OK:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Operator of unix-session:1 successfully authenticated as unix-user:kitsune to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:kitsune)'
-        result: 'Operator of unix-session:1 successfully authenticated as unix-user:kitsune to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:kitsune)'
+      - string: 'Operator of unix-session:1 successfully authenticated as unix-user:neti to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:neti)'
+        result: 'Operator of unix-session:1 successfully authenticated as unix-user:neti to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:neti)'
     negative:
       - 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action x for y [z]'
   POLKIT_AGENT:
@@ -95,22 +95,22 @@ rules:
       - POLKIT_MESSAGE
     tests:
       positive:
-        - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:kitsune)'
+        - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)'
           result:
             polkit_subject: 'unix-session:1'
             polkit_action: 'org.freedesktop.systemd1.manage-units'
             polkit_caller: 'system-bus-name::1.234'
             polkit_command: 'systemctl restart foo'
-            polkit_owner: 'unix-user:kitsune'
-        - string: 'Operator of unix-session:1 successfully authenticated as unix-user:kitsune to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:kitsune)'
+            polkit_owner: 'unix-user:neti'
+        - string: 'Operator of unix-session:1 successfully authenticated as unix-user:neti to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:neti)'
           result:
             polkit_subject: 'unix-session:1'
-            polkit_authenticated_as: 'unix-user:kitsune'
+            polkit_authenticated_as: 'unix-user:neti'
             polkit_scope: 'ONE-SHOT '
             polkit_action: 'org.freedesktop.systemd1.manage-units'
             polkit_caller: 'system-bus-name::1.234'
             polkit_command: 'systemctl'
-            polkit_owner: 'unix-user:kitsune'
+            polkit_owner: 'unix-user:neti'
         - string: 'Unregistered Authentication Agent for unix-process:1234:5678 (disconnected from bus)'
           result:
             polkit_agent_event: 'Unregistered'

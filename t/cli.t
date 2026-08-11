@@ -42,7 +42,7 @@ SKIP: {
 	like( $run->('list'), qr/^auditd$/m, 'CLI list: shows auditd' );
 	like( $run->( 'list_fields', '-f', 'sshd' ), qr/ssh_src_ip/, 'CLI list_fields: ssh_src_ip' );
 	like(
-		$run->( 'dump_rule_file', '-f', 'postfix', '--var', 'POSTFIX_QMGR_REMOVED' ),
+		$run->( 'dump_rule_file', '-f', 'postfix', '--var', 'POSTFIX_REMOVED' ),
 		qr/postfix_queueid/,
 		'CLI dump_rule_file --var: resolved regexp'
 	);

@@ -40,8 +40,8 @@ vars_tests:
     positive:
       - string: '(root) CMD (/usr/bin/foo --flag)'
         result: '(root) CMD (/usr/bin/foo --flag)'
-      - string: '(kitsune) CMD (command_name)'
-        result: '(kitsune) CMD (command_name)'
+      - string: '(neti) CMD (command_name)'
+        result: '(neti) CMD (command_name)'
     negative:
       - 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
   CRON_SESSION:
@@ -67,8 +67,8 @@ vars_tests:
     positive:
       - string: '(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)'
         result: '(root) MAIL (mailed 123 bytes of output but got status 0x004b from MTA)'
-      - string: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
-        result: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+      - string: '(neti) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+        result: '(neti) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
     negative:
       - '(root) CMD (/usr/bin/foo --flag)'
   CRON_GRANDCHILD:
@@ -85,8 +85,8 @@ vars_tests:
     positive:
       - string: '(root) ERROR (Mailing user)'
         result: '(root) ERROR (Mailing user)'
-      - string: '(kitsune) ERROR (getpwnam() failed)'
-        result: '(kitsune) ERROR (getpwnam() failed)'
+      - string: '(neti) ERROR (getpwnam() failed)'
+        result: '(neti) ERROR (getpwnam() failed)'
     negative:
       - '(CRON) error (grandchild #1234 failed with exit status 1)'
   CRON_PARSE_ERROR:
@@ -138,9 +138,9 @@ rules:
           result:
             cron_user: 'root'
             cron_command: '/usr/bin/foo --flag'
-        - string: '(kitsune) CMD (command_name)'
+        - string: '(neti) CMD (command_name)'
           result:
-            cron_user: 'kitsune'
+            cron_user: 'neti'
             cron_command: 'command_name'
         - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
           result:
@@ -167,9 +167,9 @@ rules:
             cron_user: 'root'
             cron_mail_bytes: '123'
             cron_mail_status: '0x004b'
-        - string: '(kitsune) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
+        - string: '(neti) MAIL (mailed 4096 bytes of output but got status 0x0000 from MTA)'
           result:
-            cron_user: 'kitsune'
+            cron_user: 'neti'
             cron_mail_bytes: '4096'
             cron_mail_status: '0x0000'
         - string: '(CRON) error (grandchild #1234 failed with exit status 1)'

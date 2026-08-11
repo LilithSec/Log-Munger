@@ -8,7 +8,7 @@
 includes:
 - base
 vars_templated:
-  # "New session 3 of user kitsune."
+  # "New session 3 of user neti."
   LOGIND_SESSION_NEW: 'New session (?<logind_session_id>[% INT %]) of user (?<logind_user>[% USERNAME %])\.'
   # "Session 3 logged out. Waiting for processes to exit."
   LOGIND_SESSION_LOGOUT: 'Session (?<logind_session_id>[% INT %]) logged out\. Waiting for processes to exit\.'
@@ -31,8 +31,8 @@ vars_tests:
   LOGIND_SESSION_NEW:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'New session 3 of user kitsune.'
-        result: 'New session 3 of user kitsune.'
+      - string: 'New session 3 of user neti.'
+        result: 'New session 3 of user neti.'
       - string: 'New session 12 of user root.'
         result: 'New session 12 of user root.'
     negative:
@@ -54,7 +54,7 @@ vars_tests:
       - string: 'Removed session 12.'
         result: 'Removed session 12.'
     negative:
-      - 'New session 3 of user kitsune.'
+      - 'New session 3 of user neti.'
   LOGIND_SEAT_NEW:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -134,10 +134,10 @@ rules:
       - LOGIND_EVENT
     tests:
       positive:
-        - string: 'New session 3 of user kitsune.'
+        - string: 'New session 3 of user neti.'
           result:
             logind_session_id: '3'
-            logind_user: 'kitsune'
+            logind_user: 'neti'
         - string: 'New session 12 of user root.'
           result:
             logind_session_id: '12'

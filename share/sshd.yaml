@@ -120,8 +120,8 @@ vars_tests:
   SSH_ACCEPTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
-        result: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+      - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+        result: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
       - string: 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
         result: 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
     negative:
@@ -231,26 +231,26 @@ vars_tests:
   SSH_POSTPONED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
-        result: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+      - string: 'Postponed publickey for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
+        result: 'Postponed publickey for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
       - string: 'Postponed keyboard-interactive for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
         result: 'Postponed keyboard-interactive for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
     negative:
-      - 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2'
+      - 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2'
   SSH_PARTIAL:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Partial authentication for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
-        result: 'Partial authentication for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+      - string: 'Partial authentication for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
+        result: 'Partial authentication for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
     negative:
-      - 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+      - 'Postponed publickey for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
   SSH_ACCEPTED_CERT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
-        result: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+      - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID neti@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+        result: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID neti@example (serial 7) CA ED25519 SHA256:ZzYyXx'
     negative:
-      - 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+      - 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
   SSH_AUTH_METHOD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -334,8 +334,8 @@ vars_tests:
       - string: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
         result: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
       # PAM logs whatever it resolved, which is often a name
-      - string: 'error: PAM: User account has expired for kitsune from mail.example.net'
-        result: 'error: PAM: User account has expired for kitsune from mail.example.net'
+      - string: 'error: PAM: User account has expired for neti from mail.example.net'
+        result: 'error: PAM: User account has expired for neti from mail.example.net'
     negative:
       - 'error: kex_exchange_identification: Connection closed by remote host'
 # file-level default: geoip lookup on the source IP (only used when the munger
@@ -384,10 +384,10 @@ rules:
       - SSH_CONN_FROM
     tests:
       positive:
-        - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+        - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
           result:
             ssh_method: 'publickey'
-            ssh_user: 'kitsune'
+            ssh_user: 'neti'
             ssh_src_ip: '192.0.2.5'
             ssh_src_port: '54321'
             ssh_key_type: 'RSA'
@@ -435,15 +435,15 @@ rules:
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
         # -- new message types --
-        - string: 'Accepted publickey for kitsune from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID kitsune@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+        - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID neti@example (serial 7) CA ED25519 SHA256:ZzYyXx'
           result:
             ssh_method: 'publickey'
-            ssh_user: 'kitsune'
+            ssh_user: 'neti'
             ssh_src_ip: '192.0.2.5'
             ssh_src_port: '54321'
             ssh_key_type: 'ED25519-CERT'
             ssh_key_fingerprint: 'SHA256:AbCdEf0123456789'
-            ssh_cert_id: 'kitsune@example'
+            ssh_cert_id: 'neti@example'
             ssh_cert_serial: '7'
         - string: 'error: maximum authentication attempts exceeded for root from 203.0.113.7 port 44444 ssh2 [preauth]'
           result:
@@ -507,10 +507,10 @@ rules:
           result:
             ssh_listen_addr: '::'
             ssh_listen_port: '22'
-        - string: 'Postponed publickey for kitsune from 192.0.2.5 port 54321 ssh2 [preauth]'
+        - string: 'Postponed publickey for neti from 192.0.2.5 port 54321 ssh2 [preauth]'
           result:
             ssh_method: 'publickey'
-            ssh_user: 'kitsune'
+            ssh_user: 'neti'
             ssh_src_ip: '192.0.2.5'
             ssh_src_port: '54321'
         - string: 'Partial authentication for alice from 198.51.100.9 port 40000 ssh2 [preauth]'
@@ -532,10 +532,10 @@ rules:
             ssh_user: 'root'
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
-        - string: 'Accepted keyboard-interactive/pam for kitsune from 192.0.2.5 port 54321 ssh2'
+        - string: 'Accepted keyboard-interactive/pam for neti from 192.0.2.5 port 54321 ssh2'
           result:
             ssh_method: 'keyboard-interactive/pam'
-            ssh_user: 'kitsune'
+            ssh_user: 'neti'
             ssh_src_ip: '192.0.2.5'
             ssh_src_port: '54321'
         # -- connections that never reached authentication --
@@ -572,10 +572,10 @@ rules:
             ssh_invalid: 'illegal'
             ssh_user: 'admin'
             ssh_src_ip: '198.51.100.9'
-        - string: 'error: PAM: User account has expired for kitsune from mail.example.net'
+        - string: 'error: PAM: User account has expired for neti from mail.example.net'
           result:
             ssh_pam_error: 'User account has expired'
-            ssh_user: 'kitsune'
+            ssh_user: 'neti'
             ssh_src_host: 'mail.example.net'
         - string: 'Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22'
           result:

@@ -15,39 +15,39 @@
 includes:
 - base
 vars_templated:
-  # "(to root) kitsune on pts/0" and "FAILED SU (to root) kitsune on pts/0"
+  # "(to root) neti on pts/0" and "FAILED SU (to root) neti on pts/0"
   # (and the "su: (to ...)" variant).  su_result is only present on failures.
   SU_TO: '(?:(?<su_result>FAILED) SU |su: )?\(to (?<su_target_user>[% USERNAME %])\) (?<su_by_user>[% USERNAME %]) on (?<su_tty>[% NOTSPACE %])'
-  # success: "+ pts/0 kitsune:root"
+  # success: "+ pts/0 neti:root"
   SU_SUCCESS: '\+ (?<su_tty>[% NOTSPACE %]) (?<su_by_user>[% USERNAME %]):(?<su_target_user>[% USERNAME %])'
-  # failure: "- pts/0 kitsune:root"
+  # failure: "- pts/0 neti:root"
   SU_FAILURE: '- (?<su_tty>[% NOTSPACE %]) (?<su_by_user>[% USERNAME %]):(?<su_target_user>[% USERNAME %])'
 vars_tests:
   SU_TO:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '(to root) kitsune on pts/0'
-        result: '(to root) kitsune on pts/0'
-      - string: 'FAILED SU (to root) kitsune on pts/0'
-        result: 'FAILED SU (to root) kitsune on pts/0'
+      - string: '(to root) neti on pts/0'
+        result: '(to root) neti on pts/0'
+      - string: 'FAILED SU (to root) neti on pts/0'
+        result: 'FAILED SU (to root) neti on pts/0'
     negative:
-      - '+ pts/0 kitsune:root'
+      - '+ pts/0 neti:root'
   SU_SUCCESS:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '+ pts/0 kitsune:root'
-        result: '+ pts/0 kitsune:root'
+      - string: '+ pts/0 neti:root'
+        result: '+ pts/0 neti:root'
       - string: '+ /dev/pts/1 alice:root'
         result: '+ /dev/pts/1 alice:root'
     negative:
-      - '- pts/0 kitsune:root'
+      - '- pts/0 neti:root'
   SU_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '- pts/0 kitsune:root'
-        result: '- pts/0 kitsune:root'
+      - string: '- pts/0 neti:root'
+        result: '- pts/0 neti:root'
     negative:
-      - '+ pts/0 kitsune:root'
+      - '+ pts/0 neti:root'
 rules:
   - name: su
     gate:
@@ -62,26 +62,26 @@ rules:
       - SU_FAILURE
     tests:
       positive:
-        - string: '(to root) kitsune on pts/0'
+        - string: '(to root) neti on pts/0'
           result:
             su_target_user: 'root'
-            su_by_user: 'kitsune'
+            su_by_user: 'neti'
             su_tty: 'pts/0'
-        - string: 'FAILED SU (to root) kitsune on pts/0'
+        - string: 'FAILED SU (to root) neti on pts/0'
           result:
             su_result: 'FAILED'
             su_target_user: 'root'
-            su_by_user: 'kitsune'
+            su_by_user: 'neti'
             su_tty: 'pts/0'
-        - string: '+ pts/0 kitsune:root'
+        - string: '+ pts/0 neti:root'
           result:
             su_tty: 'pts/0'
-            su_by_user: 'kitsune'
+            su_by_user: 'neti'
             su_target_user: 'root'
-        - string: '- pts/0 kitsune:root'
+        - string: '- pts/0 neti:root'
           result:
             su_tty: 'pts/0'
-            su_by_user: 'kitsune'
+            su_by_user: 'neti'
             su_target_user: 'root'
         - string: '+ /dev/pts/1 alice:root'
           result:

@@ -28,7 +28,7 @@ vars_templated:
   CUPS_ERROR: '[% CUPS_ERROR_HEAD %](?<cups_message>.+)'
   # access_log, which is CLF with the IPP operation where the request goes:
   #
-  #   localhost - kitsune [15/Jul/2026:10:00:00 +0000] "POST /printers/laser
+  #   localhost - neti [15/Jul/2026:10:00:00 +0000] "POST /printers/laser
   #   HTTP/1.1" 200 1234 Print-Job successful-ok
   #
   # The two trailing fields are the IPP operation and its status, and they are
@@ -67,8 +67,8 @@ vars_tests:
   CUPS_ACCESS:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'localhost - kitsune [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
-        result: 'localhost - kitsune [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
+      - string: 'localhost - neti [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
+        result: 'localhost - neti [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
       - string: '192.0.2.5 - - [15/Jul/2026:10:00:00 +0000] "GET /admin HTTP/1.1" 401 0 - -'
         result: '192.0.2.5 - - [15/Jul/2026:10:00:00 +0000] "GET /admin HTTP/1.1" 401 0 - -'
     negative:
@@ -110,11 +110,11 @@ rules:
             cups_level: 'I'
             cups_timestamp: '15/Jul/2026:10:00:00 +0000'
             cups_message: 'Listening to /run/cups/cups.sock:0'
-        - string: 'localhost - kitsune [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
+        - string: 'localhost - neti [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
           result:
             cups_client: 'localhost'
             cups_ident: '-'
-            cups_user: 'kitsune'
+            cups_user: 'neti'
             cups_timestamp: '15/Jul/2026:10:00:00 +0000'
             cups_method: 'POST'
             cups_resource: '/printers/laser'

@@ -175,6 +175,6 @@ rules:
             pf_detail: '2001:db8::1.49152 > 2001:db8::2.22: Flags [S], length 0'
       negative:
         - 'this is not a pf line at all'
-        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for kitsune'
+        - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
         # netfilter's kv shape belongs to netfilter.yaml, not here
         - '[UFW BLOCK] IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=44444 DPT=22'

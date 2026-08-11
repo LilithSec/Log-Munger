@@ -12,7 +12,7 @@
 #     split into sudo_TTY / sudo_PWD / sudo_USER / sudo_COMMAND by the
 #     file-level decompose (kv, field_split ' ; ').
 #   * the pam_unix session line:
-#       pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)
+#       pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)
 includes:
 - base
 vars_templated:
@@ -47,21 +47,21 @@ vars_tests:
   SUDO_COMMAND:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
-        result: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+        result: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
       - string: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
         result: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
     negative:
-      - 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
   SUDO_SESSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
-        result: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
+        result: 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
       - string: 'pam_unix(sudo:session): session closed for user root'
         result: 'pam_unix(sudo:session): session closed for user root'
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_NOT_IN_SUDOERS:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -70,52 +70,52 @@ vars_tests:
       - string: 'www-data : user NOT in sudoers ; TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/id'
         result: 'www-data : user NOT in sudoers ; TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/id'
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_COMMAND_NOT_ALLOWED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
-        result: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+      - string: 'neti : command not allowed ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/sbin/reboot'
+        result: 'neti : command not allowed ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/sbin/reboot'
       - string: 'deploy : command not allowed ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/bin/rm -rf /'
         result: 'deploy : command not allowed ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/bin/rm -rf /'
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_NOT_ALLOWED_EXECUTE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
-        result: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
+      - string: "neti : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/su"
+        result: "neti : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/su"
       - string: "deploy : user NOT allowed to execute '/usr/bin/passwd' as root ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/passwd"
         result: "deploy : user NOT allowed to execute '/usr/bin/passwd' as root ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/passwd"
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_INCORRECT_PASSWORD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
-        result: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+      - string: 'neti : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
+        result: 'neti : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
       - string: 'deploy : 1 incorrect password attempt ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/id'
         result: 'deploy : 1 incorrect password attempt ; TTY=pts/1 ; PWD=/srv ; USER=root ; COMMAND=/usr/bin/id'
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_NEED_TTY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
-        result: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+      - string: 'neti : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
+        result: 'neti : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
       - string: 'www-data : sorry, you must have a tty to run sudo'
         result: 'www-data : sorry, you must have a tty to run sudo'
     negative:
-      - 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
   SUDO_PAM_AUTH_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
-        result: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+      - string: 'pam_unix(sudo:auth): authentication failure; logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
+        result: 'pam_unix(sudo:auth): authentication failure; logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
       - string: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
         result: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
     negative:
-      - 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+      - 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
 # file-level default: coerce the session uids to integers at runtime
 convert:
   sudo_target_uid: int
@@ -132,10 +132,10 @@ decompose:
     prefix: 'sudo_'
     remove: true
     tests:
-      - input: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+      - input: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
         result:
           sudo_TTY: 'pts/0'
-          sudo_PWD: '/home/kitsune'
+          sudo_PWD: '/home/neti'
           sudo_USER: 'root'
           sudo_COMMAND: '/bin/ls -la'
   # pam_unix auth-failure blob (space-separated) -> sudo_logname / sudo_uid /
@@ -147,15 +147,15 @@ decompose:
     prefix: 'sudo_'
     remove: true
     tests:
-      - input: 'logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost= user=kitsune'
+      - input: 'logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost= user=neti'
         result:
-          sudo_logname: 'kitsune'
+          sudo_logname: 'neti'
           sudo_uid: '1000'
           sudo_euid: '0'
           sudo_tty: '/dev/pts/0'
-          sudo_ruser: 'kitsune'
+          sudo_ruser: 'neti'
           sudo_rhost: ''
-          sudo_user: 'kitsune'
+          sudo_user: 'neti'
 rules:
   - name: sudo
     gate:
@@ -175,20 +175,20 @@ rules:
       - SUDO_PAM_AUTH_FAILURE
     tests:
       positive:
-        - string: 'kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+        - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
           result:
-            sudo_user: 'kitsune'
-            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls -la'
+            sudo_user: 'neti'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
         - string: 'www-data : TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
           result:
             sudo_user: 'www-data'
             sudo_kv: 'TTY=unknown ; PWD=/var/www ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx'
-        - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by kitsune(uid=1000)'
+        - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
           result:
             sudo_session_action: 'opened'
             sudo_target_user: 'root'
             sudo_target_uid: '0'
-            sudo_by_user: 'kitsune'
+            sudo_by_user: 'neti'
             sudo_by_uid: '1000'
         - string: 'pam_unix(sudo:session): session closed for user root'
           result:
@@ -199,34 +199,34 @@ rules:
             sudo_user: 'baduser'
             sudo_error: 'user NOT in sudoers'
             sudo_kv: 'TTY=pts/0 ; PWD=/home/baduser ; USER=root ; COMMAND=/bin/ls'
-        - string: 'kitsune : command not allowed ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
+        - string: 'neti : command not allowed ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/sbin/reboot'
           result:
-            sudo_user: 'kitsune'
+            sudo_user: 'neti'
             sudo_error: 'command not allowed'
-            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/sbin/reboot'
-        - string: "kitsune : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su"
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/sbin/reboot'
+        - string: "neti : user NOT allowed to execute '/bin/su' as root ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/su"
           result:
-            sudo_user: 'kitsune'
+            sudo_user: 'neti'
             sudo_error: "user NOT allowed to execute '/bin/su' as root"
-            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/su'
-        - string: 'kitsune : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/su'
+        - string: 'neti : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
           result:
-            sudo_user: 'kitsune'
+            sudo_user: 'neti'
             sudo_error: '3 incorrect password attempts'
             sudo_pw_attempts: '3'
-            sudo_kv: 'TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
-        - string: 'kitsune : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+            sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
+        - string: 'neti : sorry, you must have a tty to run sudo ; TTY=unknown ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
           result:
-            sudo_user: 'kitsune'
+            sudo_user: 'neti'
             sudo_error: 'sorry, you must have a tty to run sudo'
-            sudo_kv: 'TTY=unknown ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls'
+            sudo_kv: 'TTY=unknown ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
         - string: 'www-data : sorry, you must have a tty to run sudo'
           result:
             sudo_user: 'www-data'
             sudo_error: 'sorry, you must have a tty to run sudo'
-        - string: 'pam_unix(sudo:auth): authentication failure; logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+        - string: 'pam_unix(sudo:auth): authentication failure; logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
           result:
             sudo_pam_type: 'auth'
-            sudo_pam_kv: 'logname=kitsune uid=1000 euid=0 tty=/dev/pts/0 ruser=kitsune rhost=  user=kitsune'
+            sudo_pam_kv: 'logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
       negative:
         - 'this is not a valid sudo line at all'

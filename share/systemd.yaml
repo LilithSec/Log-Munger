@@ -31,7 +31,7 @@ vars_templated:
   SYSTEMD_STARTING: 'Starting (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.\.\.'
   # "Stopping <unit> - <desc>..." / "Stopping <desc>..."
   SYSTEMD_STOPPING: 'Stopping (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.\.\.'
-  # "Started <unit> - <desc>." / "Started Session 3 of user kitsune."
+  # "Started <unit> - <desc>." / "Started Session 3 of user neti."
   SYSTEMD_STARTED: 'Started (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
   # "Stopped <unit> - <desc>." / "Stopped <desc>."
   SYSTEMD_STOPPED: 'Stopped (?:(?<systemd_unit>[% SYSTEMD_UNIT %]) - )?(?<systemd_desc>[% GREEDYDATA %])\.'
@@ -91,7 +91,7 @@ vars_tests:
       - string: 'Reached target Basic System.'
         result: 'Reached target Basic System.'
     negative:
-      - 'Started Session 3 of user kitsune.'
+      - 'Started Session 3 of user neti.'
   SYSTEMD_FAILED_TO_START:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -100,7 +100,7 @@ vars_tests:
       - string: 'Failed to start My Service.'
         result: 'Failed to start My Service.'
     negative:
-      - 'Started Session 3 of user kitsune.'
+      - 'Started Session 3 of user neti.'
   SYSTEMD_RELOADING:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -109,7 +109,7 @@ vars_tests:
       - string: 'Reloading finished in 12 ms.'
         result: 'Reloading finished in 12 ms.'
     negative:
-      - 'Started Session 3 of user kitsune.'
+      - 'Started Session 3 of user neti.'
   SYSTEMD_STARTING:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -118,7 +118,7 @@ vars_tests:
       - string: 'Starting Daily apt download activities...'
         result: 'Starting Daily apt download activities...'
     negative:
-      - 'Started Session 3 of user kitsune.'
+      - 'Started Session 3 of user neti.'
   SYSTEMD_STOPPING:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -131,8 +131,8 @@ vars_tests:
   SYSTEMD_STARTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'Started Session 3 of user kitsune.'
-        result: 'Started Session 3 of user kitsune.'
+      - string: 'Started Session 3 of user neti.'
+        result: 'Started Session 3 of user neti.'
       - string: 'Started nginx.service - A high performance web server.'
         result: 'Started nginx.service - A high performance web server.'
     negative:
@@ -142,8 +142,8 @@ vars_tests:
     positive:
       - string: 'Stopped nginx.service - A high performance web server.'
         result: 'Stopped nginx.service - A high performance web server.'
-      - string: 'Stopped Session 3 of user kitsune.'
-        result: 'Stopped Session 3 of user kitsune.'
+      - string: 'Stopped Session 3 of user neti.'
+        result: 'Stopped Session 3 of user neti.'
     negative:
       - 'Stopping nginx - A high performance web server...'
   SYSTEMD_FINISHED:
@@ -226,9 +226,9 @@ rules:
         - string: 'Stopping User Manager for UID 1000...'
           result:
             systemd_desc: 'User Manager for UID 1000'
-        - string: 'Started Session 3 of user kitsune.'
+        - string: 'Started Session 3 of user neti.'
           result:
-            systemd_desc: 'Session 3 of user kitsune'
+            systemd_desc: 'Session 3 of user neti'
         - string: 'Stopped nginx.service - A high performance web server.'
           result:
             systemd_unit: 'nginx.service'

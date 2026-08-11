@@ -103,9 +103,9 @@ is( $none->{'ssh_method'},  'none',    'sshd: "none" probe is matched' );
 is( $none->{'ssh_invalid'}, 'invalid', 'sshd: "none" probe invalid-user flag' );
 
 my $pam_method = $sshd->process_item(
-	'message' => 'Accepted keyboard-interactive/pam for kitsune from 192.0.2.5 port 54321 ssh2', 'program' => 'sshd' );
+	'message' => 'Accepted keyboard-interactive/pam for neti from 192.0.2.5 port 54321 ssh2', 'program' => 'sshd' );
 is( $pam_method->{'ssh_method'}, 'keyboard-interactive/pam', 'sshd: PAM method name is matched whole' );
-is( $pam_method->{'ssh_user'},   'kitsune',                  'sshd: PAM method user' );
+is( $pam_method->{'ssh_user'},   'neti',                  'sshd: PAM method user' );
 
 # fatal() puts a prefix on this one
 my $timeout = $sshd->process_item( 'message' => 'fatal: Timeout before authentication for 203.0.113.7 port 44444',
@@ -115,7 +115,7 @@ is( $timeout->{'ssh_src_ip'}, '203.0.113.7', 'sshd: timeout with the fatal: pref
 # PAM reports the peer as whatever it resolved, so a name goes somewhere other
 # than the field the geoip lookup reads
 my $pam_named = $sshd->process_item(
-	'message' => 'error: PAM: User account has expired for kitsune from mail.example.net', 'program' => 'sshd' );
+	'message' => 'error: PAM: User account has expired for neti from mail.example.net', 'program' => 'sshd' );
 is( $pam_named->{'ssh_src_host'}, 'mail.example.net', 'sshd: PAM peer as a hostname' );
 ok( !exists( $pam_named->{'ssh_src_ip'} ), 'sshd: a hostname peer does not land in ssh_src_ip' );
 
@@ -202,7 +202,7 @@ ok( !exists( $plain_combined->{'http_vhost'} ), 'http: plain combined sets no vh
 my $squid = Log::Munger->new( 'rules' => ['squid'] );
 
 my $combined = $squid->process_item(
-	'item' => '192.0.2.5 - kitsune [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT' );
+	'item' => '192.0.2.5 - neti [15/Jul/2026:10:00:00 +0000] "GET http://example.com/ HTTP/1.1" 200 1234 "http://ref.example/" "Mozilla/5.0" TCP_MISS:HIER_DIRECT' );
 is( $combined->{'squid_client_ip'},   '192.0.2.5',   'squid: combined client ip' );
 is( $combined->{'squid_result_code'}, 'TCP_MISS',    'squid: combined result code' );
 is( $combined->{'squid_hierarchy'},   'HIER_DIRECT', 'squid: combined hierarchy' );

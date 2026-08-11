@@ -21,7 +21,7 @@ vars_templated:
   # hostname: it is whatever the reverse lookup returned, and on an unresolved
   # v6 peer that is a bare address with colons in it.
   PROFTPD_HEAD: '(?<proftpd_server>[% NOTSPACE %]) \((?<proftpd_client_host>[^\[]*)\[(?<proftpd_client_ip>[% IP %])\]\) - '
-  # "USER kitsune: Login successful."
+  # "USER neti: Login successful."
   PROFTPD_LOGIN_OK: '[% PROFTPD_HEAD %]USER (?<proftpd_user>[% NOTSPACE %]): Login successful\.?(?: [% GREEDYDATA %])?'
   # "USER admin (Login failed): Incorrect password."
   #
@@ -49,12 +49,12 @@ vars_tests:
       - string: 'ftp.example.com (203.0.113.7[203.0.113.7]) - '
         result: 'ftp.example.com (203.0.113.7[203.0.113.7]) - '
     negative:
-      - '192.0.2.1 - USER kitsune: Login successful.'
+      - '192.0.2.1 - USER neti: Login successful.'
   PROFTPD_LOGIN_OK:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER kitsune: Login successful.'
-        result: '192.0.2.1 (client.example.net[198.51.100.9]) - USER kitsune: Login successful.'
+      - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
+        result: '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
     negative:
       - '192.0.2.1 (client.example.net[198.51.100.9]) - USER admin (Login failed): Incorrect password.'
   PROFTPD_LOGIN_FAIL:
@@ -65,7 +65,7 @@ vars_tests:
       - string: '192.0.2.1 (scanner[203.0.113.7]) - USER oracle (Login failed): No such user found'
         result: '192.0.2.1 (scanner[203.0.113.7]) - USER oracle (Login failed): No such user found'
     negative:
-      - '192.0.2.1 (client.example.net[198.51.100.9]) - USER kitsune: Login successful.'
+      - '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
   PROFTPD_SESSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -74,7 +74,7 @@ vars_tests:
       - string: '192.0.2.1 (client.example.net[198.51.100.9]) - FTP session closed.'
         result: '192.0.2.1 (client.example.net[198.51.100.9]) - FTP session closed.'
     negative:
-      - '192.0.2.1 (client.example.net[198.51.100.9]) - USER kitsune: Login successful.'
+      - '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
   PROFTPD_SECURITY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -94,8 +94,8 @@ vars_tests:
   PROFTPD_GENERIC:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/kitsune'''
-        result: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/kitsune'''
+      - string: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/neti'''
+        result: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/neti'''
     negative:
       # the head is required, and there has to be something after it
       - 'this is not a proftpd line at all'
@@ -123,12 +123,12 @@ rules:
       - PROFTPD_GENERIC
     tests:
       positive:
-        - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER kitsune: Login successful.'
+        - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
           result:
             proftpd_server: '192.0.2.1'
             proftpd_client_host: 'client.example.net'
             proftpd_client_ip: '198.51.100.9'
-            proftpd_user: 'kitsune'
+            proftpd_user: 'neti'
         - string: '192.0.2.1 (scanner[203.0.113.7]) - USER admin (Login failed): Incorrect password.'
           result:
             proftpd_server: '192.0.2.1'
@@ -156,12 +156,12 @@ rules:
             proftpd_limit_kind: 'login attempts'
             proftpd_limit: '3'
         # unrecognised, but the head still gives the peer
-        - string: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/kitsune'''
+        - string: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/neti'''
           result:
             proftpd_server: '192.0.2.1'
             proftpd_client_host: 'client.example.net'
             proftpd_client_ip: '198.51.100.9'
-            proftpd_message: 'Preparing to chroot to directory ''/home/kitsune'''
+            proftpd_message: 'Preparing to chroot to directory ''/home/neti'''
       negative:
         - 'this is not a proftpd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

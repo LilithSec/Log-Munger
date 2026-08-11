@@ -9,7 +9,7 @@
 # is whatever the administrator made it and cannot be parsed in general.  What
 # IS fixed is the severity word and the two spaces after its colon:
 #
-#   ... FATAL:  password authentication failed for user "kitsune"
+#   ... FATAL:  password authentication failed for user "neti"
 #
 # So every pattern here treats the prefix as text to be stepped over and keys
 # on the severity instead.  The prefix is still captured whole as pgsql_prefix
@@ -29,14 +29,14 @@ vars_templated:
   # would sail past "LOG:" in the prefix of a line whose body mentions another
   # severity word and key on the wrong one.
   PGSQL_PREFIX: '(?<pgsql_prefix>.*?)'
-  # "FATAL:  password authentication failed for user "kitsune""
+  # "FATAL:  password authentication failed for user "neti""
   #
   # postgres writes two spaces after the colon; one is tolerated as well, since
   # some log shippers collapse runs of whitespace.
   PGSQL_AUTH_FAILED: '[% PGSQL_PREFIX %](?<pgsql_level>FATAL): {1,2}(?<pgsql_auth_error>password authentication failed|no pg_hba\.conf entry|[A-Za-z ]*authentication failed) for (?:user "(?<pgsql_user>[^"]*)"|host "(?<pgsql_src_host>[^"]*)")(?<pgsql_auth_detail>[% GREEDYDATA %])'
   # "LOG:  connection received: host=192.0.2.5 port=49152"
   PGSQL_CONN_RECEIVED: '[% PGSQL_PREFIX %](?<pgsql_level>LOG): {1,2}connection received: host=(?:(?<pgsql_src_ip>[% IP %])|(?<pgsql_src_host>[% NOTSPACE %]))(?: port=(?<pgsql_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
-  # "LOG:  connection authorized: user=kitsune database=mydb"
+  # "LOG:  connection authorized: user=neti database=mydb"
   PGSQL_CONN_AUTHORIZED: '[% PGSQL_PREFIX %](?<pgsql_level>LOG): {1,2}connection authorized: user=(?<pgsql_user>[% NOTSPACE %])(?: database=(?<pgsql_db>[% NOTSPACE %]))?(?: [% GREEDYDATA %])?'
   # "FATAL:  database "nope" does not exist"
   # "FATAL:  role "nope" does not exist"
@@ -62,8 +62,8 @@ vars_tests:
   PGSQL_PREFIX:
     test_template: '^(?<TEST>[% TEST_VAR %])x$'
     positive:
-      - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb x'
-        result: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb '
+      - string: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb x'
+        result: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb '
       # the prefix can be empty
       - string: 'x'
         result: ''
@@ -73,8 +73,8 @@ vars_tests:
   PGSQL_AUTH_FAILED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
-        result: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
+      - string: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb FATAL:  password authentication failed for user "neti"'
+        result: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb FATAL:  password authentication failed for user "neti"'
       - string: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
         result: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
     negative:
@@ -87,12 +87,12 @@ vars_tests:
       - string: '2026-07-15 10:00:00.123 UTC [1234] LOG:  connection received: host=192.0.2.5 port=49152'
         result: '2026-07-15 10:00:00.123 UTC [1234] LOG:  connection received: host=192.0.2.5 port=49152'
     negative:
-      - 'LOG:  connection authorized: user=kitsune database=mydb'
+      - 'LOG:  connection authorized: user=neti database=mydb'
   PGSQL_CONN_AUTHORIZED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'LOG:  connection authorized: user=kitsune database=mydb'
-        result: 'LOG:  connection authorized: user=kitsune database=mydb'
+      - string: 'LOG:  connection authorized: user=neti database=mydb'
+        result: 'LOG:  connection authorized: user=neti database=mydb'
     negative:
       - 'LOG:  connection received: host=192.0.2.5 port=49152'
   PGSQL_NOT_EXIST:
@@ -103,7 +103,7 @@ vars_tests:
       - string: 'FATAL:  role "admin" does not exist'
         result: 'FATAL:  role "admin" does not exist'
     negative:
-      - 'FATAL:  password authentication failed for user "kitsune"'
+      - 'FATAL:  password authentication failed for user "neti"'
   PGSQL_MESSAGE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -135,12 +135,12 @@ rules:
       - PGSQL_MESSAGE
     tests:
       positive:
-        - string: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb FATAL:  password authentication failed for user "kitsune"'
+        - string: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb FATAL:  password authentication failed for user "neti"'
           result:
-            pgsql_prefix: '2026-07-15 10:00:00.123 UTC [1234] kitsune@mydb '
+            pgsql_prefix: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb '
             pgsql_level: 'FATAL'
             pgsql_auth_error: 'password authentication failed'
-            pgsql_user: 'kitsune'
+            pgsql_user: 'neti'
             pgsql_auth_detail: ''
         - string: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
           result:
@@ -155,11 +155,11 @@ rules:
             pgsql_level: 'LOG'
             pgsql_src_ip: '192.0.2.5'
             pgsql_src_port: '49152'
-        - string: 'LOG:  connection authorized: user=kitsune database=mydb'
+        - string: 'LOG:  connection authorized: user=neti database=mydb'
           result:
             pgsql_prefix: ''
             pgsql_level: 'LOG'
-            pgsql_user: 'kitsune'
+            pgsql_user: 'neti'
             pgsql_db: 'mydb'
         - string: 'FATAL:  database "nope" does not exist'
           result:
