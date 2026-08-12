@@ -85,7 +85,11 @@ vars_templated:
   # DNSSEC validation result, e.g.:
   #   validating example.com/A: no valid signature found
   #   validating example.com/A: insecurity proof failed
-  NAMED_DNSSEC: 'validating (?:@0x[0-9a-fA-F]+: )?(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %]): (?<dns_dnssec_result>[% GREEDYDATA %])'
+  # With views configured the line is prefixed with the view it happened in, and
+  # BIND pads the gap between the colon and "validating" to line the names up:
+  #   view internal-view: validating example.com/A: no valid signature found
+  #   view internal-view:   validating example.com/SOA: no valid signature found
+  NAMED_DNSSEC: '(?:view (?<dns_view>[% NOTSPACE_NO_COLON %]): +)?validating (?:@0x[0-9a-fA-F]+: )?(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %]): (?<dns_dnssec_result>[% GREEDYDATA %])'
   # Response-rate-limiting (RRL) action, e.g.:
   #   client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)
   #   client 203.0.113.7#40000 (example.com): rate limit drop responses to ...
@@ -96,10 +100,51 @@ vars_templated:
   # Lame server report, e.g.:
   #   lame server resolving 'example.com' (in 'example.com'?): 192.0.2.2#53
   NAMED_LAME: 'lame server resolving ''(?<dns_query_name>[% NOTSPACE %])''(?: \(in ''(?<dns_zone_name>[% NOTSPACE %])''\?\))?: (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # An authoritative server answering with an error RCODE, e.g.:
+  #   REFUSED unexpected RCODE resolving 'example.com/A/IN': 192.0.2.2#53
+  #   SERVFAIL unexpected RCODE resolving 'test.org/AAAA/IN': 198.51.100.9#53
+  # This is the same shape as NAMED_NET_ERROR and would otherwise land there
+  # with the RCODE buried in the free-text dns_error, so it has to sit ahead of
+  # it. dns_error is still filled in, with the phrase minus the RCODE, so
+  # anything keying off dns_error keeps working.
+  NAMED_RCODE_ERROR: '(?<dns_rcode>[% WORD %]) (?<dns_error>unexpected RCODE) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'': (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
   # General resolution / network error, e.g.:
   #   network unreachable resolving 'example.com/A/IN': 2001:db8::1#53
   #   host unreachable resolving 'example.com/A/IN': 192.0.2.2#53
   NAMED_NET_ERROR: '(?<dns_error>[% GREEDYDATA_NO_QUOTE %]) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'': (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # A resolution that only succeeded once qname minimisation was turned off for
+  # it, e.g.:
+  #   success resolving 'example.com/A' after disabling qname minimization due to 'ncache nxdomain'
+  # The leading word is the outcome and the quoted tail is why minimisation was
+  # abandoned. There is no server address on these.
+  NAMED_QNAME_MIN: '(?<dns_qname_min_result>[% WORD %]) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])'' after disabling qname minimization due to ''(?<dns_qname_min_reason>[^'']*)'''
+  # A delegation that points at itself, e.g.:
+  #   loop detected resolving 'ns1.example.com/A'
+  NAMED_LOOP: '(?<dns_error>loop detected) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])'''
+  # A fetch abandoned because it never came back, e.g.:
+  #   shut down hung fetch while resolving 'example.com/A'
+  NAMED_HUNG_FETCH: '(?<dns_error>shut down hung fetch) while resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])'''
+  # A nameserver skipped because the NS record points at a CNAME, e.g.:
+  #   skipping nameserver 'ns1.example.com' because it is a CNAME, while resolving 'test.org/A'
+  NAMED_SKIP_NS: 'skipping nameserver ''(?<dns_nameserver>[^'']*)'' because it is a (?<dns_skip_reason>[% GREEDYDATA_NO_QUOTE %]), while resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])'''
+  # DNS cookie (RFC 7873) trouble with an upstream server, e.g.:
+  #   bad cookie from 192.0.2.2#53
+  #   missing expected cookie from 198.51.100.9#53
+  NAMED_COOKIE: '(?<dns_cookie_problem>bad|missing expected) cookie from (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])'
+  # An RFC 1918 / special-use zone named answered for itself rather than asking
+  # upstream, logged once per zone per view at startup, e.g.:
+  #   automatic empty zone: view internal-view: 10.IN-ADDR.ARPA
+  #   automatic empty zone: 10.IN-ADDR.ARPA
+  NAMED_EMPTY_ZONE: 'automatic empty zone: (?:view (?<dns_view>[% NOTSPACE_NO_COLON %]): )?(?<dns_zone_name>[% NOTSPACE %])'
+  # RFC 8145 trust-anchor telemetry, which reports the root keys this resolver
+  # holds back to the root servers, e.g.:
+  #   internal-view: sending trust-anchor-telemetry query '_ta-4f66-9728/NULL'
+  NAMED_TAT: '(?<dns_view>[% NOTSPACE_NO_COLON %]): sending trust-anchor-telemetry query ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])'''
+  # An address named picked up or dropped during interface scanning, e.g.:
+  #   listening on IPv4 interface em0, 192.0.2.1#53
+  #   no longer listening on 192.0.2.1#53
+  NAMED_LISTEN_START: 'listening on (?<dns_listen_family>IPv4|IPv6) interface (?<dns_listen_iface>[^,]+), (?<dns_listen_ip>[% IP %])#(?<dns_listen_port>[% INT %])'
+  NAMED_LISTEN_STOP: '(?<dns_listen_action>no longer listening) on (?<dns_listen_ip>[% IP %])#(?<dns_listen_port>[% INT %])'
   # Everything else named said. Most of it is the multi-line startup banner --
   # build options, library versions, the ISC contact text -- which has no
   # structure to extract. Matching anything is only safe because the rule is
@@ -225,6 +270,96 @@ vars_tests:
         result: 'host unreachable resolving ''test.org/AAAA/IN'': 192.0.2.2#53'
     negative:
       - 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+  NAMED_RCODE_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'REFUSED unexpected RCODE resolving ''example.com/A/IN'': 192.0.2.2#53'
+        result: 'REFUSED unexpected RCODE resolving ''example.com/A/IN'': 192.0.2.2#53'
+      - string: 'SERVFAIL unexpected RCODE resolving ''test.org/AAAA/IN'': 198.51.100.9#53'
+        result: 'SERVFAIL unexpected RCODE resolving ''test.org/AAAA/IN'': 198.51.100.9#53'
+    negative:
+      - 'network unreachable resolving ''example.com/A/IN'': 2001:db8::1#53'
+  NAMED_QNAME_MIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'success resolving ''example.com/A'' after disabling qname minimization due to ''ncache nxdomain'''
+        result: 'success resolving ''example.com/A'' after disabling qname minimization due to ''ncache nxdomain'''
+      - string: 'success resolving ''test.org/TXT'' after disabling qname minimization due to ''failure'''
+        result: 'success resolving ''test.org/TXT'' after disabling qname minimization due to ''failure'''
+    negative:
+      - 'loop detected resolving ''ns1.example.com/A'''
+  NAMED_LOOP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'loop detected resolving ''ns1.example.com/A'''
+        result: 'loop detected resolving ''ns1.example.com/A'''
+      - string: 'loop detected resolving ''ns2.test.org/AAAA'''
+        result: 'loop detected resolving ''ns2.test.org/AAAA'''
+    negative:
+      - 'shut down hung fetch while resolving ''example.com/A'''
+  NAMED_HUNG_FETCH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'shut down hung fetch while resolving ''example.com/A'''
+        result: 'shut down hung fetch while resolving ''example.com/A'''
+      - string: 'shut down hung fetch while resolving ''13.198.51.100.in-addr.arpa/PTR'''
+        result: 'shut down hung fetch while resolving ''13.198.51.100.in-addr.arpa/PTR'''
+    negative:
+      - 'loop detected resolving ''ns1.example.com/A'''
+  NAMED_SKIP_NS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'skipping nameserver ''ns1.example.com'' because it is a CNAME, while resolving ''test.org/A'''
+        result: 'skipping nameserver ''ns1.example.com'' because it is a CNAME, while resolving ''test.org/A'''
+      - string: 'skipping nameserver ''a.test.org'' because it is a CNAME, while resolving ''sub.example.com/AAAA'''
+        result: 'skipping nameserver ''a.test.org'' because it is a CNAME, while resolving ''sub.example.com/AAAA'''
+    negative:
+      - 'lame server resolving ''example.com'' (in ''example.com''?): 192.0.2.2#53'
+  NAMED_COOKIE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'bad cookie from 192.0.2.2#53'
+        result: 'bad cookie from 192.0.2.2#53'
+      - string: 'missing expected cookie from 198.51.100.9#53'
+        result: 'missing expected cookie from 198.51.100.9#53'
+    negative:
+      - 'no longer listening on 192.0.2.1#53'
+  NAMED_EMPTY_ZONE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'automatic empty zone: view internal-view: 10.IN-ADDR.ARPA'
+        result: 'automatic empty zone: view internal-view: 10.IN-ADDR.ARPA'
+      - string: 'automatic empty zone: 16.172.IN-ADDR.ARPA'
+        result: 'automatic empty zone: 16.172.IN-ADDR.ARPA'
+    negative:
+      - 'zone example.com/IN: loaded serial 2024010101'
+  NAMED_TAT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'internal-view: sending trust-anchor-telemetry query ''_ta-4f66-9728/NULL'''
+        result: 'internal-view: sending trust-anchor-telemetry query ''_ta-4f66-9728/NULL'''
+      - string: 'external-view: sending trust-anchor-telemetry query ''_ta-4f66/NULL'''
+        result: 'external-view: sending trust-anchor-telemetry query ''_ta-4f66/NULL'''
+    negative:
+      - 'managed-keys-zone/internal-view: Unable to fetch DNSKEY set ''.'': failure'
+  NAMED_LISTEN_START:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'listening on IPv4 interface em0, 192.0.2.1#53'
+        result: 'listening on IPv4 interface em0, 192.0.2.1#53'
+      - string: 'listening on IPv6 interface lo0, ::1#53'
+        result: 'listening on IPv6 interface lo0, ::1#53'
+    negative:
+      - 'command channel listening on 127.0.0.1#953'
+  NAMED_LISTEN_STOP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'no longer listening on 192.0.2.1#53'
+        result: 'no longer listening on 192.0.2.1#53'
+      - string: 'no longer listening on 2001:db8::1#53'
+        result: 'no longer listening on 2001:db8::1#53'
+    negative:
+      - 'stopping command channel on 127.0.0.1#953'
   NAMED_ZONE_LOAD_FAILED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -382,7 +517,19 @@ rules:
       - NAMED_DDNS
       - NAMED_LAME
       - NAMED_FORMAT_ERROR
+      # ahead of NAMED_NET_ERROR, whose free-text dns_error would swallow the
+      # RCODE
+      - NAMED_RCODE_ERROR
       - NAMED_NET_ERROR
+      - NAMED_QNAME_MIN
+      - NAMED_LOOP
+      - NAMED_HUNG_FETCH
+      - NAMED_SKIP_NS
+      - NAMED_COOKIE
+      - NAMED_EMPTY_ZONE
+      - NAMED_TAT
+      - NAMED_LISTEN_START
+      - NAMED_LISTEN_STOP
       - NAMED_MANAGED_KEYS
       - NAMED_PRIMING
       - NAMED_CHANNEL_START
@@ -588,6 +735,77 @@ rules:
         - string: 'all zones loaded'
           result:
             dns_state: 'all zones loaded'
+        - string: 'REFUSED unexpected RCODE resolving ''example.com/A/IN'': 192.0.2.2#53'
+          result:
+            dns_rcode: 'REFUSED'
+            dns_error: 'unexpected RCODE'
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_query_class: 'IN'
+            dns_src_ip: '192.0.2.2'
+            dns_src_port: '53'
+        # no RCODE on the front, so this one still lands in NAMED_NET_ERROR
+        - string: 'connection refused resolving ''test.org/AAAA/IN'': 198.51.100.9#53'
+          result:
+            dns_error: 'connection refused'
+            dns_query_name: 'test.org'
+            dns_query_type: 'AAAA'
+            dns_query_class: 'IN'
+            dns_src_ip: '198.51.100.9'
+            dns_src_port: '53'
+        - string: 'view internal-view:   validating example.com/SOA: no valid signature found'
+          result:
+            dns_view: 'internal-view'
+            dns_query_name: 'example.com'
+            dns_query_type: 'SOA'
+            dns_dnssec_result: 'no valid signature found'
+        - string: 'success resolving ''example.com/A'' after disabling qname minimization due to ''ncache nxdomain'''
+          result:
+            dns_qname_min_result: 'success'
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+            dns_qname_min_reason: 'ncache nxdomain'
+        - string: 'loop detected resolving ''ns1.example.com/A'''
+          result:
+            dns_error: 'loop detected'
+            dns_query_name: 'ns1.example.com'
+            dns_query_type: 'A'
+        - string: 'shut down hung fetch while resolving ''example.com/A'''
+          result:
+            dns_error: 'shut down hung fetch'
+            dns_query_name: 'example.com'
+            dns_query_type: 'A'
+        - string: 'skipping nameserver ''ns1.example.com'' because it is a CNAME, while resolving ''test.org/A'''
+          result:
+            dns_nameserver: 'ns1.example.com'
+            dns_skip_reason: 'CNAME'
+            dns_query_name: 'test.org'
+            dns_query_type: 'A'
+        - string: 'missing expected cookie from 198.51.100.9#53'
+          result:
+            dns_cookie_problem: 'missing expected'
+            dns_src_ip: '198.51.100.9'
+            dns_src_port: '53'
+        - string: 'automatic empty zone: view internal-view: 10.IN-ADDR.ARPA'
+          result:
+            dns_view: 'internal-view'
+            dns_zone_name: '10.IN-ADDR.ARPA'
+        - string: 'internal-view: sending trust-anchor-telemetry query ''_ta-4f66-9728/NULL'''
+          result:
+            dns_view: 'internal-view'
+            dns_query_name: '_ta-4f66-9728'
+            dns_query_type: 'NULL'
+        - string: 'listening on IPv4 interface em0, 192.0.2.1#53'
+          result:
+            dns_listen_family: 'IPv4'
+            dns_listen_iface: 'em0'
+            dns_listen_ip: '192.0.2.1'
+            dns_listen_port: '53'
+        - string: 'no longer listening on 192.0.2.1#53'
+          result:
+            dns_listen_action: 'no longer listening'
+            dns_listen_ip: '192.0.2.1'
+            dns_listen_port: '53'
         # falls through to the catch-all -- part of the startup banner
         - string: 'linked to OpenSSL version: OpenSSL 3.0.16 11 Feb 2025'
           result:

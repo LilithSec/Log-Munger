@@ -203,8 +203,21 @@ vars_templated:
   # out-of-swap kill (OOM analog): "pid 1234 (mysqld), jid 0, uid 88, was
   # killed: out of swap space".
   KERNEL_FBSD_SWAPKILL: 'pid (?<kernel_pid>[% INT %]) \((?<kernel_comm>[^)]+)\), jid (?<kernel_jid>[% INT %]), uid (?<kernel_uid>[% INT %]), was killed: (?<kernel_kill_reason>[% GREEDYDATA %])'
-  # swap allocation failure: "swap_pager_getswapspace(16): failed".
-  KERNEL_FBSD_SWAPFAIL: 'swap_pager_getswapspace\((?<kernel_swap_count>[% INT %])\): failed(?: [% GREEDYDATA %])?'
+  # swap allocation failure: "swp_pager_getswapspace(16): failed"
+  #
+  # The function is swp_pager_getswapspace, not swap_pager_ -- vm/swap_pager.c
+  # abbreviates the prefix on its internal routines. This read "swap_pager_"
+  # until it was checked against a real log, which no FreeBSD host has ever
+  # emitted, so the pattern could not fire; its test asserted the same wrong
+  # spelling and passed regardless.
+  KERNEL_FBSD_SWAPFAIL: 'swp_pager_getswapspace\((?<kernel_swap_count>[% INT %])\): failed(?: [% GREEDYDATA %])?'
+  # "swap_pager: out of swap space"
+  #
+  # The exhaustion notice, and the other half of the same story: SWAPFAIL is
+  # the per-allocation failure, this is the pager giving up. It immediately
+  # precedes the KERNEL_FBSD_SWAPKILL lines above, so without it the kills
+  # arrive with no recorded cause.
+  KERNEL_FBSD_SWAPOUT: 'swap_pager: (?<kernel_swap_state>out of swap space)(?: [% GREEDYDATA %])?'
   # DoS-mitigation rate limiters: "Limiting closed port RST response from 400
   # to 200 packets/sec" / "Limiting icmp unreach response from 200 to 100
   # packets/sec" / "Limiting open port RST response ...".
@@ -281,6 +294,77 @@ vars_templated:
   KERNEL_FBSD_NEWBUS_GONE: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): at (?<kernel_newbus_parent>[^,]+), port (?<kernel_usb_port>[% INT %]), addr (?<kernel_usb_addr>[% INT %]) \((?<kernel_newbus_state>disconnected)\)'
   # "usbhid3: detached"
   KERNEL_FBSD_NEWBUS_DETACH: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): (?<kernel_newbus_state>detached)'
+  # ---- USB stack errors ----
+  # "uhub_reattach_port: device problem (USB_ERR_IOERROR), disabling port 2"
+  # "usb_alloc_device: set address 83 failed (USB_ERR_IOERROR, ignored)"
+  # "usbd_req_re_enumerate: addr=80, port reset failed, USB_ERR_IOERROR"
+  # "usbd_setup_device_desc: getting device descriptor at addr 80 failed, USB_ERR_STALLED"
+  # "uhub_reattach_port: could not allocate new device"
+  #
+  # The USB_ERR_* token sits in a different place in almost every one of these,
+  # so the text is taken whole and the code lifted out by the decompose below
+  # rather than by a pattern per phrasing. The line with no code at all is left
+  # with just the detail.
+  #
+  # The leading name is a C function, not a device: it must contain an
+  # underscore, which is what keeps this from claiming "usbhid3: detached" or
+  # "uhub7: 4 ports with 4 removable, self powered".
+  KERNEL_FBSD_USB_ERROR: '(?<kernel_usb_func>u(?:sb|hub)[a-z]*_[a-z0-9_]+): (?<kernel_usb_error_detail>[% GREEDYDATA %])'
+  # Lifts USB_ERR_IOERROR / _TIMEOUT / _STALLED out of wherever it landed.
+  KERNEL_USB_ERR_CODE: '[% GREEDYDATA %](?<kernel_usb_error>USB_ERR_[A-Z]+)[% GREEDYDATA %]'
+  # ---- boot-time device probe ----
+  # What newbus prints as it walks the tree at boot. Same shape as
+  # KERNEL_FBSD_NEWBUS_ATTACH_DESC above but with the bus resources the driver
+  # claimed between the description and the parent:
+  #
+  #   acpi_button0: <Power Button> on acpi0
+  #   ahci0: <AMD 300 Series AHCI SATA controller> mem 0xfd580000-0xfd59ffff irq 33 at device 0.1 on pci1
+  #   hdacc0: <NVIDIA (0x0093) HDA CODEC> at cad 0 on hdac0
+  #
+  # The resource clause is matched lazily so it stops at the last " on ", which
+  # is the one naming the parent.
+  KERNEL_FBSD_PROBE_ATTACH: '(?<kernel_newbus_device>[a-z][a-z0-9_]*[0-9]+): <(?<kernel_newbus_desc>[^>]*)> (?<kernel_newbus_resources>[% GREEDYDATA %]?) ?on (?<kernel_newbus_parent>[% NOTSPACE %])'
+  # "da0: <ATA ST4000DM000-1F21 CC54> Fixed Direct Access SPC-4 SCSI device"
+  # "da11: <General UDisk 5.00> Removable Direct Access SCSI-2 device"
+  #
+  # A CAM peripheral naming itself. The vendor/product string is the useful
+  # part: it is the only place a disk's model reaches the log.
+  KERNEL_FBSD_PROBE_IDENT: '(?<kernel_cam_periph>[a-z]+[0-9]+): <(?<kernel_cam_product>[^>]*)> (?<kernel_cam_type>[% GREEDYDATA %]) device'
+  # "da0: Serial Number Z304T4X3"
+  KERNEL_FBSD_DISK_SERIAL: '(?<kernel_cam_periph>[a-z]+[0-9]+): Serial Number ?(?<kernel_disk_serial>[% GREEDYDATA %])'
+  # "da0: 3815447MB (7814037168 512 byte sectors)"
+  KERNEL_FBSD_DISK_SIZE: '(?<kernel_cam_periph>[a-z]+[0-9]+): (?<kernel_disk_size_mb>[% INT %])MB \((?<kernel_disk_sectors>[% INT %]) (?<kernel_disk_sector_bytes>[% INT %]) byte sectors\)'
+  # "da0: 600.000MB/s transfers" / "cd0: 150.000MB/s transfers (SATA 1.x, ...)"
+  KERNEL_FBSD_DISK_SPEED: '(?<kernel_cam_periph>[a-z]+[0-9]+): (?<kernel_disk_speed_mbs>[% INTorFLOAT %])MB/s transfers(?: \((?<kernel_disk_speed_detail>[^)]*)\))?'
+  # "da0: Command Queueing enabled" / "da0: quirks=0x8<4K>"
+  KERNEL_FBSD_DISK_ATTR: '(?<kernel_cam_periph>[a-z]+[0-9]+): (?:(?<kernel_disk_queueing>Command Queueing enabled)|quirks=(?<kernel_disk_quirks>[% NOTSPACE %]))'
+  # "ses0: da9,pass11 in 'Slot 09', SAS Slot: 1 phys at slot 9"
+  #
+  # The enclosure mapping a drive to a physical bay, which is what turns a
+  # failed da9 into a slot someone can walk up to and pull.
+  KERNEL_FBSD_SES_SLOT: '(?<kernel_ses_device>ses[0-9]+): +(?<kernel_cam_periph>[a-z]+[0-9]+),(?<kernel_ses_pass>[a-z]+[0-9]+) in ''(?<kernel_ses_slot>[^'']*)'', SAS Slot: (?<kernel_ses_phys>[% INT %]) phys at slot (?<kernel_ses_slot_num>[% INT %])'
+  # "ses0:  phy 0: SATA device" / "ses0:  phy 0: parent 5003048000a4947f addr 5003048000a4946c"
+  KERNEL_FBSD_SES_PHY: '(?<kernel_ses_device>ses[0-9]+): +phy (?<kernel_ses_phy>[% INT %]): (?<kernel_ses_phy_detail>[% GREEDYDATA %])'
+  # ---- capability announcements ----
+  # What a driver reports about a device just after attaching it. Static facts,
+  # so on a stable machine each is written once per boot -- but a port that
+  # re-enumerates repeats them every cycle, which is why they arrive in bulk
+  # here rather than once.
+  # "uhub7: 4 ports with 4 removable, self powered"
+  KERNEL_FBSD_HUB_PORTS: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): (?<kernel_hub_ports>[% INT %]) ports with (?<kernel_hub_removable>[% INT %]) removable, (?<kernel_hub_power>[% GREEDYDATA %])'
+  # "uhub6: MTT enabled" -- multi-transaction translator, enabled or disabled.
+  KERNEL_FBSD_HUB_MTT: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): MTT (?<kernel_hub_mtt>[% WORD %])'
+  # "hms0: 8 buttons and [XYWH] coordinates ID=2"
+  # "hms0: 3 buttons and [XY] coordinates ID=0"
+  #
+  # A HID mouse reporting one of its report descriptors; a device with several
+  # writes one line per ID.
+  KERNEL_FBSD_HID_MOUSE: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): (?<kernel_hid_buttons>[% INT %]) buttons and \[(?<kernel_hid_axes>[A-Z]*)\] coordinates ID=(?<kernel_hid_report_id>[% INT %])'
+  # "uaudio0: Play[0]: 48000 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer."
+  # "uaudio0: Record[0]: 48000 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer. (selected)"
+  #
+  # One line per supported format; the trailing marker names the one in use.
+  KERNEL_FBSD_UAUDIO_FORMAT: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): (?<kernel_audio_direction>Play|Record)\[(?<kernel_audio_index>[% INT %])\]: (?<kernel_audio_rate>[% INT %]) Hz, (?<kernel_audio_channels>[% INT %]) ch, (?<kernel_audio_format>[% GREEDYDATA %]) format, (?<kernel_audio_buffer>[% NOTSPACE %]) buffer\.(?: \((?<kernel_audio_selected>selected)\))?'
   # ---- Linuxulator ----
   # "linux: jid 0 pid 4242 (claude): unsupported prctl option 59"
   # "linux: pid 4242 (claude): syscall pidfd_open not implemented"
@@ -550,12 +634,155 @@ vars_tests:
   KERNEL_FBSD_SWAPFAIL:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'swap_pager_getswapspace(16): failed'
-        result: 'swap_pager_getswapspace(16): failed'
-      - string: 'swap_pager_getswapspace(4): failed'
-        result: 'swap_pager_getswapspace(4): failed'
+      - string: 'swp_pager_getswapspace(16): failed'
+        result: 'swp_pager_getswapspace(16): failed'
+      - string: 'swp_pager_getswapspace(4): failed'
+        result: 'swp_pager_getswapspace(4): failed'
     negative:
       - 'pid 1234 (mysqld), jid 0, uid 88, was killed: out of swap space'
+      # the spelling this pattern used to carry, which FreeBSD never writes
+      - 'swap_pager_getswapspace(16): failed'
+      - 'swap_pager: out of swap space'
+  KERNEL_FBSD_SWAPOUT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'swap_pager: out of swap space'
+        result: 'swap_pager: out of swap space'
+    negative:
+      - 'swp_pager_getswapspace(16): failed'
+  KERNEL_FBSD_USB_ERROR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'uhub_reattach_port: device problem (USB_ERR_IOERROR), disabling port 2'
+        result: 'uhub_reattach_port: device problem (USB_ERR_IOERROR), disabling port 2'
+      - string: 'usbd_setup_device_desc: getting device descriptor at addr 80 failed, USB_ERR_STALLED'
+        result: 'usbd_setup_device_desc: getting device descriptor at addr 80 failed, USB_ERR_STALLED'
+      # no error code at all
+      - string: 'uhub_reattach_port: could not allocate new device'
+        result: 'uhub_reattach_port: could not allocate new device'
+    negative:
+      # device names, not function names: no underscore
+      - 'usbhid3: detached'
+      - 'uhub7: 4 ports with 4 removable, self powered'
+  KERNEL_USB_ERR_CODE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'device problem (USB_ERR_IOERROR), disabling port 2'
+        result: 'device problem (USB_ERR_IOERROR), disabling port 2'
+      - string: 'getting device descriptor at addr 80 failed, USB_ERR_STALLED'
+        result: 'getting device descriptor at addr 80 failed, USB_ERR_STALLED'
+    negative:
+      - 'could not allocate new device'
+  KERNEL_FBSD_PROBE_ATTACH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'acpi_button0: <Power Button> on acpi0'
+        result: 'acpi_button0: <Power Button> on acpi0'
+      - string: 'ahci0: <AMD 300 Series AHCI SATA controller> mem 0xfd580000-0xfd59ffff irq 33 at device 0.1 on pci1'
+        result: 'ahci0: <AMD 300 Series AHCI SATA controller> mem 0xfd580000-0xfd59ffff irq 33 at device 0.1 on pci1'
+      - string: 'hdacc0: <NVIDIA (0x0093) HDA CODEC> at cad 0 on hdac0'
+        result: 'hdacc0: <NVIDIA (0x0093) HDA CODEC> at cad 0 on hdac0'
+    negative:
+      - 'da0: <ATA ST4000DM000-1F21 CC54> Fixed Direct Access SPC-4 SCSI device'
+  KERNEL_FBSD_PROBE_IDENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0: <ATA ST4000DM000-1F21 CC54> Fixed Direct Access SPC-4 SCSI device'
+        result: 'da0: <ATA ST4000DM000-1F21 CC54> Fixed Direct Access SPC-4 SCSI device'
+      - string: 'cd0: <HL-DT-ST DVDRAM GT20L DQ02> Removable CD-ROM SCSI device'
+        result: 'cd0: <HL-DT-ST DVDRAM GT20L DQ02> Removable CD-ROM SCSI device'
+    negative:
+      - 'acpi_button0: <Power Button> on acpi0'
+  KERNEL_FBSD_DISK_SERIAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0: Serial Number Z304T4X3'
+        result: 'da0: Serial Number Z304T4X3'
+      # the enclosure reports an empty one
+      - string: 'ses0: Serial Number '
+        result: 'ses0: Serial Number '
+    negative:
+      - 'da0: Command Queueing enabled'
+  KERNEL_FBSD_DISK_SIZE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0: 3815447MB (7814037168 512 byte sectors)'
+        result: 'da0: 3815447MB (7814037168 512 byte sectors)'
+    negative:
+      - 'da0: 600.000MB/s transfers'
+  KERNEL_FBSD_DISK_SPEED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0: 600.000MB/s transfers'
+        result: 'da0: 600.000MB/s transfers'
+      - string: 'cd0: 150.000MB/s transfers (SATA 1.x, UDMA6, ATAPI 12bytes, PIO 8192bytes)'
+        result: 'cd0: 150.000MB/s transfers (SATA 1.x, UDMA6, ATAPI 12bytes, PIO 8192bytes)'
+    negative:
+      - 'da0: 3815447MB (7814037168 512 byte sectors)'
+  KERNEL_FBSD_DISK_ATTR:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'da0: Command Queueing enabled'
+        result: 'da0: Command Queueing enabled'
+      - string: 'da0: quirks=0x8<4K>'
+        result: 'da0: quirks=0x8<4K>'
+    negative:
+      - 'da0: Serial Number Z304T4X3'
+  KERNEL_FBSD_SES_SLOT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "ses0: da9,pass11 in 'Slot 09', SAS Slot: 1 phys at slot 9"
+        result: "ses0: da9,pass11 in 'Slot 09', SAS Slot: 1 phys at slot 9"
+    negative:
+      - 'ses0:  phy 0: SATA device'
+  KERNEL_FBSD_SES_PHY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ses0:  phy 0: SATA device'
+        result: 'ses0:  phy 0: SATA device'
+      - string: 'ses0:  phy 0: parent 5003048000a4947f addr 5003048000a4946c'
+        result: 'ses0:  phy 0: parent 5003048000a4947f addr 5003048000a4946c'
+    negative:
+      - "ses0: da9,pass11 in 'Slot 09', SAS Slot: 1 phys at slot 9"
+  KERNEL_FBSD_HUB_PORTS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'uhub7: 4 ports with 4 removable, self powered'
+        result: 'uhub7: 4 ports with 4 removable, self powered'
+      - string: 'uhub0: 22 ports with 22 removable, self powered'
+        result: 'uhub0: 22 ports with 22 removable, self powered'
+      - string: 'uhub1: 2 ports with 2 removable, bus powered'
+        result: 'uhub1: 2 ports with 2 removable, bus powered'
+    negative:
+      - 'uhub7: MTT enabled'
+  KERNEL_FBSD_HUB_MTT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'uhub7: MTT enabled'
+        result: 'uhub7: MTT enabled'
+      - string: 'uhub7: MTT disabled'
+        result: 'uhub7: MTT disabled'
+    negative:
+      - 'uhub7: 4 ports with 4 removable, self powered'
+  KERNEL_FBSD_HID_MOUSE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'hms0: 8 buttons and [XYWH] coordinates ID=2'
+        result: 'hms0: 8 buttons and [XYWH] coordinates ID=2'
+      # a descriptor with only two axes
+      - string: 'hms0: 3 buttons and [XY] coordinates ID=0'
+        result: 'hms0: 3 buttons and [XY] coordinates ID=0'
+    negative:
+      - 'uhub7: 4 ports with 4 removable, self powered'
+  KERNEL_FBSD_UAUDIO_FORMAT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'uaudio0: Play[0]: 48000 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer.'
+        result: 'uaudio0: Play[0]: 48000 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer.'
+      - string: 'uaudio0: Record[0]: 11025 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer. (selected)'
+        result: 'uaudio0: Record[0]: 11025 Hz, 2 ch, 16-bit S-LE PCM format, 2x4ms buffer. (selected)'
+    negative:
+      - 'uaudio0: No MIDI sequencer.'
   KERNEL_FBSD_LIMIT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -818,11 +1045,45 @@ convert:
   kernel_usb_port: int
   kernel_usb_addr: int
   kernel_linux_prctl_option: int
+  # Boot-probe disk and enclosure geometry.
+  kernel_disk_size_mb: int
+  kernel_disk_sectors: int
+  kernel_disk_sector_bytes: int
+  kernel_disk_speed_mbs: float
+  kernel_ses_phy: int
+  kernel_ses_phys: int
+  kernel_ses_slot_num: int
+  # Capability announcements.
+  kernel_hub_ports: int
+  kernel_hub_removable: int
+  kernel_hid_buttons: int
+  kernel_hid_report_id: int
+  kernel_audio_index: int
+  kernel_audio_rate: int
+  kernel_audio_channels: int
 # Break the quoted apparmor key=value tail into individual kernel_apparmor_*
 # fields. Values are double-quoted, so the split is quote-aware and strips
 # them. The pattern captures the mode ("DENIED") separately as
 # kernel_apparmor_mode; operation, profile, name and comm map 1:1 here.
 decompose:
+  # Pull the USB_ERR_* code out of whichever position the message put it in.
+  # The one phrasing that carries no code leaves the detail untouched.
+  - field: kernel_usb_error_detail
+    type: pattern
+    pattern: KERNEL_USB_ERR_CODE
+    tests:
+      - input: 'device problem (USB_ERR_IOERROR), disabling port 2'
+        result:
+          kernel_usb_error_detail: 'device problem (USB_ERR_IOERROR), disabling port 2'
+          kernel_usb_error: 'USB_ERR_IOERROR'
+      - input: 'addr=80, port reset failed, USB_ERR_IOERROR'
+        result:
+          kernel_usb_error_detail: 'addr=80, port reset failed, USB_ERR_IOERROR'
+          kernel_usb_error: 'USB_ERR_IOERROR'
+      # no code in this one, so nothing is split out
+      - input: 'could not allocate new device'
+        result:
+          kernel_usb_error_detail: 'could not allocate new device'
   - field: kernel_apparmor_kv
     type: kv
     quoted: true
@@ -888,6 +1149,7 @@ rules:
       - KERNEL_FBSD_SIGEXIT
       - KERNEL_FBSD_SWAPKILL
       - KERNEL_FBSD_SWAPFAIL
+      - KERNEL_FBSD_SWAPOUT
       - KERNEL_FBSD_LIMIT
       - KERNEL_FBSD_LISTENQ
       - KERNEL_FBSD_ARP
@@ -905,7 +1167,25 @@ rules:
       - KERNEL_FBSD_NEWBUS_GONE
       - KERNEL_FBSD_NEWBUS_DETACH
       - KERNEL_FBSD_NEWBUS_ATTACH_DESC
+      # the probe form last of the attach patterns: it is the same shape with a
+      # resource clause, so the plainer one gets first refusal
+      - KERNEL_FBSD_PROBE_ATTACH
       - KERNEL_FBSD_NEWBUS_ATTACH
+      # ---- boot probe detail, all keyed on a peripheral name ----
+      - KERNEL_FBSD_SES_SLOT
+      - KERNEL_FBSD_SES_PHY
+      - KERNEL_FBSD_PROBE_IDENT
+      - KERNEL_FBSD_DISK_SERIAL
+      - KERNEL_FBSD_DISK_SIZE
+      - KERNEL_FBSD_DISK_SPEED
+      - KERNEL_FBSD_DISK_ATTR
+      # ---- capability announcements ----
+      - KERNEL_FBSD_HUB_PORTS
+      - KERNEL_FBSD_HUB_MTT
+      - KERNEL_FBSD_HID_MOUSE
+      - KERNEL_FBSD_UAUDIO_FORMAT
+      # function-prefixed, so it cannot collide with the device-prefixed ones
+      - KERNEL_FBSD_USB_ERROR
       # specific Linuxulator messages before the catch-all
       - KERNEL_FBSD_LINUX_PRCTL
       - KERNEL_FBSD_LINUX_SYSCALL
@@ -1089,7 +1369,7 @@ rules:
             kernel_uid: '88'
             kernel_kill_reason: 'out of swap space'
         # [FreeBSD] KERNEL_FBSD_SWAPFAIL
-        - string: 'swap_pager_getswapspace(16): failed'
+        - string: 'swp_pager_getswapspace(16): failed'
           result:
             kernel_swap_count: '16'
         # [FreeBSD] KERNEL_FBSD_LIMIT

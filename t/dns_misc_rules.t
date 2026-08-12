@@ -27,6 +27,81 @@ is( $n->{'dns_query_name'}, 'example.com', 'named: query name' );
 is( $n->{'dns_query_type'}, 'A',           'named: query type' );
 ok( looks_like_number( $n->{'dns_client_port'} ), 'named: port is numeric' );
 
+#
+# named resolver failures.
+#
+# These all used to land on the catch-all or, in the RCODE case, on
+# NAMED_NET_ERROR with the RCODE buried inside the free-text dns_error. On a
+# busy resolver they are the overwhelming majority of the log, so what is
+# asserted here is that each one now reaches the pattern that owns it and that
+# the shared fields come out the same way across all of them.
+#
+my $nr = Log::Munger->new( 'rules' => ['named'] );
+
+# an error RCODE is split off ahead of NAMED_NET_ERROR, and dns_error is left
+# holding the rest of the phrase so anything keying off it still works
+my $rcode = $nr->process_item(
+	'item' => { PROGRAM => 'named', MESSAGE => q{REFUSED unexpected RCODE resolving 'example.com/A/IN': 192.0.2.2#53} } );
+is( $rcode->{'dns_rcode'},       'REFUSED',          'named: RCODE split out of the error phrase' );
+is( $rcode->{'dns_error'},       'unexpected RCODE', 'named: dns_error keeps the rest of the phrase' );
+is( $rcode->{'dns_query_name'},  'example.com',      'named: RCODE error query name' );
+is( $rcode->{'dns_query_class'}, 'IN',               'named: RCODE error query class' );
+is( $rcode->{'dns_src_ip'},      '192.0.2.2',        'named: RCODE error server' );
+ok( looks_like_number( $rcode->{'dns_src_port'} ), 'named: RCODE error port is numeric' );
+
+# an error with no RCODE on the front must still reach NAMED_NET_ERROR
+my $neterr = $nr->process_item(
+	'item' => { PROGRAM => 'named', MESSAGE => q{connection refused resolving 'example.com/A/IN': 192.0.2.2#53} } );
+is( $neterr->{'dns_error'}, 'connection refused', 'named: a plain network error still lands on NAMED_NET_ERROR' );
+ok( !exists( $neterr->{'dns_rcode'} ), 'named: a plain network error sets no dns_rcode' );
+
+# DNSSEC validation, which carries a view prefix and padding when views are in use
+my $dnssec = $nr->process_item(
+	'item' => { PROGRAM => 'named', MESSAGE => 'view internal-view:   validating example.com/SOA: no valid signature found' } );
+is( $dnssec->{'dns_view'},          'internal-view',            'named: DNSSEC view prefix' );
+is( $dnssec->{'dns_query_name'},    'example.com',              'named: DNSSEC query name past the padding' );
+is( $dnssec->{'dns_query_type'},    'SOA',                      'named: DNSSEC query type' );
+is( $dnssec->{'dns_dnssec_result'}, 'no valid signature found', 'named: DNSSEC result' );
+
+# the viewless wording still works
+is( $nr->process_item( 'item' => { PROGRAM => 'named', MESSAGE => 'validating example.com/A: insecurity proof failed' } )->{'dns_dnssec_result'},
+	'insecurity proof failed', 'named: DNSSEC without a view prefix' );
+
+# qname minimisation fallback
+my $qmin = $nr->process_item( 'item' =>
+		{ PROGRAM => 'named', MESSAGE => q{success resolving 'example.com/A' after disabling qname minimization due to 'ncache nxdomain'} } );
+is( $qmin->{'dns_qname_min_result'}, 'success',         'named: qname minimisation outcome' );
+is( $qmin->{'dns_qname_min_reason'}, 'ncache nxdomain', 'named: qname minimisation reason' );
+is( $qmin->{'dns_query_name'},       'example.com',     'named: qname minimisation query name' );
+
+# the remaining resolver failures, each of which sets dns_error to its own phrase
+my %error_phrase = (
+	q{loop detected resolving 'ns1.example.com/A'}       => 'loop detected',
+	q{shut down hung fetch while resolving 'example.com/A'} => 'shut down hung fetch',
+);
+foreach my $message ( sort keys %error_phrase ) {
+	my $got = $nr->process_item( 'item' => { PROGRAM => 'named', MESSAGE => $message } );
+	is( $got->{'dns_error'}, $error_phrase{$message}, "named: dns_error for '$error_phrase{$message}'" );
+	ok( defined( $got->{'dns_query_name'} ) && defined( $got->{'dns_query_type'} ),
+		"named: '$error_phrase{$message}' still names the query" );
+}
+
+# DNS cookie trouble, which is the only one of these that names a server
+# without naming a query
+my $cookie = $nr->process_item( 'item' => { PROGRAM => 'named', MESSAGE => 'missing expected cookie from 192.0.2.2#53' } );
+is( $cookie->{'dns_cookie_problem'}, 'missing expected', 'named: cookie problem' );
+is( $cookie->{'dns_src_ip'},         '192.0.2.2',        'named: cookie server' );
+
+# interface scanning, whose port is converted like every other port
+my $listen = $nr->process_item( 'item' => { PROGRAM => 'named', MESSAGE => 'listening on IPv4 interface em0, 192.0.2.1#53' } );
+is( $listen->{'dns_listen_iface'}, 'em0',  'named: listening interface' );
+is( $listen->{'dns_listen_family'}, 'IPv4', 'named: listening address family' );
+ok( looks_like_number( $listen->{'dns_listen_port'} ), 'named: listening port is numeric' );
+
+# the catch-all is still there for the startup banner
+is( $nr->process_item( 'item' => { PROGRAM => 'named', MESSAGE => 'linked to libuv version: 1.52.1' } )->{'dns_message'},
+	'linked to libuv version: 1.52.1', 'named: unstructured banner text still kept whole' );
+
 # unbound
 my $u = Log::Munger->new( 'rules' => ['unbound'] )->process_item(
 	'item' => { PROGRAM => 'unbound', MESSAGE => 'info: 192.0.2.5 example.com. A IN' } );

@@ -352,6 +352,34 @@ my @cases = (
 		expect  => { suricata_alert_signature => 'ET SCAN Potential SSH Scan', suricata_src_ip => '203.0.113.7' },
 		numeric => [ 'suricata_alert_signature_id', 'suricata_src_port' ],
 	},
+	# the Ereshkigal suite: Galla watches logs and decides, Kur carries the ban
+	# out, and Baphomet and Ereshkigal supervise them. Galla and Kur run one
+	# process per instance and put the instance name in the syslog tag, so their
+	# gates have to accept a suffix.
+	{   file    => 'kur',
+		program => 'kur-sshd',
+		message => 'banned 192.0.2.7 expires=1785727347',
+		expect  => { kur_action => 'banned', kur_ip => '192.0.2.7' },
+		numeric => ['kur_expires'],
+	},
+	{   file    => 'galla',
+		program => 'galla-suricata',
+		message => 'banished 192.0.2.7 to Kur ban_time=300',
+		expect  => { galla_action => 'banished', galla_ip => '192.0.2.7' },
+		numeric => ['galla_ban_time'],
+	},
+	{   file    => 'baphomet',
+		program => 'baphomet',
+		message => 'galla "sshd" PID 42876 exited with 2',
+		expect  => { bph_galla => 'sshd', bph_action => 'exited' },
+		numeric => [ 'bph_pid', 'bph_exit_status' ],
+	},
+	{   file    => 'ereshkigal',
+		program => 'ereshkigal',
+		message => 'spawned kur "sshd" as PID 97452... /usr/local/bin/kur --foreground --name sshd --backend pf',
+		expect  => { eresh_kur => 'sshd', eresh_action => 'spawned' },
+		numeric => ['eresh_pid'],
+	},
 );
 
 foreach my $case ( @cases ) {
@@ -374,6 +402,56 @@ foreach my $case ( @cases ) {
 		ok( looks_like_number( $fields->{$key} ), "$case->{file}: $key is numeric after convert" );
 	}
 }
+
+#
+# Galla and Kur name a ban target that may be a single address or a whole
+# network. The two are separate captures so that geoip only ever sees a real
+# address, which is the sort of thing a rule test cannot check because it
+# compares captures rather than proving the other one is absent.
+#
+my $galla = Log::Munger->new( 'rules' => ['galla'] );
+my $g_ip = $galla->process_item( 'program' => 'galla-sshd', 'message' => 'banished 192.0.2.7 to Kur ban_time=300' );
+is( $g_ip->{'galla_ip'}, '192.0.2.7', 'galla: a bare address lands in galla_ip' );
+ok( !exists( $g_ip->{'galla_cidr'} ), 'galla: a bare address sets no galla_cidr' );
+
+my $g_cidr = $galla->process_item( 'program' => 'galla-ids', 'message' => 'banished 198.51.100.0/24 to Kur' );
+is( $g_cidr->{'galla_cidr'}, '198.51.100.0/24', 'galla: a network lands in galla_cidr' );
+ok( !exists( $g_cidr->{'galla_ip'} ), 'galla: a network sets no galla_ip, so geoip never sees one' );
+ok( !exists( $g_cidr->{'galla_ban_time'} ), 'galla: an absent ban_time is not invented' );
+
+# observe mode is the difference between "would have banned" and "banned", so
+# it gets its own capture rather than being left in the message text
+my $g_observe = $galla->process_item( 'program' => 'galla-k', 'message' => 'would banish 192.0.2.7 to Kur (observe mode) ban_time=300' );
+is( $g_observe->{'galla_action'}, 'would banish',  'galla: observe-mode action' );
+is( $g_observe->{'galla_mode'},   'observe mode',  'galla: observe mode is flagged' );
+
+# a sighting subject may not be an address at all
+is( $galla->process_item( 'program' => 'galla-k', 'message' => 'sighted neti (detection)' )->{'galla_subject'},
+	'neti', 'galla: a non-address sighting subject' );
+is( $galla->process_item( 'program' => 'galla-k', 'message' => 'sighted 192.0.2.11 (detection)' )->{'galla_ip'},
+	'192.0.2.11', 'galla: an address sighting subject still lands in galla_ip' );
+
+my $kur = Log::Munger->new( 'rules' => ['kur'] );
+my $k_cidr = $kur->process_item( 'program' => 'kur-sshd', 'message' => 'banned cidr 198.51.100.0/24 expires=0' );
+is( $k_cidr->{'kur_cidr'}, '198.51.100.0/24', 'kur: a network ban lands in kur_cidr' );
+ok( !exists( $k_cidr->{'kur_ip'} ), 'kur: a network ban sets no kur_ip' );
+is( $k_cidr->{'kur_expires'}, 0, 'kur: expires=0 survives the int conversion as 0, not undef' );
+
+# both gates have to work with and without an instance suffix
+foreach my $program (qw(kur kur-sshd kur-cidr-persist)) {
+	ok( defined( $kur->process_item( 'program' => $program, 'message' => 'stopped' ) ),
+		"kur: PROGRAM=$program passes the gate" );
+}
+foreach my $program (qw(galla galla-sshd galla-sshd-authed)) {
+	ok( defined( $galla->process_item( 'program' => $program, 'message' => 'stopped' ) ),
+		"galla: PROGRAM=$program passes the gate" );
+}
+
+# ...and neither may take the other's lines, nor their supervisors'
+is( $kur->process_item( 'program' => 'kurt', 'message' => 'stopped' ),        undef, 'kur: PROGRAM=kurt is not a kur' );
+is( $galla->process_item( 'program' => 'gallant', 'message' => 'stopped' ),   undef, 'galla: PROGRAM=gallant is not a galla' );
+is( $kur->process_item( 'program' => 'ereshkigal', 'message' => 'stopped' ),  undef, 'kur: the supervisor is not a kur' );
+is( $galla->process_item( 'program' => 'baphomet', 'message' => 'stopped' ),  undef, 'galla: the supervisor is not a galla' );
 
 #
 # pf is gateless, because pf writes binary pcap rather than syslog and its text
@@ -483,6 +561,13 @@ my @ownership = (
 	[ 'fwupd goes to fwupd', { PROGRAM => 'fwupd', MESSAGE => '11:21:52.150 FuEngine             something new' }, 'fwupd_domain' ],
 	[ 'fwupdmgr goes to fwupd', { PROGRAM => 'fwupdmgr', MESSAGE => 'Updating lvfs' }, 'fwupd_remote' ],
 	[ 'avahi-daemon goes to avahi', { PROGRAM => 'avahi-daemon', MESSAGE => 'Server startup complete. Host name is host.local.' }, 'avahi_message' ],
+	# the Ereshkigal suite. Kur and Galla gate on a prefix rather than an exact
+	# name, which is the sort of gate that can reach too far, so all four are
+	# checked with everything loaded
+	[ 'kur-sshd goes to kur', { PROGRAM => 'kur-sshd', MESSAGE => 'banned 192.0.2.7 expires=1785727347' }, 'kur_ip' ],
+	[ 'galla-suricata goes to galla', { PROGRAM => 'galla-suricata', MESSAGE => 'banished 192.0.2.7 to Kur ban_time=300' }, 'galla_ip' ],
+	[ 'baphomet goes to baphomet', { PROGRAM => 'baphomet', MESSAGE => 'galla "sshd" died, restarting in 1 seconds' }, 'bph_galla' ],
+	[ 'ereshkigal goes to ereshkigal', { PROGRAM => 'ereshkigal', MESSAGE => 'added kur "dns"' }, 'eresh_kur' ],
 	# nergal and mojo_cape_submit share a message vocabulary and a rule
 	[ 'mojo_cape_submit goes to mojo_cape_submit', { PROGRAM => 'mojo_cape_submit', MESSAGE => '0 : Source Host: sensor.example.net' }, 'cape_submit_source_host' ],
 	[ 'nergal goes to mojo_cape_submit', { PROGRAM => 'nergal', MESSAGE => '0 : Submitting "sample.msi" submitted as 116' }, 'cape_submit_task_id' ],
