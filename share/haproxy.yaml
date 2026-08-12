@@ -1,8 +1,8 @@
 ---
 # HAProxy traffic and health-check log enrichment.
 #
-# Gates on the syslog PROGRAM field being "haproxy".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "haproxy". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with haproxy_ .
 #
 # HAProxy has two traffic log formats and they differ only in the middle:
@@ -13,7 +13,7 @@
 #         term_state conns queues
 #
 # The timer group is what tells them apart: five slash-separated values for
-# HTTP and three for TCP.  HTTP also ends in a quoted request line, which is
+# HTTP and three for TCP. HTTP also ends in a quoted request line, which is
 # the surest thing to key on, so that pattern is tried first.
 #
 # A "-1" turns up in any timer whose phase never completed, which is why the
@@ -24,14 +24,14 @@ includes:
 - base
 vars_templated:
   # "client:port [date] frontend backend/server " -- the head both formats
-  # share.  The accept date carries milliseconds, which HTTPDATE does not, so
+  # share. The accept date carries milliseconds, which HTTPDATE does not, so
   # it is matched as "anything but a closing bracket" rather than being parsed
   # here; a consumer that wants it parsed has the string.
   HAPROXY_HEAD: '(?<haproxy_client_ip>[% IP %]):(?<haproxy_client_port>[% INT %]) \[(?<haproxy_accept_date>[^\]]*)\] (?<haproxy_frontend>[% NOTSPACE %]) (?<haproxy_backend>[^/\s]+)/(?<haproxy_server>[% NOTSPACE %]) '
   # The full HTTP traffic line.
   #
   # term_state is the two-to-four character code saying how the session ended.
-  # Its first character is the one that matters: "C" is a client abort, "S" a
+  # The first character carries the verdict: "C" is a client abort, "S" a
   # server one, "P" the proxy itself, and "s" a server timeout.
   HAPROXY_HTTP: '[% HAPROXY_HEAD %](?<haproxy_timers>[-0-9]+/[-0-9]+/[-0-9]+/[-0-9]+/[+-]?[0-9]+) (?<haproxy_status>[-0-9]+) (?<haproxy_bytes>[+-]?[0-9]+) (?<haproxy_req_cookie>[% NOTSPACE %]) (?<haproxy_res_cookie>[% NOTSPACE %]) (?<haproxy_term_state>[% NOTSPACE %]) (?<haproxy_conns>[% NOTSPACE %]) (?<haproxy_queues>[% NOTSPACE %]) "(?<haproxy_request>[^"]*)"(?: [% GREEDYDATA %])?'
   # The TCP traffic line: three timers, no status code and no request.
@@ -40,10 +40,10 @@ vars_templated:
   #  "Connection refused", check duration: 0ms. 0 active and 0 backup servers
   #  left. ..."
   #
-  # A health check changing its mind.  Not traffic, but it is the line that
+  # A health check changing its mind. Not traffic, but it is the line that
   # explains a sudden change in the traffic lines around it.
   # The reason stops at the next comma and the check duration at the sentence's
-  # full stop, rather than either being a lazy run of anything.  Every clause
+  # full stop, rather than either being a lazy run of anything. Every clause
   # after the state is optional and the line ends in free text, so a lazy
   # reason could satisfy the whole pattern by growing just far enough for the
   # trailing catch-all to take over -- which it does, swallowing the info and
@@ -81,7 +81,7 @@ vars_tests:
       - string: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] tcp-in backend1/server1 0/1/2 1234 -- 1/1/0/0/0 0/0'
         result: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] tcp-in backend1/server1 0/1/2 1234 -- 1/1/0/0/0 0/0'
     negative:
-      # five timers and a quoted request: that is the HTTP format
+      # Five timers and a quoted request: that is the HTTP format
       - '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] http-in backend1/server1 0/0/1/2/3 200 1234 - - ---- 1/1/0/0/0 0/0 "GET /path HTTP/1.1"'
   HAPROXY_SERVER_STATE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'

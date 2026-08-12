@@ -246,18 +246,26 @@ geoip:
 ### `convert` — coerce captured fields
 
 A map of `field: type`. Everything a regexp captures is a string; this is how one stops
-being one. Four types, each with a few accepted spellings:
+being one. Five types, each with a few accepted spellings:
 
 - `int` :: Coerce to an integer, so it serializes as a JSON number rather than a string.
   Also spelled `integer`.
 - `float` :: Coerce to a floating-point number. Also spelled `num` or `number`.
 - `lc` :: Lowercase the value. Also spelled `lower` or `lowercase`.
 - `uc` :: Uppercase the value. Also spelled `upper` or `uppercase`.
+- `mac` :: Rewrite a MAC address into lowercase colon-separated form. Also spelled
+  `macaddr` or `mac_address`.
 
 The case folds exist for tokens whose case varies between the sources that write them.
 SELinux logs `avc: denied` and AppArmor logs `apparmor="DENIED"` for the same verdict, so
 `auditd.yaml` captures both into `mac_result` and lowercases it. Whoever consumes the
 field then does not have to care which LSM produced the line.
+
+`mac` exists for the same reason one layer down. The four spellings in the wild —
+`C4:D8:D5:3B:8C:4B`, `C4-D8-D5-3B-8C-4B`, `c4d8.d53b.8c4b` and the kernel's space-separated
+`c4 d8 d5 3b 8c 4b` — all normalize to `c4:d8:d5:3b:8c:4b`, so an address from a
+`ll header` dump compares directly against one from an ARP line. A value that is not
+twelve hex digits once the separators are stripped is left as it was.
 
 A field that was not captured is left alone, as is a numeric conversion of something that
 does not look like a number. `convert` runs last, so GeoIP still sees the original string
@@ -268,6 +276,7 @@ convert:
   ssh_src_port: int
   nf_LEN: int
   mac_result: lc
+  kernel_ll_src_mac: mac
 ```
 
 ## `vars_tests` and rule `tests`

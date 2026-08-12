@@ -1,11 +1,11 @@
 ---
 # SpamAssassin (spamd) scan-result log enrichment.
 #
-# Gates on the syslog PROGRAM field being "spamd".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "spamd". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with spamd_ .
 #
-# spamd writes two lines per message.  The verdict line is the readable one and
+# spamd writes two lines per message. The verdict line is the readable one and
 # the result line is the useful one:
 #
 #   spamd: result: Y 12 - BAYES_99,HTML_MESSAGE scantime=1.2,size=1234,
@@ -13,7 +13,7 @@
 #
 # Everything after the symbol list is a comma-separated key=value blob, so it
 # is captured whole and handed to a decompose rather than being named field by
-# field in the regexp.  Which keys appear depends on the version and on what
+# field in the regexp. Which keys appear depends on the version and on what
 # the scan did, and a decompose keeps up with that where a fixed pattern would
 # not.
 includes:
@@ -22,16 +22,16 @@ vars_templated:
   # "spamd: result: Y 12 - BAYES_99,HTML_MESSAGE scantime=1.2,size=1234,..."
   #
   # The verdict letter is Y or . (spam or not), and the number after it is the
-  # integer score.  The exact score lives in the kv blob as required_score''s
-  # companion, which is why the readable verdict line below is worth keeping
-  # too -- it carries the score to one decimal place.
+  # integer score. The exact score lives in the kv blob beside required_score,
+  # which is why the readable verdict line below is kept as well: it carries
+  # the score to one decimal place.
   #
   # The symbol list is a bare comma-separated run with no spaces in it, which
   # is what separates it from the kv blob that follows.
   #
   # The score is printed right-aligned in a two-character field, so a bare "0"
   # or "7" arrives with a second space in front of it while "-4" and "12" get
-  # only one.  The run of spaces before the score has to be variable to take
+  # only one. The run of spaces before the score has to be variable to take
   # both, and on a busy host the padded form is the common one.
   SPAMD_RESULT: 'spamd: result: (?<spamd_verdict>[Y.]) +(?<spamd_score_int>[-+]?[% INT %]) - (?<spamd_symbols>[% NOTSPACE %])? (?<spamd_kv>[% GREEDYDATA %])'
   # "spamd: server successfully spawned child process, pid 86270"
@@ -47,7 +47,7 @@ vars_templated:
   # "more than" form, hence the variable run.
   SPAMD_PREFORK_ADJUST: 'prefork: adjust: (?<spamd_idle_children>[% INT %]) idle children (?<spamd_adjust_direction>less|more) than (?<spamd_idle_children_limit>[% INT %]) (minimum|maximum) idle children\. +(Increasing|Decreasing) spamd children: (?<spamd_children_changed>[% INT %]) (?<spamd_adjust_action>started|killed)\.'
   # "prefork: child states: IIB"
-  # One letter per child: I idle, B busy, S starting, K killed.  A repeated
+  # One letter per child: I idle, B busy, S starting, K killed. A repeated
   # line gets a syslog "[... logline repeated N times]" tail glued onto it.
   SPAMD_PREFORK_STATES: 'prefork: child states: (?<spamd_child_states>[A-Z]+)(?: \[\.\.\. logline repeated (?<spamd_repeated>[% INT %]) times\])?'
   # "spamd: identified spam (12.3/5.0) for neti:1000 in 1.2 seconds,
@@ -161,10 +161,9 @@ convert:
   spamd_idle_children_limit: int
   spamd_children_changed: int
   spamd_repeated: int
-# file-level default: the tail of the result line is a comma-separated k=v blob
-# whose keys vary by version and by what the scan did. Splitting it keeps up
-# with that where naming each key in the pattern would not.
-#
+# The tail of the result line is a comma-separated k=v blob whose keys vary by
+# version and by what the scan did. Splitting it keeps up with that where
+# naming each key in the pattern would not.
 # No prefix is applied: the keys are already spamd's own field names
 # (scantime, size, user, uid, required_score, rhost, raddr, rport, mid, bayes,
 # autolearn) and prefixing them would only make them longer.

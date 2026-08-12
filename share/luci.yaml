@@ -12,11 +12,11 @@
 # program of its own. Both are gated here, and so is a bare "luci" for the
 # setups that set an identifier explicitly.
 #
-# There is deliberately NO catch-all. uhttpd logs plenty that has nothing to do
+# There is deliberately no catch-all. uhttpd logs plenty that has nothing to do
 # with LuCI -- its own errors and, when a LuCI page throws, multi-line ucode
-# backtraces -- and requiring the "luci: " prefix is what keeps this file from
-# claiming them. A login on the web interface of a router is a root-equivalent
-# authentication event and worth pulling out; the backtraces are not.
+# backtraces -- and requiring the "luci: " prefix keeps this file off them. A
+# login on a router's web interface is a root-equivalent authentication event
+# and belongs in a field; the backtraces do not.
 includes:
 - base
 vars_templated:
@@ -50,8 +50,7 @@ vars_tests:
     negative:
       # no "luci: " prefix, so uhttpd's own output is left alone
       - 'Runtime error: Unable to dlopen file ''/usr/lib/ucode/ubus.so'''
-# file-level default: geoip lookup on the client address (only used when the
-# munger is built with a geoip database)
+# Look up the client address.
 geoip:
   - luci_src_ip
 rules:

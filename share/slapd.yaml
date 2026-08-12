@@ -1,19 +1,18 @@
 ---
 # OpenLDAP (slapd) connection and operation log enrichment.
 #
-# Gates on the syslog PROGRAM field being "slapd".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "slapd". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with slapd_ .
 #
 # slapd splits one client operation across several lines, tied together by the
 # conn= number: an ACCEPT names the address, a BIND names the DN, and a RESULT
-# some lines later says whether it worked.  Nothing but the connection number
+# some lines later says whether it worked. Nothing but the connection number
 # joins them, so slapd_conn is captured on every pattern here and is the field
 # to correlate on.
 #
-# The one to watch is RESULT with err=49, which is LDAP_INVALID_CREDENTIALS --
-# a failed bind, and the only thing distinguishing a directory being used from
-# a directory being guessed at.
+# RESULT with err=49 is LDAP_INVALID_CREDENTIALS: a failed bind, and the only
+# thing distinguishing a directory being used from one being guessed at.
 includes:
 - base
 vars_templated:
@@ -26,12 +25,12 @@ vars_templated:
   # "conn=1000 op=0 BIND dn="cn=admin,dc=example,dc=com" mech=SIMPLE ssf=0"
   #
   # slapd logs two BIND lines per bind: the request, carrying method=, and the
-  # outcome of method selection, carrying mech= and ssf=.  An anonymous bind
-  # has an empty dn, which is worth telling apart from a named one.
+  # outcome of method selection, carrying mech= and ssf=. An anonymous bind has
+  # an empty dn, which must be told apart from a named one.
   SLAPD_BIND: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) BIND dn="(?<slapd_dn>[^"]*)"(?: method=(?<slapd_method>[% NOTSPACE %]))?(?: mech=(?<slapd_mech>[% NOTSPACE %]))?(?: ssf=(?<slapd_ssf>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "conn=1000 op=0 RESULT tag=97 err=49 text="
   #
-  # err=0 is success and err=49 is invalid credentials.  qtime/etime appear on
+  # err=0 is success and err=49 is invalid credentials. qtime/etime appear on
   # newer slapd and are left to the trailing GREEDYDATA.
   SLAPD_RESULT: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) RESULT (?:oid=(?<slapd_oid>[% NOTSPACE %]) )?tag=(?<slapd_tag>[% INT %]) err=(?<slapd_err>[% INT %])(?: qtime=[% NOTSPACE %])?(?: etime=[% NOTSPACE %])?(?: text=(?<slapd_text>[% GREEDYDATA %]))?'
   # "conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0

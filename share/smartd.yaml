@@ -1,8 +1,8 @@
 ---
 # smartd (smartmontools) disk-health log enrichment.
 #
-# Gates on the syslog PROGRAM field being "smartd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "smartd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with smartd_ .
 #
 # Every per-device message opens the same way:
@@ -12,9 +12,9 @@
 # so the device and its access type come from one shared fragment and the
 # patterns below differ only in what follows.
 #
-# Not all of these mean the same thing.  A temperature attribute drifting by a
+# Not all of these mean the same thing. A temperature attribute drifting by a
 # degree is noise; Reallocated_Sector_Ct moving at all is a disk beginning to
-# fail, and "FAILED SMART self-check" is one that already has.  Keeping the
+# fail, and "FAILED SMART self-check" is one that already has. Keeping the
 # attribute name and both values rather than just the text is what lets a
 # consumer tell those apart without re-parsing the message.
 includes:
@@ -28,8 +28,8 @@ vars_templated:
   # "SMART Prefailure Attribute: 5 Reallocated_Sector_Ct changed from 100 to 99"
   #
   # Prefailure and Usage are smartd's own words for "this predicts failure" and
-  # "this is wear", and the difference is the whole point of the distinction,
-  # so it is captured rather than folded into the message.
+  # "this is wear". The two mean different things, so the kind is captured
+  # rather than folded into the message.
   #
   # The values are the NORMALISED attribute values, not raw counts: they start
   # near 100 or 200 and fall towards the threshold, so a drop is bad news even
@@ -39,7 +39,7 @@ vars_templated:
   # "2 Offline uncorrectable sectors"
   #
   # Either of these being non-zero means data has already been lost or is about
-  # to be.  Neither is a drill.
+  # to be. Neither is a drill.
   SMARTD_SECTORS: '[% SMARTD_DEVICE %](?<smartd_sector_count>[% INT %]) (?<smartd_sector_kind>Currently unreadable \(pending\)|Offline uncorrectable) sectors?(?: [% GREEDYDATA %])?'
   # "FAILED SMART self-check. BACK UP DATA NOW!"
   SMARTD_SELFCHECK_FAILED: '[% SMARTD_DEVICE %]FAILED SMART self-check\.?(?: (?<smartd_selfcheck_detail>[% GREEDYDATA %]))?'
@@ -48,8 +48,8 @@ vars_templated:
   # "Temperature 45 Celsius reached limit of 40 Celsius (Min/Max 20/46)"
   SMARTD_TEMPERATURE: '[% SMARTD_DEVICE %]Temperature (?<smartd_temperature>[% INT %]) Celsius reached (?<smartd_temperature_kind>limit|critical limit) of (?<smartd_temperature_limit>[% INT %]) Celsius(?: [% GREEDYDATA %])?'
   # Anything else smartd said about a device: "not capable of SMART
-  # self-check", "open() failed", "Device is in STANDBY mode".  Keeps the
-  # device, which is what makes the line worth anything.
+  # self-check", "open() failed", "Device is in STANDBY mode". The device is
+  # kept, since without it the line says nothing.
   SMARTD_OTHER: '[% SMARTD_DEVICE %](?<smartd_message>.+)'
   # Messages with no device at all: startup, configuration, shutdown.
   SMARTD_DAEMON: '(?<smartd_message>(?:smartd |Configuration file |Opened configuration file|Monitoring |Unable to |Exiting |smartd has fresh)[% GREEDYDATA %])'

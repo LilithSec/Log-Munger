@@ -1,17 +1,17 @@
 ---
 # ProFTPD session and authentication log enrichment.
 #
-# Gates on the syslog PROGRAM field being "proftpd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "proftpd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with proftpd_ .
 #
 # Every ProFTPD message opens with the same head:
 #
 #   <server> (<client-name>[<client-address>]) - <what happened>
 #
-# The client name is the reverse lookup and falls back to the address when
-# there is not one, so the two are usually the same string.  The bracketed
-# address is the one to trust and the one the geoip lookup reads.
+# The client name is the reverse lookup, falling back to the address where
+# there is none, so the two are usually the same string. The bracketed address
+# is the trustworthy one, and it is what the geoip lookup reads.
 includes:
 - base
 vars_templated:
@@ -25,9 +25,9 @@ vars_templated:
   PROFTPD_LOGIN_OK: '[% PROFTPD_HEAD %]USER (?<proftpd_user>[% NOTSPACE %]): Login successful\.?(?: [% GREEDYDATA %])?'
   # "USER admin (Login failed): Incorrect password."
   #
-  # The reason is worth keeping separate: "Incorrect password" means the
-  # account exists, "No such user found" means it does not, and the difference
-  # is what tells a targeted attempt from a dictionary sweep.
+  # The reason is kept in a field of its own: "Incorrect password" means the
+  # account exists and "No such user found" that it does not, which is what
+  # separates a targeted attempt from a dictionary sweep.
   PROFTPD_LOGIN_FAIL: '[% PROFTPD_HEAD %]USER (?<proftpd_user>[% NOTSPACE %]) \(Login failed\): (?<proftpd_reason>[% GREEDYDATA %])'
   # "FTP session opened." / "FTP session closed."
   PROFTPD_SESSION: '[% PROFTPD_HEAD %]FTP session (?<proftpd_session_event>opened|closed)\.?(?: [% GREEDYDATA %])?'
@@ -35,7 +35,7 @@ vars_templated:
   PROFTPD_SECURITY: '[% PROFTPD_HEAD %]SECURITY VIOLATION: (?<proftpd_violation>[% GREEDYDATA %])'
   # "Maximum login attempts (3) exceeded"
   PROFTPD_MAXLOGIN: '[% PROFTPD_HEAD %]Maximum (?<proftpd_limit_kind>login attempts|connections?) \((?<proftpd_limit>[% INT %])\) exceeded(?: [% GREEDYDATA %])?'
-  # Anything else ProFTPD said about this session.  Last resort, so an
+  # Anything else ProFTPD said about this session. Last resort, so an
   # unrecognised message still arrives with its text and, more to the point,
   # with the client address the head always carries.
   PROFTPD_GENERIC: '[% PROFTPD_HEAD %](?<proftpd_message>.+)'

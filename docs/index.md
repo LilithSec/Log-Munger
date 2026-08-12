@@ -29,8 +29,8 @@ Start here:
 - Rule :: A gate, a target field, and an ordered list of patterns. The first rule whose
   gates all pass and one of whose patterns matches wins, returning its named captures.
 - Enrichment :: After a match, captured fields can be `decompose`d into more fields,
-  looked up with `geoip`, and `convert`ed to numbers or a case-folded string. Those run
-  in the order decompose → geoip → convert.
+  looked up with `geoip`, and `convert`ed to a number, a case-folded string or a
+  normalized MAC address. Those run in the order decompose → geoip → convert.
 - Log record :: A hash of fields. The pattern usually runs against `MESSAGE`, while the
   other fields such as `PROGRAM` and `HOST` are what gates test. A bare string is treated
   as `{ MESSAGE => $string }`.

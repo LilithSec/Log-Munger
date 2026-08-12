@@ -1,16 +1,16 @@
 ---
 # xinetd service-dispatch log enrichment.
 #
-# Gates on the syslog PROGRAM field being "xinetd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "xinetd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with xinetd_ .
 #
 # xinetd is a superserver: it accepts a connection and hands it to a service,
 # so its log is a record of who reached which service and whether they were
-# allowed to.  That makes it an access log for everything behind it, including
+# allowed to. That makes it an access log for everything behind it, including
 # services that keep no log of their own.
 #
-# FAIL is the line to watch.  Its second word is the reason -- "address" for a
+# FAIL is the line to watch. Its second word is the reason -- "address" for a
 # no_access/only_from refusal, "libwrap" for a hosts.allow one, "service" for
 # an instance limit -- which separates being turned away from being turned away
 # for the wrong reason.

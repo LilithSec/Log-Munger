@@ -27,11 +27,13 @@ lib/Log/Munger/RulesUsable.pm
 lib/Log/Munger/WhichRuleFile.pm
 share/atd.yaml
 share/auditd.yaml
+share/avahi.yaml
 share/base.yaml
 share/chrony.yaml
 share/clamav.yaml
 share/cron.yaml
 share/cups.yaml
+share/dbus.yaml
 share/dhcpd.yaml
 share/dnsmasq.yaml
 share/docker.yaml
@@ -41,6 +43,7 @@ share/exim.yaml
 share/fail2ban.yaml
 share/fortinet.yaml
 share/freeradius.yaml
+share/fwupd.yaml
 share/haproxy.yaml
 share/hostapd.yaml
 share/huawei.yaml
@@ -48,10 +51,12 @@ share/http_access_logs.yaml
 share/http_error_logs.yaml
 share/ipfw.yaml
 share/kernel.yaml
+share/libvirt.yaml
 share/login.yaml
 share/lldpd.yaml
 share/logind.yaml
 share/luci.yaml
+share/mojo_cape_submit.yaml
 share/mongodb.yaml
 share/mysql.yaml
 share/named.yaml
@@ -78,12 +83,14 @@ share/resolved.yaml
 share/rspamd.yaml
 share/samba.yaml
 share/sendmail.yaml
+share/shutdown.yaml
 share/slapd.yaml
 share/smartd.yaml
 share/snmpd.yaml
 share/sonicwall.yaml
 share/spamd.yaml
 share/squid.yaml
+share/ssmtp.yaml
 share/sshd.yaml
 share/strongswan.yaml
 share/su.yaml
@@ -93,6 +100,7 @@ share/sympa.yaml
 share/syslog_daemon.yaml
 share/systemd.yaml
 share/timesyncd.yaml
+share/tor.yaml
 share/unbound.yaml
 share/vsftpd.yaml
 share/wpa_supplicant.yaml

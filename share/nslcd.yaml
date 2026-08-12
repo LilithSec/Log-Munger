@@ -22,13 +22,13 @@
 #
 # What follows the prefix is one of a handful of shapes, all covered below. A
 # host whose LDAP server has gone away writes tens of thousands of these an
-# hour, so they are worth parsing rather than leaving as prose: nslcd_error
-# carries the LDAP-side reason and nslcd_request_arg the account it was asked
-# about, which together are what says whether a directory outage is affecting
-# real logins or just a service account polling in a loop.
+# hour, so they are parsed rather than left as prose. nslcd_error carries the
+# LDAP-side reason and nslcd_request_arg the account it was asked about, which
+# together say whether a directory outage is affecting real logins or only a
+# service account polling in a loop.
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # The request token nslcd stamps on a line, without its angle brackets. The
   # type is a map name and may carry a "/" ("group/member"); the argument is
@@ -51,14 +51,14 @@ vars_templated:
   NSLCD_PREFIX: '(?:\[(?<nslcd_session>[0-9a-f]+)\] )?(?:<(?<nslcd_request>(?<nslcd_request_type>[% NSLCD_REQUEST_TYPE %])(?:\((?<nslcd_request_scope>[^)]*)\))?(?:="?(?<nslcd_request_arg>[^">]*)"?)?)> )?'
   # A per-entry failure, reported against the DN it happened on, e.g.
   #   uid=neti,ou=users,dc=example,dc=com: Invalid credentials
-  # This is what a wrong password looks like, and on a host with a service
-  # account retrying in a loop it is far and away the highest-volume line.
+  # This is how a wrong password appears, and on a host with a service account
+  # retrying in a loop it is by far the highest-volume line.
   NSLCD_DN_ERROR: '[% NSLCD_PREFIX %](?<nslcd_dn>[% NSLCD_DN %]): (?<nslcd_error>[% GREEDYDATA %])'
   # "failed to bind to LDAP server ldap://192.0.2.5/: Can't contact LDAP server"
   NSLCD_BIND_FAILED: '[% NSLCD_PREFIX %]failed to bind to LDAP server (?<nslcd_ldap_uri>[% NSLCD_URI %]): (?<nslcd_error>[% GREEDYDATA %])'
   # "no available LDAP server found, sleeping 1 seconds" -- the retry backoff.
-  # Split from NSLCD_NO_SERVER because the delay is worth a field and the line
-  # has a comma where the other has a colon.
+  # Split from NSLCD_NO_SERVER because the delay gets a field of its own and
+  # the line has a comma where the other has a colon.
   NSLCD_NO_SERVER_SLEEP: '[% NSLCD_PREFIX %]no available LDAP server found, sleeping (?<nslcd_sleep_seconds>[% INT %]) seconds'
   # "no available LDAP server found: Server is unavailable: Resource temporarily unavailable"
   NSLCD_NO_SERVER: '[% NSLCD_PREFIX %]no available LDAP server found(?:: (?<nslcd_error>[% GREEDYDATA %]))?'
@@ -70,9 +70,9 @@ vars_templated:
   # LDAP-side reason, when there is one, goes in nslcd_error.
   NSLCD_LDAP_CALL: '[% NSLCD_PREFIX %](?<nslcd_ldap_function>[% NSLCD_LDAP_FUNCTION %])\(\) (?<nslcd_ldap_result>timed out|failed(?: to [% GREEDYDATA_NO_COLON %])?)(?:: (?<nslcd_error>[% GREEDYDATA %]))?'
   # "request denied by validnames option" -- nslcd refusing to look up a name
-  # that does not match the validnames regexp, before it ever asks LDAP. Worth
-  # its own pattern because it is a local policy rejection rather than a
-  # directory failure, and the two look alike in a volume graph otherwise.
+  # that does not match the validnames regexp, before it ever asks LDAP. Its
+  # own pattern because it is a local policy rejection rather than a directory
+  # failure, and the two are otherwise alike in a volume graph.
   NSLCD_DENIED: '[% NSLCD_PREFIX %]request denied by (?<nslcd_denied_by>[% NOTSPACE %]) option'
   # "error reading from client: Operation timed out" -- the socket to the NSS
   # or PAM module, not to LDAP.
@@ -226,7 +226,7 @@ vars_tests:
         result: '[045836] <passwd="neti"> no such user'
     negative:
       - ''
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   nslcd_sleep_seconds: int
   nslcd_signal: int

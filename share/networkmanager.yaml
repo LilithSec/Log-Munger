@@ -1,8 +1,8 @@
 ---
 # NetworkManager log enrichment.
 #
-# Gates on the syslog PROGRAM field being "NetworkManager".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "NetworkManager". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with nm_ .
 #
 # NetworkManager opens every line with a bracketed severity and a monotonic
@@ -11,7 +11,7 @@
 #   <info>  [1626345600.1234] device (wlan0): state change: config -> ip-config
 #           (reason 'none', sys-iface-state: 'managed')
 #
-# The device state machine is the useful part.  A device walking
+# The device state machine is the useful part. A device walking
 # prepare -> config -> ip-config -> activated is a normal connection; one that
 # stops at config and goes back to disconnected with a reason is a failure, and
 # the reason word says which kind.
@@ -19,7 +19,7 @@ includes:
 - base
 vars_templated:
   # "<info>  [1626345600.1234] " -- the severity and monotonic clock every line
-  # opens with.  The timestamp is seconds since boot with a fractional part,
+  # opens with. The timestamp is seconds since boot with a fractional part,
   # not a wall clock, so it is kept as a string rather than being treated as a
   # date.
   NM_HEAD: '<(?<nm_level>[a-z]+)> +\[(?<nm_timestamp>[0-9.]+)\] '

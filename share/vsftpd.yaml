@@ -1,25 +1,25 @@
 ---
 # vsftpd transfer-log enrichment.
 #
-# Gates on the syslog PROGRAM field being "vsftpd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "vsftpd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with vsftpd_ .
 #
 # vsftpd writes the same line shape whether it is logging to its own file or to
 # syslog, except that the file gets a leading "Tue Jul 15 10:00:00 2026" that
-# syslog does not (syslog stamps the line itself).  The date is therefore
+# syslog does not (syslog stamps the line itself). The date is therefore
 # optional here, so a rule file works for both a tailed vsftpd.log fed in raw
 # and a syslog-delivered one.
 #
 # FTP has no transport security to speak of and every credential crosses the
-# wire in the clear, which makes the FAIL LOGIN lines the ones worth counting.
+# wire in the clear, so the FAIL LOGIN lines are the ones to count.
 includes:
 - base
 vars_templated:
   # "Tue Jul 15 10:00:00 2026" -- vsftpd's own timestamp, present only in the
   # file log.
   VSFTPD_DATE: '[% DAY %] [% MONTH %] +[% MONTHDAY %] [% TIME %] [% YEAR %]'
-  # The "[pid 1234] [user] " head every logged event shares.  The user is
+  # The "[pid 1234] [user] " head every logged event shares. The user is
   # bracketed and absent on the events that happen before anyone has named an
   # account, which is why CONNECT has a pattern of its own below.
   VSFTPD_HEAD: '(?:[% VSFTPD_DATE %] )?\[pid (?<vsftpd_pid>[% INT %])\] \[(?<vsftpd_user>[^\]]*)\] (?<vsftpd_result>OK|FAIL) '
@@ -33,7 +33,7 @@ vars_templated:
   # "[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "?""
   VSFTPD_LOGIN: '[% VSFTPD_HEAD %](?<vsftpd_action>LOGIN): Client "(?<vsftpd_client_ip>[% IP %])"(?:, anon password "(?<vsftpd_anon_password>[^"]*)")?'
   # Everything else vsftpd reports per-account: MKDIR, RMDIR, DELETE, RENAME,
-  # CHMOD and friends.  Same head, same "Client" clause, an action this file
+  # CHMOD and friends. Same head, same "Client" clause, an action this file
   # does not need to know the name of in advance.
   VSFTPD_ACTION: '[% VSFTPD_HEAD %](?<vsftpd_action>[A-Z]+): Client "(?<vsftpd_client_ip>[% IP %])"(?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
   # "[pid 1234] CONNECT: Client "192.0.2.5""

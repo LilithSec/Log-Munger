@@ -5,17 +5,16 @@
 # must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with odhcpd_ .
 #
-# SCOPE. This covers odhcpd's router-advertisement and per-interface
-# housekeeping messages. It does NOT cover the DHCPv6 and DHCPv4 lease
-# transactions (DHCPV6 SOLICIT / ADVERTISE / REPLY / RENEW and the v4
-# equivalents), because the logs this was written against come from an access
-# point that runs odhcpd in RA-only mode and never emits one. Writing those
-# from memory rather than from a sample is how a pattern ends up subtly wrong,
-# so they are left to the catch-all until there is a real lease log to check
-# against. An unmatched lease line still keeps its text in odhcpd_message.
+# This covers odhcpd's router-advertisement and per-interface housekeeping
+# messages. The DHCPv6 and DHCPv4 lease transactions (DHCPV6 SOLICIT,
+# ADVERTISE, REPLY, RENEW and the v4 equivalents) are not covered: the logs
+# this was written against come from an access point running odhcpd in RA-only
+# mode, which never emits one. They are left to the catch-all until there is a
+# real lease log to write against, and an unmatched lease line still keeps its
+# text in odhcpd_message.
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # NOTSPACE that also excludes ":" (so a "subsystem: iface: message" triple
   # can be split)
@@ -74,7 +73,7 @@ vars_tests:
         result: 'Failed to send to ff02::1%br-lan: Permission denied'
     negative:
       - ''
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   odhcpd_ra_lifetime: int
 rules:

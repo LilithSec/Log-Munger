@@ -1,18 +1,18 @@
 ---
 # systemd-networkd log enrichment.
 #
-# Gates on the syslog PROGRAM field being "systemd-networkd".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "systemd-networkd". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with networkd_ .
 #
 # Named after the daemon's suffix the way logind.yaml is, since that is what
 # systemd puts in PROGRAM.
 #
 # Almost every line is "<interface>: <what happened>", so the interface comes
-# from one shared fragment.  Carrier transitions and DHCP leases are the two
-# worth watching: a flapping carrier is a cable or a switch port going, and a
-# lease changing address on a host that should have a reservation is worth
-# knowing about before something else notices.
+# from one shared fragment. Carrier transitions and DHCP leases are the two to
+# watch: a flapping carrier means a cable or a switch port is going, and a
+# lease changing address on a host that should have a reservation is a
+# misconfiguration that surfaces elsewhere much later.
 includes:
 - base
 vars_templated:

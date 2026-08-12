@@ -1,23 +1,21 @@
 ---
 # atd (at job scheduler) log enrichment.
 #
-# Gates on the syslog PROGRAM field being "atd".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "atd". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with atd_ .
 #
-# The companion to cron.yaml.  A scheduled-for-later job is a common way to
-# arrange for something to run after the session that arranged it has gone, so
-# atd deserves the same attention cron gets -- but it says a great deal less,
-# and most of what a modern host writes for an `at` job comes through PAM and
-# is handled by pam.yaml, not here.
+# The companion to cron.yaml. A job scheduled for later is a common way to
+# have something run after the session that arranged it has gone, so atd
+# warrants the same attention as cron. It says far less, though: most of what a
+# modern host writes for an `at` job comes through PAM and is handled by
+# pam.yaml.
 #
-# A NOTE ON WHAT IS AND IS NOT PINNED DOWN.  atd's own wording for starting a
-# job has changed between releases and differs between the BSD and Debian
-# lineages, so the job pattern below is written loosely on purpose: it keys on
-# the words that have stayed put and leaves the rest to a capture.  The
-# catch-all behind it means a version whose wording this does not fit still
-# comes back as atd_message with its text intact rather than as no match, so a
-# mismatch here costs visibility, not data.
+# atd's wording for starting a job has changed between releases and differs
+# between the BSD and Debian lineages, so ATD_JOB below is deliberately loose.
+# It keys on the words that have stayed put and leaves the rest to a capture. A
+# wording it does not fit still comes back through the catch-all as atd_message
+# with its text intact, so a mismatch costs visibility rather than data.
 includes:
 - base
 vars_templated:
@@ -25,12 +23,12 @@ vars_templated:
   #   "Starting job 5 (a000050192abc) for user 'neti' (1000)"
   #   "Running job 5 as neti"
   #
-  # The job identifier and the user are the two things every wording carries,
-  # so those are what is captured; everything else is left alone.
+  # The job identifier and the user are what every wording carries, so they are
+  # what is captured. Everything else is left alone.
   ATD_JOB: '(?<atd_action>Starting|Running|Deleting) job (?<atd_job>[% NOTSPACE %])(?: \((?<atd_job_file>[^)]*)\))?(?: (?:for user|as) ''?(?<atd_user>[A-Za-z0-9._-]+)''?)?(?: \((?<atd_uid>[% INT %])\))?(?: [% GREEDYDATA %])?'
   # "Exec failed for mail command: No such file or directory"
   ATD_EXEC_FAILED: 'Exec failed for (?<atd_failed_command>[^:]+): (?<atd_error>[% GREEDYDATA %])'
-  # Anything else atd said.  Carries the load of the file, given the above.
+  # Anything else atd said, which given the above is most of it.
   ATD_MESSAGE: '(?<atd_message>.+)'
 vars_tests:
   ATD_JOB:
@@ -71,8 +69,8 @@ rules:
     patterns:
       - ATD_JOB
       - ATD_EXEC_FAILED
-      # last: matches anything, which is only safe because the rule is gated,
-      # and which is what keeps an unfamiliar wording from being a silent miss
+      # last: matches anything, which is only safe because the rule is gated.
+      # It is also what keeps an unfamiliar wording from being a silent miss.
       - ATD_MESSAGE
     tests:
       positive:

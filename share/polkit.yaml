@@ -3,15 +3,15 @@
 #
 # Gates on the syslog PROGRAM field being "polkitd" or "polkit-agent-helper-1".
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
-# wins.  Every capture is namespaced with polkit_ .
+# wins. Every capture is namespaced with polkit_ .
 #
 # polkit is the third way an unprivileged account gets to do a privileged
-# thing, alongside su and sudo, and it is the one that usually goes unwatched.
+# thing, alongside su and sudo, and the one usually left unwatched.
 # "systemctl restart", mounting a disk, installing a package through PackageKit
 # and changing a network setting all go through it, and every one of those
 # decisions is logged here with the action name and the account that asked.
 #
-# The action id is the field to key on.  It is a stable reverse-DNS-style name
+# The action id is the field to key on. It is a stable reverse-DNS-style name
 # such as org.freedesktop.systemd1.manage-units, so it groups cleanly, whereas
 # the command in brackets is free text that varies per invocation.
 includes:
@@ -21,8 +21,8 @@ vars_templated:
   #  for action org.freedesktop.systemd1.manage-units for
   #  system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)"
   #
-  # Someone was asked for a password and did not produce the right one.  In
-  # bulk on a desktop this is a user fumbling; on a server it is worth a look.
+  # Someone was asked for a password and did not produce the right one. In bulk
+  # on a desktop that is a user fumbling; on a server it is not.
   POLKIT_AUTH_FAILED: 'Operator of (?<polkit_subject>[% NOTSPACE %]) FAILED to authenticate to gain (?<polkit_scope>[A-Z-]+ )?authorization for action (?<polkit_action>[% NOTSPACE %]) for (?<polkit_caller>[% NOTSPACE %]) \[(?<polkit_command>[^\]]*)\](?: \(owned by (?<polkit_owner>[^)]*)\))?(?: [% GREEDYDATA %])?'
   # "Operator of unix-session:1 successfully authenticated as unix-user:neti
   #  to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units
@@ -35,10 +35,10 @@ vars_templated:
   #  name :1.23 [/usr/bin/pkttyagent --notify-fd 5 --fallback], object path
   #  /org/freedesktop/PolicyKit1/AuthenticationAgent, locale en_US.UTF-8)"
   #
-  # An agent appearing is how a session gets the ability to prompt at all, so
-  # one registering somewhere unexpected is worth noticing.
+  # An agent appearing is how a session gains the ability to prompt at all, so
+  # one registering somewhere unexpected is a finding in itself.
   POLKIT_AGENT: '(?<polkit_agent_event>Registered|Unregistered) Authentication Agent for (?<polkit_subject>[% NOTSPACE %])(?: \((?<polkit_agent_detail>[% GREEDYDATA %])\))?'
-  # Anything else polkitd said.  Requires nothing in particular, so it is gated
+  # Anything else polkitd said. Requires nothing in particular, so it is gated
   # rather than gateless and sits last.
   POLKIT_MESSAGE: '(?<polkit_message>.+)'
 vars_tests:

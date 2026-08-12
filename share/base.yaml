@@ -31,13 +31,13 @@ vars:
   WINDOWSMAC: '(?:(?:[A-Fa-f0-9]{2}-){5}[A-Fa-f0-9]{2})'
   COMMONMAC: '(?:(?:[A-Fa-f0-9]{2}:){5}[A-Fa-f0-9]{2})'
   TTY: '(?:/dev/(pts|tty([pq])?)(\w+)?/?(?:[0-9]+))'
-  # does not ignore invalid characters for windows paths
+  # TODO: does not reject characters that are invalid in a Windows path.
   WINPATH: '(?>[A-Za-z]+:|\\)(?:\\[^\\?*]*)+'
-  # likely could stand to have a dumb version written for stuff this breaks
+  # TODO: a simpler variant is wanted for the cases this one breaks on.
   UNIXPATH: "(/|./|../)[^\0]+"
   URIPROTO: '[A-Za-z]([A-Za-z0-9+\-.]+)+'
   URIPATH: (?:/[A-Za-z0-9$.+!*'(){},~:;=@#%&_\-]*)+
-  # buggy and needs tests
+  # TODO: known to be wrong in places, and has no tests.
   URIPARAM: \?[A-Za-z0-9$.+!*'|(){},~@#%&/=:;_?\-\[\]<>]*
   MONTH: '\b(?:[Jj]an(?:uary|uar)?|[Ff]eb(?:ruary|ruar)?|[Mm](?:a|ä)?r(?:ch|z)?|[Aa]pr(?:il)?|[Mm]a(?:y|i)?|[Jj]un(?:e|i)?|[Jj]ul(?:y|i)?|[Aa]ug(?:ust)?|[Ss]ep(?:tember)?|[Oo](?:c|k)?t(?:ober)?|[Nn]ov(?:ember)?|[Dd]e(?:c|z)(?:ember)?)\b'
   MONTHNUM: '(?:1[0-2]|0*[1-9])'
@@ -62,12 +62,12 @@ vars_templated:
   # same as it was when it was written out by hand.
   IP: '([% IPv6 %]|[% IPv4 %])'
   HOSTNAMEorIP: '([% IPv6 %]|[% IPv4 %]|[% HOSTNAME %])'
-  # commonly used in logstash stuff, add the alias here
+  # Alias for the name logstash uses.
   NUMBER: '[% INTorFLOAT %]'
-  # commonly used in logstash so template this here for people who expect USER and USERNAME to both exist
+  # Alias for the name logstash uses, so USER and USERNAME both exist.
   USER: '[% USERNAME %]'
   MAC: '(?:[% CISCOMAC %]|[% WINDOWSMAC %]|[% COMMONMAC %])'
-  # does not properly handle IPv6... need to fix
+  # TODO: does not handle IPv6 correctly.
   HOSTandPORT: '(?:[% HOSTNAMEorIP %]:[% POSINT %])'
   HOSTmaybePORT: '(?:[% HOSTNAMEorIP %](:[% POSINT %])?)'
   PATH: '(?:[% UNIXPATH %]|[% WINPATH %])'
@@ -81,7 +81,7 @@ vars_templated:
   DATESTAMP_RFC822: '[% DAY %] [% MONTH%] [% MONTHDAY %] [% YEAR %] [% TIME %] [% TZ %]'
   DATESTAMP_OTHER: '[% DAY %] [% MONTH %] [% MONTHDAY %] [% TIME %] [% TZ %] [% YEAR %]'
   # the timezone offset is signed ("-0700"), and INT here is unsigned, so the
-  # sign has to be spelled out separately.  Without it this matched the shape
+  # sign has to be spelled out separately. Without it this matched the shape
   # of an apache timestamp but not an actual one -- grok gets away with the
   # bare INT because its INT carries the sign.
   HTTPDATE: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [+-]?[% INT %]'
@@ -404,7 +404,7 @@ vars_tests:
       - '  a b c a1.3 d'
       - '  a b c=@a1.3 d'
       - '  a b c=<a1.3> d'
-  # this is a alias to USERNAME and should work exactly the same
+  # An alias for USERNAME, so it has to behave identically.
   USER:
     test_template: 'c=(?<TEST>[% TEST_VAR %])'
     positive:
@@ -726,7 +726,8 @@ vars_tests:
         result: '04'
       - string: '  a b c=31 d'
         result: '31'
-      # this should likely be fixed
+      # TODO: 39 is not a month day. Only the leading "3" matches, where the
+      # whole token should be rejected.
       - string: '  a b c=39 d'
         result: '3'
     negative:
@@ -939,14 +940,15 @@ vars_tests:
         result: '192.168.1.2:2'
       - string: '  a b c=192.168.1.2:2333 d'
         result: '192.168.1.2:2333'
-      # this really needs to be fixed as it should not match
+      # TODO: an unbracketed IPv6 address followed by a port is ambiguous, so
+      # this should not match. It does.
       - string: '  a b c=::1:1 d'
         result: '::1:1'
     negative:
       - '  a b c=::1%22 d'
       - '  a b c=::1%2 d'
       - '  a b c=::1 d'
-      # this really needs to be fixed as it should match
+      # TODO: a zone-scoped address should match. It does not.
       - '  a b c=::1%2 d'
   PATH:
     test_template: 'c=(?<TEST>[% TEST_VAR %])'
@@ -1124,7 +1126,7 @@ vars_tests:
     positive:
       - string: 'a b c=22/Nov/1984:01:22:33 1 d'
         result: '22/Nov/1984:01:22:33 1'
-      # what an apache or nginx access log actually writes
+      # The form an apache or nginx access log writes.
       - string: 'a b c=10/Oct/2000:13:55:36 -0700 d'
         result: '10/Oct/2000:13:55:36 -0700'
       - string: 'a b c=15/Jul/2026:10:00:00 +0000 d'
@@ -1295,7 +1297,8 @@ vars_tests:
         result: '192.168.1.2:2'
       - string: '  a b c=192.168.1.2:2333 d'
         result: '192.168.1.2:2333'
-      # this really needs to be fixed as it should not match
+      # TODO: an unbracketed IPv6 address followed by a port is ambiguous, so
+      # this should not match. It does.
       - string: '  a b c=::1:1 d'
         result: '::1:1'
       - string: '  a b c=b.a.foo.bar d'

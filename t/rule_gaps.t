@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Test::More;
 use Scalar::Util qw(looks_like_number);
+use Log::Munger::RuleFileParser ();
 
 BEGIN {
 	use_ok('Log::Munger')                  || print "Bail out!\n";
@@ -795,5 +796,404 @@ foreach my $program (qw(uhttpd dispatcher.uc luci)) {
 my $not_luci = $luci->process_item(
 	'message' => "Runtime error: Unable to dlopen file '/usr/lib/ucode/ubus.so'", 'program' => 'uhttpd' );
 is( $not_luci, undef, 'luci: uhttpd output that is not a LuCI message is left alone' );
+
+#
+# kernel: the link-layer header dump that follows a martian source
+#
+# Two log records, one event. The martian line carries an address the stack
+# has already decided is not to be believed; this one carries the MAC of the
+# port the frame actually came in on. The two MACs are split out of the hex
+# dump by a decompose and normalized by "convert: mac", neither of which the
+# in-file rule tests run.
+#
+my $kernel_ll = Log::Munger->new( 'rules' => ['kernel'] );
+
+my $ll = $kernel_ll->process_item(
+	'message' => 'll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00', 'program' => 'kernel' );
+is( $ll->{'kernel_ll_header'}, 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00', 'kernel: ll header kept whole' );
+is( $ll->{'kernel_ll_dst_mac'}, 'ff:ff:ff:ff:ff:ff', 'kernel: ll header destination MAC, colon form' );
+is( $ll->{'kernel_ll_src_mac'}, 'c4:d8:d5:3b:8c:4b', 'kernel: ll header source MAC, colon form' );
+is( $ll->{'kernel_ll_ethertype'}, '08 00', 'kernel: ll header ethertype' );
+
+# a dump that is not 14 bytes is not Ethernet, so nothing is split out of it
+# rather than something wrong being split out
+my $ll_short = $kernel_ll->process_item(
+	'message' => 'll header: 00000000: 45 00 00 54 00 01', 'program' => 'kernel' );
+is( $ll_short->{'kernel_ll_header'}, '45 00 00 54 00 01', 'kernel: a non-Ethernet ll header still matches' );
+ok( !exists( $ll_short->{'kernel_ll_src_mac'} ), 'kernel: ...but is not split into MACs' );
+
+my $suppressed = $kernel_ll->process_item(
+	'message' => 'net_ratelimit: 23 callbacks suppressed', 'program' => 'kernel' );
+is( $suppressed->{'kernel_ratelimit_source'}, 'net_ratelimit', 'kernel: rate limiter that suppressed' );
+ok( looks_like_number( $suppressed->{'kernel_ratelimit_suppressed'} ), 'kernel: suppressed count is numeric' );
+
+#
+# auditd: the end-of-event marker
+#
+# type=EOE carries no fields and its line stops at the colon with no trailing
+# space. Requiring ": " left every one of them unmatched, and on a host with a
+# busy audit ruleset that is a large fraction of the records.
+#
+my $auditd = Log::Munger->new( 'rules' => ['auditd'] );
+
+my $eoe = $auditd->process_item( 'message' => 'type=EOE msg=audit(1786280401.940:224814):' );
+is( $eoe->{'audit_type'}, 'EOE',                      'auditd: EOE record matches' );
+is( $eoe->{'audit_id'},   '1786280401.940:224814',    'auditd: EOE keeps the id that correlates the event' );
+ok( looks_like_number( $eoe->{'audit_serial'} ), 'auditd: EOE serial is numeric' );
+
+#
+# cron: two shapes that were being dropped
+#
+# The MAIL line ends with a newline that rsyslog escapes as "#012", which sat
+# between "MTA" and the closing paren and stopped the pattern matching at all
+# on Debian and Ubuntu. And when the local MTA fails, cron relays its stderr
+# under cron's own identity -- the only record that a job's output went
+# nowhere, since the job still logs a clean CMD line.
+#
+my $cron_gaps = Log::Munger->new( 'rules' => ['cron'] );
+
+my $mail = $cron_gaps->process_item(
+	'message' => '(root) MAIL (mailed 46 bytes of output but got status 0x004b from MTA#012)',
+	'program' => 'CRON'
+);
+is( $mail->{'cron_user'},        'root',   'cron: MAIL line survives the rsyslog control escape' );
+is( $mail->{'cron_mail_status'}, '0x004b', 'cron: MTA status' );
+ok( looks_like_number( $mail->{'cron_mail_bytes'} ), 'cron: mailed byte count is numeric' );
+
+my $mta_error = $cron_gaps->process_item(
+	'message' => 'sendmail: fatal: open /etc/postfix/main.cf: No such file or directory',
+	'program' => 'cron'
+);
+is( $mta_error->{'cron_mta'},       'sendmail', 'cron: relayed MTA name' );
+is( $mta_error->{'cron_mta_level'}, 'fatal',    'cron: relayed MTA severity' );
+is( $mta_error->{'cron_error'}, 'open /etc/postfix/main.cf: No such file or directory', 'cron: relayed MTA error' );
+
+# FreeBSD cron names no MTA and leaves the space where Vixie writes " from
+# MTA", so the whole line missed on a platform where every mailed job logs one.
+my $mail_fbsd = $cron_gaps->process_item(
+	'message' => '(root) MAIL (mailed 1993 bytes of output but got status 0x0001 )',
+	'program' => 'cron'
+);
+is( $mail_fbsd->{'cron_user'},        'root',   'cron: FreeBSD MAIL line with no MTA named' );
+is( $mail_fbsd->{'cron_mail_status'}, '0x0001', 'cron: status does not absorb the trailing space' );
+ok( looks_like_number( $mail_fbsd->{'cron_mail_bytes'} ), 'cron: FreeBSD mailed byte count is numeric' );
+
+# crontab(1) announces every crontab change under its own program name, so the
+# gate has to admit it or the only record of the edit is dropped. The message
+# shapes are the ones CRON_INFO already matched for cron(8).
+foreach my $crontab_case (
+	[ 'LIST',       '(neti) LIST (neti)' ],
+	[ 'BEGIN EDIT', '(neti) BEGIN EDIT (neti)' ],
+	[ 'REPLACE',    '(neti) REPLACE (neti)' ],
+	[ 'END EDIT',   '(root) END EDIT (root)' ],
+	)
+{
+	my ( $type, $message ) = @{$crontab_case};
+	my $edit = $cron_gaps->process_item( 'message' => $message, 'program' => 'crontab' );
+	is( $edit->{'cron_info_type'}, $type, "cron: crontab(1) $type gates through" );
+}
+
+#
+# systemd: the unit-scoped tail
+#
+# systemd's message set is large and mostly prose. Everything with a known
+# shape is matched by name; the rest reaches SYSTEMD_UNIT_MESSAGE, which gets
+# the unit out and leaves the prose alone. It requires a real unit suffix, so
+# a non-unit line is not misread as one.
+#
+my $systemd_gaps = Log::Munger->new( 'rules' => ['systemd'] );
+
+my $consumed = $systemd_gaps->process_item(
+	'message' => 'cape-web.service: Consumed 2min 35.058s CPU time, 1.2G memory peak, 0B memory swap peak.',
+	'program' => 'systemd'
+);
+is( $consumed->{'systemd_unit'},        'cape-web.service', 'systemd: unit on the resource epitaph' );
+is( $consumed->{'systemd_cpu_time'},    '2min 35.058s',     'systemd: CPU time kept as systemd printed it' );
+is( $consumed->{'systemd_memory_peak'}, '1.2G',             'systemd: memory peak' );
+
+my $unit_tail = $systemd_gaps->process_item(
+	'message' => 'virtnetworkd.service: Unit process 1215 (dnsmasq) remains running after unit stopped.',
+	'program' => 'systemd'
+);
+is( $unit_tail->{'systemd_unit'}, 'virtnetworkd.service', 'systemd: unit out of an unenumerated line' );
+is( $unit_tail->{'systemd_message'}, 'Unit process 1215 (dnsmasq) remains running after unit stopped.',
+	'systemd: the rest stays prose' );
+
+my $not_a_unit = $systemd_gaps->process_item(
+	'message' => 'Failed to open /dev/tty0: No such device', 'program' => 'systemd' );
+is( $not_a_unit, undef, 'systemd: a colon with no unit suffix is not read as a unit' );
+
+#
+# the syslog daemon's repeat suppression, which arrives under the repeating
+# program's identity rather than the daemon's
+#
+# Eleven send failures become one line that no dnsmasq pattern matches, so
+# without this a consumer counting failures sees one. The rule is gateless for
+# that reason, and sits behind the gated syslog_daemon rule.
+#
+my $repeated = Log::Munger->new( 'rules' => [ 'dnsmasq', 'syslog_daemon' ] )->process_item(
+	'message' => 'message repeated 11 times: [ failed to send packet: Operation not permitted]',
+	'program' => 'dnsmasq'
+);
+is( $repeated->{'syslogd_repeated_message'}, 'failed to send packet: Operation not permitted',
+	'syslog_daemon: the suppressed message is recovered' );
+ok( looks_like_number( $repeated->{'syslogd_repeated'} ), 'syslog_daemon: repeat count is numeric' );
+
+#
+# http_access_logs: Python's servers write CLF with a space where the colon
+# goes and no timezone
+#
+# Django's runserver, Werkzeug and http.server all do this, and on a host that
+# fronts a Python application through syslog it is the whole access log.
+#
+my $python_access = Log::Munger->new( 'rules' => ['http_access_logs'] )->process_item(
+	'item' => '192.0.2.10 - - [24/Jul/2026 22:20:26] "GET /static/js/hexdump.js HTTP/1.1" 200 -' );
+is( $python_access->{'http_clientip'}, '192.0.2.10',              'http_access_logs: Python-format client address' );
+is( $python_access->{'http_timestamp'}, '24/Jul/2026 22:20:26',   'http_access_logs: Python-format timestamp' );
+is( $python_access->{'http_request'},  '/static/js/hexdump.js',   'http_access_logs: Python-format request path' );
+ok( looks_like_number( $python_access->{'http_response'} ), 'http_access_logs: response code is numeric' );
+
+#
+# tor: the bootstrap percentage is the only line that says whether the daemon
+# can carry traffic, and it arrives two different ways
+#
+my $tor = Log::Munger->new( 'rules' => ['tor'] );
+
+my $tor_syslog = $tor->process_item(
+	'message' => 'Bootstrapped 100% (done): Done', 'program' => 'Tor' );
+is( $tor_syslog->{'tor_bootstrap_tag'}, 'done', 'tor: bootstrap tag from the syslog form' );
+ok( !exists( $tor_syslog->{'tor_level'} ), 'tor: the syslog form carries no level of its own' );
+
+my $tor_stdout = $tor->process_item(
+	'message' => 'Jul 28 14:41:30.650 [notice] Bootstrapped 0% (starting): Starting', 'program' => 'tor' );
+is( $tor_stdout->{'tor_level'},     'notice',   'tor: level off the stdout form' );
+is( $tor_stdout->{'tor_timestamp'}, 'Jul 28 14:41:30.650', 'tor: Tor own timestamp off the stdout form' );
+is( $tor_stdout->{'tor_bootstrap_tag'}, 'starting', 'tor: bootstrap tag from the stdout form' );
+
+# a listener bound off loopback is reachable by anything on the LAN, and Tor
+# says so once at start-up and then never again
+my $tor_listener = $tor->process_item(
+	'message' => 'Opened Transparent pf/netfilter listener connection (ready) on 192.0.2.1:9040', 'program' => 'Tor' );
+is( $tor_listener->{'tor_listener_type'}, 'Transparent pf/netfilter', 'tor: listener kind with spaces in it' );
+is( $tor_listener->{'tor_listener_addr'}, '192.0.2.1:9040',           'tor: listener address' );
+
+# a unix socket goes in the same field, whole, rather than being split on a
+# colon that is not a port separator
+my $tor_socket = $tor->process_item(
+	'message' => 'Opening Control listener on /run/tor/control', 'program' => 'Tor' );
+is( $tor_socket->{'tor_listener_addr'}, '/run/tor/control', 'tor: a unix socket listener is kept whole' );
+
+#
+# dbus: who caused a privileged daemon to start
+#
+# systemd records the activation, but not the reason for it. This is the only
+# line that names the requesting uid, pid and argv.
+#
+my $dbus = Log::Munger->new( 'rules' => ['dbus'] )->process_item(
+	'message' => '[system] Activating via systemd: service name=\'org.freedesktop.fwupd\' unit=\'fwupd.service\''
+		. ' requested by \':1.558\' (uid=989 pid=190138 comm="/usr/bin/fwupdmgr refresh")',
+	'program' => 'dbus-daemon'
+);
+is( $dbus->{'dbus_service'},        'org.freedesktop.fwupd',    'dbus: activated bus name' );
+is( $dbus->{'dbus_unit'},           'fwupd.service',            'dbus: unit systemd was asked for' );
+is( $dbus->{'dbus_requested_by'},   ':1.558',                   'dbus: requesting connection' );
+is( $dbus->{'dbus_requester_comm'}, '/usr/bin/fwupdmgr refresh', 'dbus: requester argv survives its spaces' );
+ok( looks_like_number( $dbus->{'dbus_requester_uid'} ), 'dbus: requester uid is numeric' );
+
+#
+# libvirt: the taint record, which names the guest that got the escape hatch
+#
+# One line per taint flag, so a domain with three of them produces three lines
+# sharing an id and uuid. The uuid is the stable key -- the numeric id is
+# reassigned on every start.
+#
+my $libvirt = Log::Munger->new( 'rules' => ['libvirt'] );
+
+my $taint = $libvirt->process_item(
+	'message' => "Domain id=17 name='sandbox70' uuid=4886ce36-05ed-4f35-bfbf-a6950de14804 is tainted: high-privileges",
+	'program' => 'virtqemud'
+);
+is( $taint->{'libvirt_domain'},      'sandbox70',                            'libvirt: tainted domain name' );
+is( $taint->{'libvirt_domain_uuid'}, '4886ce36-05ed-4f35-bfbf-a6950de14804', 'libvirt: domain uuid' );
+is( $taint->{'libvirt_taint'},       'high-privileges',                      'libvirt: taint flag' );
+ok( looks_like_number( $taint->{'libvirt_domain_id'} ), 'libvirt: domain id is numeric' );
+
+# the modular daemons share one rule, so the monolithic name has to reach it too
+my $libvirt_err = $libvirt->process_item(
+	'message' => "Cannot get interface flags on 'virbr0': No such device", 'program' => 'libvirtd' );
+is( $libvirt_err->{'libvirt_error_kind'}, "Cannot get interface flags on 'virbr0'", 'libvirt: error kind under libvirtd' );
+is( $libvirt_err->{'libvirt_error'},      'No such device',                         'libvirt: error detail' );
+
+my $unconfined = $libvirt->process_item(
+	'message' => 'Configured security driver "none" disables default policy to create confined guests',
+	'program' => 'virtqemud'
+);
+is( $unconfined->{'libvirt_security_driver'}, 'none', 'libvirt: guests are running unconfined' );
+
+#
+# fwupd: the daemon keeps its console format, its clients do not
+#
+# The daemon's lines start with a time of day and a padded source-domain
+# column; fwupdmgr and friends write the bare message. One optional prefix
+# covers both.
+#
+my $fwupd = Log::Munger->new( 'rules' => ['fwupd'] );
+
+my $fwupd_ready = $fwupd->process_item(
+	'message' => '00:40:52.210 FuMain               fwupd 1.9.34 ready for requests (locale en_US.UTF-8)',
+	'program' => 'fwupd'
+);
+is( $fwupd_ready->{'fwupd_domain'},  'FuMain',      'fwupd: source domain out of the padded column' );
+is( $fwupd_ready->{'fwupd_version'}, '1.9.34',      'fwupd: daemon version' );
+is( $fwupd_ready->{'fwupd_locale'},  'en_US.UTF-8', 'fwupd: locale' );
+
+my $fwupd_refresh = $fwupd->process_item( 'message' => 'Updating lvfs', 'program' => 'fwupdmgr' );
+is( $fwupd_refresh->{'fwupd_remote'}, 'lvfs', 'fwupd: metadata remote, client form with no prefix' );
+ok( !exists( $fwupd_refresh->{'fwupd_domain'} ), 'fwupd: the client form has no domain column' );
+
+# the remote is one word, so an "Updating <prose>" line is not misread as a
+# remote named after its first word
+my $fwupd_other = $fwupd->process_item(
+	'message' => 'Updating the firmware on device 0123', 'program' => 'fwupdmgr' );
+ok( !exists( $fwupd_other->{'fwupd_remote'} ), 'fwupd: prose after "Updating" is not read as a remote' );
+is( $fwupd_other->{'fwupd_message'}, 'Updating the firmware on device 0123', 'fwupd: ...it reaches the catch-all' );
+
+my $fwupd_meta = $fwupd->process_item(
+	'message' => 'Successfully downloaded new metadata: 0 local devices supported', 'program' => 'fwupdmgr' );
+ok( looks_like_number( $fwupd_meta->{'fwupd_supported_devices'} ), 'fwupd: supported device count is numeric' );
+
+#
+# avahi: the interface token has to come apart in the right place
+#
+# Avahi qualifies an interface with the protocol it is answering on, and an
+# interface name may contain a dot of its own. "eth0.100.IPv4" is a VLAN plus a
+# qualifier, not an interface called eth0.
+#
+my $avahi = Log::Munger->new( 'rules' => ['avahi'] );
+
+my $avahi_join = $avahi->process_item(
+	'message' => 'Joining mDNS multicast group on interface eth0.100.IPv4 with address 192.0.2.1.',
+	'program' => 'avahi-daemon'
+);
+is( $avahi_join->{'avahi_action'},   'Joining',   'avahi: joining the multicast group' );
+is( $avahi_join->{'avahi_iface'},    'eth0.100',  'avahi: a VLAN interface keeps its own dot' );
+is( $avahi_join->{'avahi_protocol'}, 'IPv4',      'avahi: ...and the qualifier still splits off' );
+is( $avahi_join->{'avahi_address'},  '192.0.2.1', 'avahi: address, without the sentence full stop' );
+
+# the withdraw side names no protocol at all, and the address is IPv6, so the
+# full stop must not be taken for part of either
+my $avahi_withdraw = $avahi->process_item(
+	'message' => 'Withdrawing address record for fd00:aaaa::1 on veth-h.', 'program' => 'avahi-daemon' );
+is( $avahi_withdraw->{'avahi_record_action'}, 'Withdrawing',   'avahi: record withdrawn' );
+is( $avahi_withdraw->{'avahi_address'},       'fd00:aaaa::1',  'avahi: IPv6 address' );
+is( $avahi_withdraw->{'avahi_iface'},         'veth-h',        'avahi: bare interface, no qualifier' );
+ok( !exists( $avahi_withdraw->{'avahi_protocol'} ), 'avahi: ...so no protocol is invented' );
+
+# "*" means both protocols on that interface
+my $avahi_both = $avahi->process_item(
+	'message' => 'Registering new address record for fd00:aaaa::1 on veth-h.*.', 'program' => 'avahi-daemon' );
+is( $avahi_both->{'avahi_record_action'}, 'Registering', 'avahi: record registered' );
+is( $avahi_both->{'avahi_protocol'},      '*',           'avahi: the both-protocols qualifier' );
+
+#
+# mojo_cape_submit: a submission is a dozen lines tied together by a counter
+#
+# The two programs share a rule. The counter is per worker, so it needs the
+# syslog pid beside it to identify a submission -- but without it the lines of
+# two concurrent submissions cannot be told apart at all.
+#
+my $cape = Log::Munger->new( 'rules' => ['mojo_cape_submit'] );
+
+my $cape_started = $cape->process_item(
+	'message' => '0 : Started. Remote IP: 192.0.2.5  API key:', 'program' => 'mojo_cape_submit' );
+is( $cape_started->{'cape_submit_src_ip'},  '192.0.2.5', 'mojo_cape_submit: submitting sensor' );
+is( $cape_started->{'cape_submit_api_key'}, '',          'mojo_cape_submit: an empty API key still matches' );
+ok( looks_like_number( $cape_started->{'cape_submit_item'} ), 'mojo_cape_submit: submission counter is numeric' );
+
+my $cape_file = $cape->process_item(
+	'message' => '0 : Got File... size=237985792 filename="a sample.msi" sha256="88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e"',
+	'program' => 'nergal'
+);
+is( $cape_file->{'cape_submit_filename'}, 'a sample.msi', 'mojo_cape_submit: filename survives its spaces' );
+is( $cape_file->{'cape_submit_sha256'}, '88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e',
+	'mojo_cape_submit: sha256 out of the upload blob' );
+ok( looks_like_number( $cape_file->{'cape_submit_size'} ), 'mojo_cape_submit: upload size is numeric' );
+
+# the flow's src_ip is a different host from the submitting sensor's, so it
+# lives under its own prefix
+my $cape_flow = $cape->process_item(
+	'message' => '0 : proto=TCP src_ip=198.51.100.9 src_port=44444 dest_ip=192.0.2.1 dest_port=80 flow_id=12345',
+	'program' => 'mojo_cape_submit'
+);
+is( $cape_flow->{'cape_submit_flow_src_ip'},  '198.51.100.9', 'mojo_cape_submit: flow source, not the sensor' );
+is( $cape_flow->{'cape_submit_flow_dest_ip'}, '192.0.2.1',    'mojo_cape_submit: flow destination' );
+ok( !exists( $cape_flow->{'cape_submit_src_ip'} ), 'mojo_cape_submit: ...and it does not land in the sensor field' );
+ok( looks_like_number( $cape_flow->{'cape_submit_flow_src_port'} ), 'mojo_cape_submit: flow source port is numeric' );
+
+#
+# every address capture that can hold a remote party is registered for geoip
+#
+# The failure this guards against is not a crash, it is a lookup that silently
+# never happens: an address is captured correctly, the field is right there in
+# the output, and nothing ever resolves it because the file's geoip list was
+# written once and not revisited when a pattern gained a second address.
+#
+# The rule of thumb is direction. Where a log records both ends and does not
+# say which side is local -- a firewall, a packet filter, a flow record -- both
+# ends are listed, because picking one is wrong half the time. Fields holding
+# an address that is always this host's own (a listener, a bind address, a
+# virtual IP handed out to a client) are deliberately absent and are not
+# checked here.
+#
+my %geoip_expected = (
+	# the flow a sample was carved out of, plus the sensor that sent it
+	'mojo_cape_submit' => [qw(cape_submit_src_ip cape_submit_flow_src_ip cape_submit_flow_dest_ip)],
+	# pf logs the direction but not which side of itself is local
+	'pf' => [qw(pf_src_ip pf_dst_ip)],
+	# the appliances: a normalized "far end" plus the raw fields it is
+	# collapsed from, since a consumer may read either
+	'sonicwall' => [qw(sw_offender_ip sw_src_ip sw_dst_ip)],
+	'fortinet'  => [qw(fg_offender_ip fg_srcip fg_dstip fg_remip)],
+	'huawei'    => [qw(hw_offender_ip hw_SourceIp hw_SrcIp hw_IPAddress hw_IpAddress hw_Ip hw_HostIp hw_PeerIp)],
+);
+
+foreach my $rule_file ( sort keys(%geoip_expected) ) {
+	my $parsed = Log::Munger::RuleFileParser->new->load( 'file' => $rule_file );
+	my %registered = map { $_ => 1 } @{ $parsed->{'geoip'} || [] };
+	foreach my $rule ( @{ $parsed->{'rules'} || [] } ) {
+		$registered{$_} = 1 for @{ $rule->{'geoip'} || [] };
+	}
+	foreach my $address_field ( @{ $geoip_expected{$rule_file} } ) {
+		ok( $registered{$address_field}, "$rule_file: $address_field is registered for geoip" );
+	}
+}
+
+# a sensor that filled nothing in sends the string "undef", which is kept
+# rather than dropped: "no source port was sent" and "this rule did not look"
+# are different facts
+my $cape_undef = $cape->process_item(
+	'message' => '0 : proto=undef src_ip=undef src_port=undef dest_ip=undef dest_port=undef flow_id=undef',
+	'program' => 'mojo_cape_submit'
+);
+is( $cape_undef->{'cape_submit_flow_proto'},    'undef', 'mojo_cape_submit: an unfilled field is kept verbatim' );
+is( $cape_undef->{'cape_submit_flow_src_port'}, 'undef', 'mojo_cape_submit: ...and int convert leaves it alone' );
+
+my $cape_resubmit = $cape->process_item(
+	'message' => 'resubmitted "/malware/client-incoming/json/sample.msi" as task 107 (was 106)',
+	'program' => 'nergal'
+);
+ok( !exists( $cape_resubmit->{'cape_submit_item'} ), 'mojo_cape_submit: a resubmission carries no counter' );
+ok( looks_like_number( $cape_resubmit->{'cape_submit_task_id'} ),          'mojo_cape_submit: new task id is numeric' );
+ok( looks_like_number( $cape_resubmit->{'cape_submit_previous_task_id'} ), 'mojo_cape_submit: old task id is numeric' );
+
+# a Perl warning relayed from inside the application keeps its file and line,
+# which is what says a hundred of them are one bug rather than a hundred
+my $cape_warning = $cape->process_item(
+	'message' => 'Route pattern "/results/:task_id/*path" contains a reserved stash value at /usr/share/perl5/Mojolicious/Lite.pm line 33.',
+	'program' => 'nergal'
+);
+is( $cape_warning->{'cape_submit_source_file'}, '/usr/share/perl5/Mojolicious/Lite.pm',
+	'mojo_cape_submit: warning source file' );
+ok( looks_like_number( $cape_warning->{'cape_submit_source_line'} ), 'mojo_cape_submit: warning source line is numeric' );
 
 done_testing();

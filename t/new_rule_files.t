@@ -294,6 +294,58 @@ my @cases = (
 			nslcd_error        => 'Invalid credentials',
 		},
 	},
+	{   file    => 'tor',
+		program => 'Tor',
+		message => 'Bootstrapped 75% (enough_dirinfo): Loaded enough directory info to build circuits',
+		expect  => { tor_bootstrap_tag => 'enough_dirinfo', tor_bootstrap_summary => 'Loaded enough directory info to build circuits' },
+		numeric => ['tor_bootstrap_percent'],
+	},
+	{   file    => 'dbus',
+		program => 'dbus-daemon',
+		message => '[system] Activating via systemd: service name=\'org.freedesktop.fwupd\' unit=\'fwupd.service\' requested by \':1.558\' (uid=989 pid=190138 comm="/usr/bin/fwupdmgr refresh")',
+		expect  => { dbus_bus => 'system', dbus_service => 'org.freedesktop.fwupd', dbus_unit => 'fwupd.service' },
+		# the requester blob is quote-aware kv-split by a decompose, so the
+		# whole argv survives with its spaces
+		also    => { dbus_requester_comm => '/usr/bin/fwupdmgr refresh' },
+		numeric => [ 'dbus_requester_uid', 'dbus_requester_pid' ],
+	},
+	{   file    => 'libvirt',
+		program => 'virtqemud',
+		message => "Domain id=17 name='sandbox70' uuid=4886ce36-05ed-4f35-bfbf-a6950de14804 is tainted: high-privileges",
+		expect  => {
+			libvirt_domain      => 'sandbox70',
+			libvirt_domain_uuid => '4886ce36-05ed-4f35-bfbf-a6950de14804',
+			libvirt_taint       => 'high-privileges',
+		},
+		numeric => ['libvirt_domain_id'],
+	},
+	{   file    => 'fwupd',
+		program => 'fwupd',
+		message => '00:40:52.210 FuMain               fwupd 1.9.34 ready for requests (locale en_US.UTF-8)',
+		expect  => { fwupd_domain => 'FuMain', fwupd_version => '1.9.34', fwupd_locale => 'en_US.UTF-8' },
+	},
+	{   file    => 'avahi',
+		program => 'avahi-daemon',
+		message => 'Joining mDNS multicast group on interface virbr0.IPv4 with address 192.0.2.1.',
+		expect  => {
+			avahi_action   => 'Joining',
+			avahi_iface    => 'virbr0',
+			avahi_protocol => 'IPv4',
+			avahi_address  => '192.0.2.1',
+		},
+	},
+	{   file    => 'mojo_cape_submit',
+		program => 'mojo_cape_submit',
+		message => '0 : Got File... size=237985792 filename="sample.msi" sha256="88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e"',
+		expect  => {},
+		# the upload tail is a quoted kv blob split by a decompose, which rule
+		# tests never run
+		also    => {
+			cape_submit_filename => 'sample.msi',
+			cape_submit_sha256   => '88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e',
+		},
+		numeric => [ 'cape_submit_item', 'cape_submit_size' ],
+	},
 	{   file    => 'suricata',
 		program => 'suricata',
 		message => '[1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.7:44444 -> 192.0.2.1:22',
@@ -417,6 +469,23 @@ my @ownership = (
 	[ 'sympa archived goes to sympa', { PROGRAM => 'archived', MESSAGE => 'notice main:: Archived 6.2.76 Started' }, 'sympa_daemon' ],
 	[ 'sympa bounced goes to sympa', { PROGRAM => 'bounced', MESSAGE => 'notice main::sigterm() Signal TERM received, still processing current task' }, 'sympa_function' ],
 	[ 'sympa CLI goes to sympa', { PROGRAM => 'sympa/health_check', MESSAGE => 'notice Sympa::DatabaseManager::probe_db() Table one_time_ticket_table created in database sympa' }, 'sympa_function' ],
+	# Tor answers to two program names for the same daemon: "Tor" for its own
+	# syslog output and "tor" for the stdout systemd captures, which still has
+	# Tor's timestamp and level on the front
+	[ 'Tor goes to tor', { PROGRAM => 'Tor', MESSAGE => 'We now have enough directory information to build circuits.' }, 'tor_message' ],
+	[ 'tor stdout goes to tor', { PROGRAM => 'tor', MESSAGE => 'Jul 28 14:41:30.650 [notice] Opening Socks listener on 127.0.0.1:9050' }, 'tor_listener_addr' ],
+	[ 'dbus-daemon goes to dbus', { PROGRAM => 'dbus-daemon', MESSAGE => '[system] Reloaded configuration' }, 'dbus_bus' ],
+	# libvirt's modular daemons share one rule, so a second one is checked
+	[ 'virtqemud goes to libvirt', { PROGRAM => 'virtqemud', MESSAGE => 'libvirt version: 11.1.0' }, 'libvirt_version' ],
+	[ 'libvirtd goes to libvirt', { PROGRAM => 'libvirtd', MESSAGE => "Cannot get interface flags on 'virbr0': No such device" }, 'libvirt_error' ],
+	# fwupd's clients log under their own names and write the bare message
+	# with none of the daemon's time-and-domain prefix on it
+	[ 'fwupd goes to fwupd', { PROGRAM => 'fwupd', MESSAGE => '11:21:52.150 FuEngine             something new' }, 'fwupd_domain' ],
+	[ 'fwupdmgr goes to fwupd', { PROGRAM => 'fwupdmgr', MESSAGE => 'Updating lvfs' }, 'fwupd_remote' ],
+	[ 'avahi-daemon goes to avahi', { PROGRAM => 'avahi-daemon', MESSAGE => 'Server startup complete. Host name is host.local.' }, 'avahi_message' ],
+	# nergal and mojo_cape_submit share a message vocabulary and a rule
+	[ 'mojo_cape_submit goes to mojo_cape_submit', { PROGRAM => 'mojo_cape_submit', MESSAGE => '0 : Source Host: sensor.example.net' }, 'cape_submit_source_host' ],
+	[ 'nergal goes to mojo_cape_submit', { PROGRAM => 'nergal', MESSAGE => '0 : Submitting "sample.msi" submitted as 116' }, 'cape_submit_task_id' ],
 	# the four raw, gateless formats, which are the ones with nothing but
 	# their own shape keeping them apart
 	[ 'an apache line goes to http_access_logs', '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"', 'http_clientip' ],

@@ -1,8 +1,8 @@
 ---
 # strongSwan (charon) IPsec/IKE log enrichment.
 #
-# Gates on the syslog PROGRAM field being "charon" or "ipsec".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "charon" or "ipsec". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with ipsec_ .
 #
 # charon prefixes every line with the worker thread that wrote it and the
@@ -11,13 +11,13 @@
 #   12[IKE] IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]
 #   08[NET] received packet: from 203.0.113.7[500] to 192.0.2.1[500] (464 bytes)
 #
-# The subsystem is the useful half.  IKE is the key exchange, NET is packet
+# The subsystem is the useful half. IKE is the key exchange, NET is packet
 # handling, CFG is configuration matching, and ENC is decryption -- so a run of
 # ENC errors and a run of CFG "no matching peer config" mean very different
 # things about who is on the other end.
 #
-# openvpn.yaml covers the other common VPN; this is the one that shows up in
-# front of site-to-site tunnels and on anything speaking IKEv2.
+# openvpn.yaml covers the other common VPN. strongSwan is what sits in front of
+# site-to-site tunnels and anything speaking IKEv2.
 includes:
 - base
 vars_templated:
@@ -25,7 +25,7 @@ vars_templated:
   IPSEC_HEAD: '(?<ipsec_thread>[% INT %])\[(?<ipsec_subsystem>[A-Z]+)\] '
   # "IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]"
   #
-  # A tunnel came up.  Both ends are named as address[identity], and the
+  # A tunnel came up. Both ends are named as address[identity], and the
   # identity is whatever the peer authenticated as -- a certificate subject, an
   # EAP username, or a bare address when there was nothing better.
   IPSEC_SA_ESTABLISHED: '[% IPSEC_HEAD %](?<ipsec_sa_kind>IKE_SA|CHILD_SA) (?<ipsec_sa_name>[^\[\s]+)(?:\[(?<ipsec_sa_unique>[% INT %])\])? established between (?<ipsec_local_ip>[% IP %])\[(?<ipsec_local_id>[^\]]*)\]\.\.\.(?<ipsec_remote_ip>[% IP %])\[(?<ipsec_remote_id>[^\]]*)\](?: [% GREEDYDATA %])?'

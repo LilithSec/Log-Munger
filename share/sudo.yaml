@@ -1,8 +1,8 @@
 ---
 # sudo command / session log enrichment.
 #
-# Gates on the syslog PROGRAM field being "sudo".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "sudo". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with sudo_ .
 #
 # Two shapes are handled:
@@ -15,7 +15,7 @@
 #       pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # sudo right-aligns the invoking user in an eight-character field, so all but
   # the longest names arrive with leading spaces:
@@ -39,7 +39,7 @@ vars_templated:
   SUDO_SESSION: 'pam_unix\(sudo:session\): session (?<sudo_session_action>opened|closed) for user (?<sudo_target_user>[% USERNAME %])(?:\(uid=(?<sudo_target_uid>[% INT %])\))?(?: by (?<sudo_by_user>[% USERNAME %])\(uid=(?<sudo_by_uid>[% INT %])\))?'
   # --- security-relevant DENIALS -------------------------------------------
   # These share the "<user> : <reason> ; TTY=... ; PWD=... ; USER=... ;
-  # COMMAND=..." shape.  The reason is captured as sudo_error and the trailing
+  # COMMAND=..." shape. The reason is captured as sudo_error and the trailing
   # "KEY=VALUE ; KEY=VALUE" blob is captured as sudo_kv so the SAME file-level
   # kv decompose splits out sudo_TTY / sudo_PWD / sudo_USER / sudo_COMMAND.
   #
@@ -59,6 +59,14 @@ vars_templated:
   # The trailing "logname= uid= euid= tty= ruser= rhost= user=" blob is
   # captured whole as sudo_pam_kv and split by the second decompose below.
   SUDO_PAM_AUTH_FAILURE: 'pam_unix\(sudo:(?<sudo_pam_type>[% WORD %])\): authentication failure; (?<sudo_pam_kv>logname=[% GREEDYDATA %])'
+  # "failed to get password: Conversation failure"
+  #
+  # sudo could not run the PAM conversation to prompt for a password, so no
+  # attempt was made and no "N incorrect password attempts" line follows. The
+  # trailing text is the PAM error, but the message is sudo's own and carries
+  # none of the "user : " prefix the rest of this file keys on -- which is why
+  # it lives here behind the sudo gate rather than in the gateless pam.yaml.
+  SUDO_PASSWORD_FAILED: 'failed to get password: (?<sudo_error>[% GREEDYDATA %])'
 vars_tests:
   SUDO_COMMAND:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -138,6 +146,13 @@ vars_tests:
         result: 'pam_unix(sudo:auth): authentication failure; logname=deploy uid=1001 euid=0 tty=/dev/pts/1 ruser=deploy rhost=  user=deploy'
     negative:
       - 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
+  SUDO_PASSWORD_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'failed to get password: Conversation failure'
+        result: 'failed to get password: Conversation failure'
+    negative:
+      - '  neti : 1 incorrect password attempt ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
   SUDO_USER_PAD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -156,15 +171,15 @@ vars_tests:
         result: 'PWD='
     negative:
       - 'USER='
-# file-level default: coerce the session uids to integers at runtime
+# Coerce the session uids to integers.
 convert:
   sudo_target_uid: int
   sudo_by_uid: int
   sudo_pw_attempts: int
   sudo_uid: int
   sudo_euid: int
-# file-level default: split the classic "KEY=VALUE ; KEY=VALUE" command blob
-# (captured as sudo_kv) into per-key fields, namespaced with sudo_ .
+# Split the classic "KEY=VALUE ; KEY=VALUE" command blob (captured as sudo_kv)
+# into per-key fields, namespaced with sudo_ .
 decompose:
   - field: sudo_kv
     type: kv
@@ -184,7 +199,7 @@ decompose:
           sudo_USER: 'root'
           sudo_COMMAND: '/usr/local/etc/snmp-extends/bind'
   # pam_unix auth-failure blob (space-separated) -> sudo_logname / sudo_uid /
-  # sudo_euid / sudo_tty / sudo_ruser / sudo_rhost / sudo_user.  Empty values
+  # sudo_euid / sudo_tty / sudo_ruser / sudo_rhost / sudo_user. Empty values
   # (e.g. "rhost= ") yield empty-string fields.
   - field: sudo_pam_kv
     type: kv
@@ -218,6 +233,7 @@ rules:
       - SUDO_INCORRECT_PASSWORD
       - SUDO_NEED_TTY
       - SUDO_PAM_AUTH_FAILURE
+      - SUDO_PASSWORD_FAILED
     tests:
       positive:
         - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
@@ -281,5 +297,9 @@ rules:
           result:
             sudo_pam_type: 'auth'
             sudo_pam_kv: 'logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
+        # no user prefix at all on this one
+        - string: 'failed to get password: Conversation failure'
+          result:
+            sudo_error: 'Conversation failure'
       negative:
         - 'this is not a valid sudo line at all'

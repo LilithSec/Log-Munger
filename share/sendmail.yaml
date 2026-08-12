@@ -1,8 +1,8 @@
 ---
 # Sendmail MTA log enrichment.
 #
-# Gates on the syslog PROGRAM field being "sendmail" or "sm-mta".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "sendmail" or "sm-mta". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with sendmail_ .
 #
 # Sendmail logs a message as a queue id followed by a comma-separated key=value
@@ -28,10 +28,10 @@ vars_templated:
   # A message transaction: the kv blob, whatever is in it.
   #
   # Anchored on the leading key rather than on the shape of the whole blob,
-  # since the shape is exactly what varies.  from=, to= and ruleset= are the
+  # since the shape is exactly what varies. from=, to= and ruleset= are the
   # three that open a transaction line.
   SENDMAIL_TRANSACTION: '[% SENDMAIL_QID %](?<sendmail_kv>(?:from|to|ruleset|ctladdr)=[% GREEDYDATA %])'
-  # "host.example.com [192.0.2.5]" as the relay= value.  Fed to the second
+  # "host.example.com [192.0.2.5]" as the relay= value. Fed to the second
   # decompose so the address can be looked up.
   #
   # The host is often "[192.0.2.5]" on its own when there is no reverse DNS,
@@ -40,7 +40,7 @@ vars_templated:
   # "AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not
   #  found, relay=scanner [203.0.113.7]"
   #
-  # The SMTP AUTH brute force.  No queue id, because nothing was accepted.
+  # The SMTP AUTH brute force. No queue id, because nothing was accepted.
   SENDMAIL_AUTH_FAILURE: 'AUTH failure \((?<sendmail_auth_mech>[^)]*)\): (?<sendmail_auth_error>.*), relay=(?<sendmail_relay>[% GREEDYDATA %])'
   # "ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner
   #  [203.0.113.7], reject=550 5.7.1 Access denied"
@@ -121,18 +121,17 @@ vars_tests:
         result: 'starting daemon (8.17.1): SMTP+queueing@00:30:00'
     negative:
       - ''
-# file-level default: the relay address, whether it came from a transaction
-# blob or from an AUTH failure
+# The relay address, whether it came from a transaction blob or from an AUTH
+# failure.
 geoip:
   - sendmail_relay_ip
 convert:
   sendmail_size: int
   sendmail_nrcpts: int
   sendmail_pri: int
-# file-level default: split the comma-separated kv blob, then split the relay
-# clause out of what that produced. Order matters: the second entry works on a
-# field the first one created.
-#
+# Split the comma-separated kv blob, then split the relay clause out of what
+# that produced. Order matters: the second entry works on a field the first
+# one created.
 # No prefix on the kv split beyond sendmail_, since the keys are already
 # sendmail's own names (from, to, size, nrcpts, proto, daemon, relay, mailer,
 # delay, stat, dsn).

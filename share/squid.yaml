@@ -10,11 +10,11 @@
 # The access rule is gateless and anchored, so it works both for raw lines fed
 # straight in (process_item(item => $line)) and for syslog-delivered logs.
 #
-# cache.log gets a SECOND rule, and that one IS gated on PROGRAM.  Its patterns
-# have to be loose -- a cache.log line is a severity and free text, nothing
-# more structural than that -- and a loose pattern on a gateless rule would
-# reach out and match other daemons' lines whenever squid happened to be one of
-# the loaded rule files.  The gate is what makes it safe to be loose.
+# cache.log gets a second rule, and that one is gated on PROGRAM. Its patterns
+# have to be loose, since a cache.log line is a severity and free text and
+# nothing more structural, and a loose pattern on a gateless rule would match
+# other daemons' lines whenever squid was among the loaded rule files. The gate
+# is what makes being loose safe.
 includes:
 - base
 vars:
@@ -23,30 +23,30 @@ vars:
 vars_templated:
   SQUID_ACCESS: '(?<squid_timestamp>[% NUMBER %]) +(?<squid_elapsed>[% INT %]) (?<squid_client_ip>[% IP %]) (?<squid_result_code>[% NOTSPACE %])/(?<squid_status>[% INT %]) (?<squid_bytes>[% INT %]) (?<squid_method>[% WORD %]) (?<squid_url>[% NOTSPACE %]) (?<squid_user>[% NOTSPACE %]) (?<squid_hierarchy>[% NOTSPACE %])/(?<squid_peer>[% NOTSPACE %]) (?<squid_content_type>[% NOTSPACE %])'
   # The apache-shaped half of squid''s common and combined layouts, up to the
-  # byte count.  Split out because combined wedges the quoted referrer and
+  # byte count. Split out because combined wedges the quoted referrer and
   # user-agent between this and the tail rather than appending them.
   SQUID_HTTP_HEAD: '(?<squid_client_ip>[% IP %]) (?<squid_ident>[% NOTSPACE %]) (?<squid_user>[% NOTSPACE %]) \[(?<squid_timestamp>[% HTTPDATE %])\] "(?<squid_method>[% WORD %]) (?<squid_url>[% NOTSPACE %])(?: HTTP/(?<squid_httpversion>[% NUMBER %]))?" (?<squid_status>[% INT %]) (?<squid_bytes>[% INT %])'
   # The "%Ss:%Sh" tail, e.g. "TCP_MISS:HIER_DIRECT".
   #
-  # Required rather than optional, deliberately.  Without it these patterns
+  # Required rather than optional, deliberately. Without it these patterns
   # would match a plain apache access line, and since the access rule is
   # gateless they would then steal those lines from http_access_logs whenever
-  # both files were loaded and squid came first.  The tail is what makes a
+  # both files were loaded and squid came first. The tail is what makes a
   # squid line a squid line.
   SQUID_HTTP_TAIL: '(?<squid_result_code>[% NOTSPACE %]):(?<squid_hierarchy>[% NOTSPACE %])'
   SQUID_COMMON: '[% SQUID_HTTP_HEAD %] [% SQUID_HTTP_TAIL %]'
   SQUID_COMBINED: '[% SQUID_HTTP_HEAD %] "(?<squid_referrer>[% SQUID_QS %])" "(?<squid_agent>[% SQUID_QS %])" [% SQUID_HTTP_TAIL %]'
-  # cache.log.  Under SMP squid prefixes each line with the kid that wrote it.
+  # cache.log. Under SMP squid prefixes each line with the kid that wrote it.
   #
   # "kid1| WARNING: Cannot write log file: /var/log/squid/access.log"
   SQUID_CACHE_LEVEL: '(?:(?<squid_kid>kid[% INT %])\| *)?(?<squid_level>WARNING|ERROR|FATAL|CRITICAL|SECURITY ALERT|SECURITY NOTICE): (?<squid_message>[% GREEDYDATA %])'
-  # Anything else squid said.  Last resort, and the reason the cache rule is
-  # gated: it matches everything.  An unrecognised cache.log line still comes
+  # Anything else squid said. Last resort, and the reason the cache rule is
+  # gated: it matches everything. An unrecognised cache.log line still comes
   # back with its text in a named field rather than as no match at all, which
   # is the difference between a quiet log and a log nobody is reading.
   #
   # The message is ".+" rather than the usual GREEDYDATA ".*" so that an empty
-  # MESSAGE is still a miss.  There is nothing to capture out of one, and a
+  # MESSAGE is still a miss. There is nothing to capture out of one, and a
   # pattern with no string it will refuse cannot be tested.
   SQUID_CACHE: '(?:(?<squid_kid>kid[% INT %])\| *)?(?<squid_message>.+)'
 vars_tests:
@@ -207,7 +207,7 @@ rules:
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
         # an apache line: squid must not claim it, since this rule is gateless
         - '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
-  # cache.log.  Gated, because its patterns match far too much to be let loose
+  # cache.log. Gated, because its patterns match far too much to be let loose
   # on every record the way the access rule is.
   - name: squid_cache
     gate:

@@ -1,22 +1,22 @@
 ---
 # wpa_supplicant wireless client log enrichment.
 #
-# Gates on the syslog PROGRAM field being "wpa_supplicant".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "wpa_supplicant". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with wpa_ .
 #
-# This is the other half of what hostapd.yaml covers.  hostapd is the access
-# point watching stations arrive; this is a station watching itself connect,
-# and it is what a laptop, a phone or an embedded device writes.
+# This is the other half of what hostapd.yaml covers. hostapd is the access
+# point watching stations arrive; this is a station watching itself connect, as
+# written by a laptop, a phone or an embedded device.
 #
 # Almost everything useful arrives as a CTRL-EVENT-* line prefixed with the
-# interface.  The disconnection reason code is worth keeping as a number: 15 is
-# a 4-way handshake timeout, which is what a wrong PSK looks like, and 3 is a
-# deliberate deauthentication, which is what an active attack looks like.
+# interface. The disconnection reason code is kept as a number: 15 is a 4-way
+# handshake timeout, which is how a wrong PSK appears, and 3 is a deliberate
+# deauthentication, which is how an active attack appears.
 includes:
 - base
 vars_templated:
-  # "wlan0: " -- the interface every per-interface line opens with.  Absent on
+  # "wlan0: " -- the interface every per-interface line opens with. Absent on
   # the daemon's own startup messages.
   WPA_IFACE: '(?<wpa_iface>[A-Za-z0-9._-]+): '
   # "wlan0: CTRL-EVENT-CONNECTED - Connection to aa:bb:cc:dd:ee:ff completed

@@ -1,16 +1,16 @@
 ---
 # FreeRADIUS authentication log enrichment.
 #
-# Gates on the syslog PROGRAM field being "radiusd" or "freeradius".  Patterns
-# are anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "radiusd" or "freeradius". Patterns
+# are anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with radius_ .
 #
 # RADIUS is what sits behind 802.1X on a wired or wireless network and behind a
 # lot of VPN concentrators, which makes these the authentication records for
-# everything that never touches a shell.  hostapd.yaml sees the association;
+# everything that never touches a shell. hostapd.yaml sees the association;
 # this is where the credential check itself lands.
 #
-# The line to count is "Login incorrect".  Its parenthesised reason separates a
+# The line to count is "Login incorrect". Its parenthesised reason separates a
 # wrong password from an unknown user from a rejected certificate, and the
 # "from client" clause names the NAS -- the access point or switch the attempt
 # came through -- which is what turns a count into a location.
@@ -22,7 +22,7 @@ vars_templated:
   RADIUS_REQUEST: '(?:\((?<radius_request>[% INT %])\) +)?'
   # "(from client wifi port 0 cli aa-bb-cc-dd-ee-ff)"
   #
-  # The client is the NAS as named in clients.conf, not the end user.  cli is
+  # The client is the NAS as named in clients.conf, not the end user. cli is
   # the calling station -- the supplicant's MAC on 802.1X -- and is absent on
   # transports that have no such thing.
   RADIUS_CLIENT: '(?: \(from client (?<radius_client>[% NOTSPACE %]) port (?<radius_nas_port>[% INT %])(?: cli (?<radius_calling_station>[% NOTSPACE %]))?\))?'
@@ -39,7 +39,7 @@ vars_templated:
   # "Ignoring request to auth address 192.0.2.1 port 1812 bound to server
   #  default from unknown client 203.0.113.7 port 45678 proto udp"
   #
-  # A RADIUS packet from something that is not in clients.conf.  On an exposed
+  # A RADIUS packet from something that is not in clients.conf. On an exposed
   # port this is a scan; on a working network it is a NAS someone forgot to
   # add.
   RADIUS_UNKNOWN_CLIENT: '[% RADIUS_REQUEST %]Ignoring request to (?<radius_socket>[% GREEDYDATA %]) from unknown client (?<radius_src_ip>[% IP %]) port (?<radius_src_port>[% INT %])(?: [% GREEDYDATA %])?'

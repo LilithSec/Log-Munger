@@ -49,7 +49,7 @@ vars_tests:
         result: '[2001:db8::1]:27017'
     negative:
       - 'not-an-address'
-# file-level default: JSON-decode the captured blob and flatten it into mongo_*.
+# JSON-decode the captured blob and flatten it into mongo_*.
 decompose:
   - field: mongo_json
     type: json

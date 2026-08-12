@@ -14,7 +14,7 @@
 # dovecot_mpid is converted to an int.
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # A dovecot service name. Like base WORD but with the hyphen allowed, since
   # auth-worker, indexer-worker, config-dump and dict-async all carry one.
@@ -65,7 +65,7 @@ vars_templated:
   #   auth: passwd-file(neti,203.0.113.7): unknown user
   # the backend name, user, and remote IP (dovecot_rip -> geoip) are captured.
   DOVECOT_AUTH_FAIL: 'auth: (?<dovecot_auth_db>[^(:]+)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
-  # generic informational auth line, e.g.
+  # A generic informational auth line, e.g.
   #   auth: Info: passwd(neti): unknown user
   DOVECOT_AUTH_INFO: 'auth: Info: (?<dovecot_auth_info>[% GREEDYDATA %])'
   # Sieve delivery, from either lda or lmtp, e.g.
@@ -235,7 +235,7 @@ vars_tests:
         result: 'auth: Error: auth client 0 disconnected with 1 pending requests: EOF'
       - string: 'master: Warning: Killed with signal 15 (by pid=86843 uid=0 code=kill)'
         result: 'master: Warning: Killed with signal 15 (by pid=86843 uid=0 code=kill)'
-      # hyphenated service name
+      # A hyphenated service name.
       - string: 'auth-worker: Fatal: master: service(auth-worker): child 53847 killed with signal 9'
         result: 'auth-worker: Fatal: master: service(auth-worker): child 53847 killed with signal 9'
     negative:
@@ -258,12 +258,12 @@ vars_tests:
         result: 'lmtp(5678): Connect from 192.0.2.5'
     negative:
       - 'lmtp(neti): sieve: msgid=<abc@example.com>: stored mail into mailbox ''INBOX'''
-# file-level default: after a rule matches, the remote IP captured as
-# dovecot_rip gets a geoip lookup (only used when built with a geoip database).
+# After a rule matches, the remote IP captured as dovecot_rip gets a geoip
+# lookup (only used when built with a geoip database).
 geoip:
   - dovecot_rip
-# file-level default: the process id parsed out of the kv blob is numeric, as
-# are the byte/message counts pulled out of the session logout stats blob.
+# The process id parsed out of the kv blob is numeric, as are the byte/message
+# counts pulled out of the session logout stats blob.
 convert:
   dovecot_mpid: int
   dovecot_pid: int
@@ -271,9 +271,9 @@ convert:
   dovecot_out: int
   dovecot_deleted: int
   dovecot_expunged: int
-# file-level default: break the captured key=value blob into individual
-# dovecot_* fields. Values wrapped in <...> are unwrapped via trim; bare flag
-# tokens without "=" (TLS, secured) are skipped.
+# Break the captured key=value blob into individual dovecot_* fields. Values
+# wrapped in <...> are unwrapped via trim; bare flag tokens without "=" (TLS,
+# secured) are skipped.
 decompose:
   - field: dovecot_kv
     type: kv
@@ -291,7 +291,7 @@ decompose:
           dovecot_lip: '192.0.2.1'
           dovecot_mpid: '1234'
           dovecot_session: 'AbC123'
-  # second decompose: the session-logout statistics blob captured as
+  # Second decompose: the session-logout statistics blob captured as
   # dovecot_stats is a SPACE-separated key=value list (in=100 out=200
   # deleted=0 expunged=0 ...) with no <> wrapping. Split it into dovecot_*
   # counters; the numeric ones are coerced to int via the file-level convert.
@@ -333,7 +333,7 @@ rules:
       - DOVECOT_SESSION_LEVEL
       - DOVECOT_LMTP_CONNECT
       - DOVECOT_MASTER_STARTUP
-      # last of the service lines: only reached once the shapes above have been
+      # Last of the service lines: only reached once the shapes above have been
       # tried, so it picks up whatever service dovecot grows next
       - DOVECOT_SERVICE_LEVEL
     tests:

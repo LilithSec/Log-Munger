@@ -1,20 +1,20 @@
 ---
 # OpenDKIM milter log enrichment.
 #
-# Gates on the syslog PROGRAM field being "opendkim".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "opendkim". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with opendkim_ .
 #
 # Every line opens with the MTA's queue id, which is the same id postfix and
 # exim log, so these join straight onto the delivery records in postfix.yaml
-# and exim.yaml.  That join is the point of the file: a message's signing or
+# and exim.yaml. That join is the point of the file: a message's signing or
 # verification result is useless on its own and tells you a lot next to who
 # sent it and where it went.
 #
-# A verification failure is not by itself an attack -- forwarding and mailing
-# lists break signatures routinely -- but a "bad signature data" on a domain
-# that normally verifies is worth a look, and the domain is captured so that
-# comparison is possible.
+# A verification failure is not by itself an attack, since forwarding and
+# mailing lists break signatures routinely. A "bad signature data" on a domain
+# that normally verifies is a different matter, so the domain is captured to
+# make that comparison possible.
 includes:
 - base
 vars_templated:
@@ -27,7 +27,7 @@ vars_templated:
   # "1rABCD: s=default d=example.com SSL"
   #
   # The selector and domain of the signature that was checked, and the
-  # transport it arrived over.  d= is the domain claiming responsibility for
+  # transport it arrived over. d= is the domain claiming responsibility for
   # the message, which is the field a reputation view keys on.
   OPENDKIM_SIGNATURE: '[% OPENDKIM_QID %]s=(?<opendkim_selector>[% NOTSPACE %]) d=(?<opendkim_domain>[% NOTSPACE %])(?: (?<opendkim_detail>[% GREEDYDATA %]))?'
   # "1rABCD: [192.0.2.5] not internal"

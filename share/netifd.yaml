@@ -14,16 +14,16 @@
 #
 # The second is the output of the shell and ucode helpers it runs, which netifd
 # relays verbatim behind a "<device> (<pid>): " prefix. That prefix is the only
-# structure those lines have; the rest is whatever the helper printed, up to
-# and including blank continuation lines and multi-line ucode backtraces. They
-# are captured as a device, a pid and a message rather than being taken apart
-# further, because there is nothing consistent underneath to take apart.
+# structure those lines have. The rest is whatever the helper printed, up to
+# and including blank continuation lines and multi-line ucode backtraces, so
+# they are captured as a device, a pid and a message and no further: there is
+# nothing consistent underneath.
 #
-# SCOPE. The interface-level lines an OpenWRT router emits -- "Interface 'wan'
-# is now up", the DHCP and PPP protocol handlers, the hotplug calls -- are not
-# covered here. The logs this was written against come from a bridged access
-# point, which has no managed interfaces and so emits none of them; they fall
-# to the catch-all and keep their text.
+# The interface-level lines an OpenWRT router emits -- "Interface 'wan' is now
+# up", the DHCP and PPP protocol handlers, the hotplug calls -- are not covered.
+# The logs this was written against come from a bridged access point, which has
+# no managed interfaces and emits none of them. They fall to the catch-all and
+# keep their text.
 includes:
 - base
 vars_templated:
@@ -93,7 +93,7 @@ vars_tests:
         result: 'bridge br-lan link is up'
     negative:
       - ''
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   netifd_pid: int
   netifd_retry: int

@@ -89,12 +89,35 @@ is_deeply(
 	'lc/uc aliases normalize'
 );
 
+# mac: a MAC address is written four different ways depending on who printed
+# it, and a consumer correlating one field against another should not have to
+# reconcile them
+my $mac_convert = Log::Munger::LogProcessor->_compile_convert( { 'm' => 'mac' } );
+foreach my $spelling ( 'C4:D8:D5:3B:8C:4B', 'C4-D8-D5-3B-8C-4B', 'c4d8.d53b.8c4b', 'c4 d8 d5 3b 8c 4b', 'c4d8d53b8c4b' ) {
+	my %mac_captures = ( 'm' => $spelling );
+	Log::Munger::LogProcessor->_convert( { 'convert' => $mac_convert }, \%mac_captures );
+	is( $mac_captures{'m'}, 'c4:d8:d5:3b:8c:4b', "mac normalizes \"$spelling\"" );
+}
+
+# not twelve hex digits, so passed through rather than mangled -- this runs
+# against whatever the pattern captured, and a pattern can be looser than its
+# author intended
+my %not_a_mac = ( 'm' => 'unknown' );
+Log::Munger::LogProcessor->_convert( { 'convert' => $mac_convert }, \%not_a_mac );
+is( $not_a_mac{'m'}, 'unknown', 'mac leaves a value that is not a MAC alone' );
+
+is_deeply(
+	Log::Munger::LogProcessor->_compile_convert( { 'a' => 'MAC', 'b' => 'macaddr', 'c' => 'mac_address' } ),
+	{ 'a' => 'mac', 'b' => 'mac', 'c' => 'mac' },
+	'mac aliases normalize'
+);
+
 # an unknown convert type is a load-time error
 eval {
 	my $bad = { 'convert' => { 'x' => 'stringy' }, 'rules' => [] };
 	Log::Munger::LogProcessor->_compile_convert( $bad->{'convert'} );
 };
-like( $@, qr/unknown \(expected int, float, lc, or uc\)/, 'unknown convert type dies at compile' );
+like( $@, qr/unknown \(expected int, float, lc, uc, or mac\)/, 'unknown convert type dies at compile' );
 
 # RulesTest reports a bad file-level convert map
 my $badres = Log::Munger::RulesTest->test(

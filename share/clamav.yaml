@@ -1,15 +1,14 @@
 ---
 # ClamAV (clamd / freshclam / clamonacc) log enrichment.
 #
-# Gates on the syslog PROGRAM field being one of the ClamAV daemons.  Patterns
-# are anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being one of the ClamAV daemons. Patterns
+# are anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with clamav_ .
 #
-# Two things live in these logs and they matter for different reasons.  The
-# FOUND lines say something was caught and name both the file and the signature
-# that caught it.  The freshclam lines say whether the signatures are current,
-# which is the thing that quietly stops being true and turns a scanner into
-# theatre -- a database weeks out of date will report clean all day.
+# Two things live in these logs. The FOUND lines say something was caught and
+# name both the file and the signature that caught it. The freshclam lines say
+# whether the signatures are current, which is what quietly stops being true: a
+# database weeks out of date reports clean all day.
 includes:
 - base
 vars_templated:

@@ -79,8 +79,8 @@ vars_templated:
   # The argv named was started with, e.g.:
   #   running as: named -4 -u root -c /usr/local/etc/namedb/named.conf
   NAMED_RUNNING_AS: 'running as: (?<dns_command_line>[% GREEDYDATA %])'
-  # Bare lifecycle words. named logs these on their own line with nothing else
-  # on it, so they are worth naming rather than leaving to the catch-all.
+  # Bare lifecycle words. named logs each on a line of its own with nothing
+  # else on it, so they are named rather than left to the catch-all.
   NAMED_STATE: '(?<dns_state>running|exiting|all zones loaded|shutting down|reloading configuration succeeded|loading configuration from [% NOTSPACE %])'
   # DNSSEC validation result, e.g.:
   #   validating example.com/A: no valid signature found
@@ -100,10 +100,10 @@ vars_templated:
   #   network unreachable resolving 'example.com/A/IN': 2001:db8::1#53
   #   host unreachable resolving 'example.com/A/IN': 192.0.2.2#53
   NAMED_NET_ERROR: '(?<dns_error>[% GREEDYDATA_NO_QUOTE %]) resolving ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'': (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
-  # Everything else named said. Most of what is left is the multi-line startup
-  # banner -- build options, library versions, the ISC contact blurb -- which
-  # carries nothing worth a field of its own. Matching anything is only safe
-  # because the rule is gated on PROGRAM being named.
+  # Everything else named said. Most of it is the multi-line startup banner --
+  # build options, library versions, the ISC contact text -- which has no
+  # structure to extract. Matching anything is only safe because the rule is
+  # gated on PROGRAM being named.
   NAMED_MESSAGE: '(?<dns_message>.+)'
 vars_tests:
   NOTSPACE_NO_SLASH:
@@ -342,7 +342,7 @@ vars_tests:
         result: 'BIND 9 is maintained by Internet Systems Consortium,'
     negative:
       - ''
-# additional primitives used above that are not in base.yaml.
+# Additional primitives used above that are not in base.yaml.
 vars:
   # NOTSPACE that also excludes "/" (so a "name/type/class" triple can be split)
   NOTSPACE_NO_SLASH: '[^\s/]+'
@@ -350,12 +350,11 @@ vars:
   NOTSPACE_NO_COLON: '[^\s:]+'
   # a run of non-quote characters (used to bound a leading error phrase)
   GREEDYDATA_NO_QUOTE: '[^'']*'
-# file-level default: geoip lookup on any captured client / source IP (only used
-# when the munger is built with a geoip database).
+# Look up any captured client / source IP.
 geoip:
   - dns_client_ip
   - dns_src_ip
-# file-level default: coerce numeric captures (ports / serials) to integers.
+# Coerce numeric captures (ports / serials) to integers.
 convert:
   dns_client_port: int
   dns_src_port: int

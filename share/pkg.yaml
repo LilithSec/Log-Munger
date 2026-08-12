@@ -15,7 +15,7 @@
 #
 # That is the whole grammar, and between them the lines are the only durable
 # record of what changed on a host and when. install and deinstall name the
-# package as a single "name-version" token; the three that change a version
+# package as a single "name-version" token. The three that change a version
 # already have the name on its own and give the versions either side.
 #
 # pkg_version always holds the version the event left in place, so a consumer
@@ -24,7 +24,7 @@
 # changed a version.
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # A version as pkg prints it: always starts with a digit, and may carry a
   # PORTREVISION ("_3") and a PORTEPOCH (",1"). A hyphen cannot appear in one,
@@ -36,7 +36,7 @@ vars:
 vars_templated:
   # The "name-version" token pkg uses on install and deinstall. The name is
   # matched greedily so the split lands on the LAST hyphen that is followed by
-  # a digit, which is the one separating the version off: "py311-certifi" and
+  # a digit, which is the hyphen separating the version: "py311-certifi" and
   # "2024.8.30" rather than "py311" and everything after it.
   PKG_NAME_VERSION: '(?<pkg_name>.+)-(?<pkg_version>[% PKG_VERSION %])'
   # "openjdk21-21.0.4+7.1 installed" / "postfix-3.10.3,1 deinstalled"

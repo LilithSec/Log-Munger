@@ -14,26 +14,25 @@
 #   err main::#84 > Sympa::CLI::run#96 > Sympa::Database::do_query#281 Unable to execute SQL statement ...
 #   notice main:: Task_Manager 6.2.76 Started
 #
-# At err and below Sympa prints the whole call stack rather than just the
+# At err and below Sympa prints the whole call stack rather than only the
 # innermost frame, which is why there are two caller patterns. Either way
-# sympa_function ends up holding the sub the message actually came from, so a
-# consumer does not have to care which shape it was; the full chain is kept in
-# sympa_stack for the cases where the path there is the interesting part.
+# sympa_function holds the sub the message came from, so a consumer need not
+# know which shape it was, and the full chain is kept in sympa_stack for when
+# the path there is what matters.
 #
-# There is deliberately NO catch-all here. Several of these program names --
-# bulk, archived, bounced, task_manager -- are generic enough that another
-# daemon could plausibly use one, and requiring a Sympa-shaped level-and-caller
-# prefix is what keeps this file from claiming its lines.
+# There is deliberately no catch-all. Several of these program names -- bulk,
+# archived, bounced, task_manager -- are generic enough that another daemon
+# could plausibly use one, and requiring a Sympa-shaped level-and-caller prefix
+# keeps this file off its lines.
 #
 # The message itself is left whole in sympa_message, and the decomposes at the
 # bottom pull the object references Sympa embeds in it -- the list, the message
 # id, the task, the request -- out into fields of their own. Which list a line
-# is about is the thing worth filtering on, and it can turn up anywhere in the
-# text, so it is matched positionally rather than being written into every
-# pattern.
+# is about is the usual thing to filter on, and it can appear anywhere in the
+# text, so it is matched positionally rather than written into every pattern.
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # The level words Sympa::Log emits. Longest first so "debug3" is not
   # shadowed by "debug".
@@ -191,16 +190,15 @@ vars_tests:
         result: 'Sympa::Request <action=subscribe;context=family@example.net> accepted'
     negative:
       - 'Logs purged'
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   sympa_line: int
   sympa_task_date: int
-# file-level default: pull the Sympa objects out of the message text. These are
-# pattern decomposes rather than captures inside the rule patterns because a
-# reference can appear anywhere in a message, and because one message often
-# carries two of them. A decompose that does not match leaves the field alone,
-# so all four run against every message and each contributes what it finds.
-#
+# Pull the Sympa objects out of the message text. These are pattern decomposes
+# rather than captures inside the rule patterns because a reference can appear
+# anywhere in a message, and because one message often carries two of them. A
+# decompose that does not match leaves the field alone, so all four run
+# against every message and each contributes what it finds.
 # Order matters for the last two: the task and request references are matched
 # first, and the kv splits below them then break the "key=value;key=value"
 # bodies apart.

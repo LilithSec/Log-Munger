@@ -627,15 +627,22 @@ sub _json_flatten {
 =head2 _compile_convert
 
 Internal. Validates a C<convert:> map (field => type) and returns a normalized
-copy (type is one of C<int>, C<float>, C<lc>, or C<uc>; C<integer> is accepted as
-an alias for C<int>, C<num>/C<number> for C<float>, and
-C<lower>/C<lowercase>/C<upper>/C<uppercase> for the two case folds). Dies on an
-unknown type.
+copy (type is one of C<int>, C<float>, C<lc>, C<uc>, or C<mac>; C<integer> is
+accepted as an alias for C<int>, C<num>/C<number> for C<float>,
+C<lower>/C<lowercase>/C<upper>/C<uppercase> for the two case folds, and
+C<macaddr>/C<mac_address> for C<mac>). Dies on an unknown type.
 
 C<lc>/C<uc> exist so a rule file can normalize a captured token whose case varies
 between the log sources that produce it -- SELinux writes C<avc: denied> while
 AppArmor writes C<apparmor="DENIED"> for the same verdict, and a consumer should
 not have to care which one it is looking at.
+
+C<mac> is there for the same reason one step further out: a MAC address is
+written four different ways depending on who is printing it -- colon-separated
+by most of userland, hyphen-separated by Windows, dotted quads by Cisco, and
+space-separated hex bytes by the kernel's link-layer header dump -- and a
+consumer correlating one field against another should not have to reconcile
+them.
 
 =cut
 
@@ -660,8 +667,10 @@ sub _compile_convert {
 			$normalized{$field} = 'lc';
 		} elsif ( $type =~ /\A(?:uc|upper|uppercase)\z/i ) {
 			$normalized{$field} = 'uc';
+		} elsif ( $type =~ /\A(?:mac|macaddr|mac_address)\z/i ) {
+			$normalized{$field} = 'mac';
 		} else {
-			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, or uc)' );
+			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, uc, or mac)' );
 		}
 	}
 
@@ -672,8 +681,10 @@ sub _compile_convert {
 
 Internal. Coerces the rule's convert fields in the captures hash: C<int>/C<float>
 to numbers so they serialize as JSON numbers rather than strings, C<lc>/C<uc> to
-a case-folded string. A value that is not present is left untouched, as is a
-numeric conversion of something that does not look like a number. Never dies.
+a case-folded string, C<mac> to lowercase colon-separated hex. A value that is
+not present is left untouched, as is a numeric conversion of something that does
+not look like a number and a C<mac> conversion of something that is not twelve
+hex digits. Never dies.
 
 =cut
 
@@ -695,6 +706,9 @@ sub _convert {
 		} elsif ( $type eq 'uc' ) {
 			$captures->{$field} = uc($value);
 			next;
+		} elsif ( $type eq 'mac' ) {
+			$captures->{$field} = $self->_normalize_mac($value);
+			next;
 		}
 
 		next if ( !looks_like_number($value) );
@@ -709,6 +723,50 @@ sub _convert {
 	return;
 } ## end sub _convert
 
+=head2 _normalize_mac
+
+Internal. Rewrites a MAC address into the one spelling everything else in the
+distribution uses: twelve lowercase hex digits in six colon-separated pairs.
+
+Takes one argument.
+
+    - value :: The captured string to rewrite. Any of the four spellings a log
+               line might carry are understood -- colon-separated
+               ("C4:D8:D5:3B:8C:4B"), hyphen-separated as Windows writes it
+               ("C4-D8-D5-3B-8C-4B"), dotted quads as Cisco writes them
+               ("c4d8.d53b.8c4b"), space-separated bytes as the kernel's link
+               layer header dump writes them ("c4 d8 d5 3b 8c 4b"), and bare
+               ("c4d8d53b8c4b").
+
+Returns the normalized address as a string. If the value does not reduce to
+exactly twelve hex digits once the separators are removed it is returned
+unchanged, so a field that turns out not to hold a MAC after all is passed
+through rather than mangled -- this runs against whatever the pattern captured,
+and a pattern can be looser than its author intended.
+
+    # all five of these return 'c4:d8:d5:3b:8c:4b'
+    $processor->_normalize_mac('C4:D8:D5:3B:8C:4B');
+    $processor->_normalize_mac('C4-D8-D5-3B-8C-4B');
+    $processor->_normalize_mac('c4d8.d53b.8c4b');
+    $processor->_normalize_mac('c4 d8 d5 3b 8c 4b');
+    $processor->_normalize_mac('c4d8d53b8c4b');
+
+    # not twelve hex digits, so returned as-is
+    $processor->_normalize_mac('unknown');
+
+=cut
+
+sub _normalize_mac {
+	my ( $self, $value ) = @_;
+
+	my $digits = $value;
+	$digits =~ s/[:.\-\s]//g;
+
+	return $value if ( $digits !~ /\A[0-9A-Fa-f]{12}\z/ );
+
+	return join( ':', lc($digits) =~ /([0-9a-f]{2})/g );
+}
+
 =head2 _compile_rule
 
 Internal. Compiles a single C<rules:> entry into the runtime structure:
@@ -720,7 +778,7 @@ Internal. Compiles a single C<rules:> entry into the runtime structure:
         patterns  => [ qr//, ... ],
         geoip     => [ 'field_name', ... ],
         decompose => [ ... ],      # see _compile_decompose
-        convert   => { field_name => 'int'|'float'|'lc'|'uc', ... },
+        convert   => { field_name => 'int'|'float'|'lc'|'uc'|'mac', ... },
     }
 
     - rule :: The raw rule hash ref.
@@ -735,7 +793,7 @@ logstash C<< ^...$ >> grok) rather than any substring.
 
 A rule, or a file-level default, may carry a C<decompose:> list to break captured
 fields down further at match time (see L</_compile_decompose>) and a C<convert:>
-map of field => C<int>|C<float>|C<lc>|C<uc> to coerce captured fields to numbers
+map of field => C<int>|C<float>|C<lc>|C<uc>|C<mac> to coerce captured fields to numbers
 or to a case-folded string.
 
 C<geoip:>, C<decompose:>, and C<convert:> may each be given per-rule or once at

@@ -1,21 +1,21 @@
 ---
 # systemd-timesyncd log enrichment.
 #
-# Gates on the syslog PROGRAM field being "systemd-timesyncd".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "systemd-timesyncd". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with timesyncd_ .
 #
 # Named after the daemon's suffix the way logind.yaml is, since that is what
 # systemd puts in PROGRAM.
 #
 # timesyncd is the third time client this distribution covers, after chrony and
-# ntpd, and it is the one most systemd hosts actually run.  It says far less
-# than the other two -- there is no per-poll offset line -- so what is here is
-# essentially "did the clock get set, and by whom".
+# ntpd, and the one most systemd hosts run. It says far less than the other
+# two, having no per-poll offset line, so what is here amounts to whether the
+# clock was set and by whom.
 #
-# That last part is worth watching.  A host silently switching to a fallback
-# time server, or a large step applied without warning, is the kind of thing
-# that turns up later as certificate and log-ordering problems.
+# The "by whom" is the part that matters. A host switching to a fallback time
+# server, or a large step applied without warning, surfaces later as
+# certificate and log-ordering problems.
 includes:
 - base
 vars_templated:

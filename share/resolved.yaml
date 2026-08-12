@@ -1,19 +1,18 @@
 ---
 # systemd-resolved log enrichment.
 #
-# Gates on the syslog PROGRAM field being "systemd-resolved".  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being "systemd-resolved". Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with resolved_ .
 #
 # Named after the daemon's suffix the way logind.yaml is, since that is what
 # systemd puts in PROGRAM.
 #
 # systemd-resolved is a stub resolver rather than a server, so it does not log
-# queries the way named.yaml or unbound.yaml do -- there is no per-lookup line
-# to count.  What it does log is how well its upstreams are behaving, and that
-# turns out to be the interesting part: feature-level downgrades are how a
-# resolver quietly stops doing DNSSEC, and DNSSEC validation failures are how
-# it says an answer was tampered with.
+# queries the way named.yaml or unbound.yaml do; there is no per-lookup line to
+# count. What it does log is how its upstreams are behaving. Feature-level
+# downgrades are how a resolver stops doing DNSSEC without saying so, and
+# DNSSEC validation failures are how it reports an answer was tampered with.
 includes:
 - base
 vars_templated:
@@ -21,9 +20,8 @@ vars_templated:
   # "Using degraded feature set TCP instead of UDP for DNS server 192.0.2.1."
   #
   # Every downgrade is resolved deciding an upstream cannot do something and
-  # settling for less.  A run of these ending in "UDP" means DNSSEC and EDNS
-  # have both been given up on, which is worth knowing before trusting an
-  # answer.
+  # settling for less. A run of these ending in "UDP" means DNSSEC and EDNS
+  # have both been abandoned, which bears on how far an answer can be trusted.
   RESOLVED_DEGRADED: 'Using degraded feature set (?<resolved_feature_to>[% NOTSPACE %]) instead of (?<resolved_feature_from>[% NOTSPACE %]) for DNS server (?<resolved_server_ip>[% IP %])\.?(?: [% GREEDYDATA %])?'
   # "Server returned error NXDOMAIN, mitigating potential DNS violation
   #  DVE-2018-0001, retrying transaction with reduced feature level UDP."

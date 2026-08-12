@@ -6,14 +6,14 @@
 # e.g. "info: 192.0.2.5 example.com. A IN". After the syslog header the
 # MESSAGE is that "info: ..." tail.
 #
-# The rule gates on the "unbound" PROGRAM, matches the whole MESSAGE (anchored)
-# and namespaces every capture with unbound_. The client IP is fed to geoip.
+# The rule gates on the "unbound" PROGRAM and matches the whole MESSAGE.
+# Every capture is namespaced with unbound_ , and any client or source address
+# is fed to geoip.
 #
-# In addition to the bare query line this file also recognises reply lines that
-# carry an rcode/status plus timing, resolver failure notices (SERVFAIL,
-# validation failure, refused), per-thread server statistics, module/startup
-# notices, and error lines. Every capture is namespaced with unbound_ and any
-# source/client IP is fed to geoip.
+# Besides the bare query line, this file recognises reply lines carrying an
+# rcode and timing, resolver failure notices (SERVFAIL, validation failure,
+# refused), per-thread server statistics, module and startup notices, and
+# error lines.
 includes:
 - base
 vars_templated:
@@ -121,13 +121,11 @@ vars_tests:
         result: 'error: SERVFAIL <example.com. A IN>: all servers failed'
     negative:
       - 'info: 192.0.2.5 example.com. A IN'
-# file-level default: geoip lookup on the client / source IPs (only used when
-# the munger is built with a geoip database).
+# Look up the client / source IPs.
 geoip:
   - unbound_client_ip
   - unbound_src_ip
-# file-level default: coerce numeric stats / timings / ports captured as
-# top-level fields.
+# Coerce numeric stats / timings / ports captured as top-level fields.
 convert:
   unbound_response_time: float
   unbound_flag: int

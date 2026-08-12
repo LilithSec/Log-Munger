@@ -1,18 +1,18 @@
 ---
 # ZFS Event Daemon (zed) log enrichment.
 #
-# Gates on the syslog PROGRAM field being "zed".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "zed". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with zed_ .
 #
 # kernel.yaml already covers the ZFS messages the FreeBSD kernel writes to the
-# ring buffer.  zed is the userland side, on both Linux and FreeBSD, and it is
+# ring buffer. zed is the userland side, on both Linux and FreeBSD, and it is
 # where the events that matter for the health of a pool actually arrive:
 # checksum errors, vdev state changes, resilvers starting and finishing, and
 # scrubs reporting what they found.
 #
 # Most lines are a run of key=value pairs, so they are captured whole and split
-# by a decompose.  Which keys appear depends on the event class -- a checksum
+# by a decompose. Which keys appear depends on the event class -- a checksum
 # error carries vdev and error counts, a pool import carries neither -- and a
 # decompose keeps up with that where naming each key in a pattern would not.
 includes:
@@ -20,10 +20,9 @@ includes:
 vars_templated:
   # "eid=5 class=checksum pool='tank' vdev=sda1 ..."
   #
-  # eid is the event id, which is unique per event and is what a consumer
-  # correlates on.  class is the event type, dotted and namespaced by ZFS
-  # itself, so it groups cleanly: ereport.fs.zfs.checksum, resilver.start,
-  # statechange, and so on.
+  # eid is the event id, unique per event and the field to correlate on. class
+  # is the event type, dotted and namespaced by ZFS itself, so it groups
+  # cleanly: ereport.fs.zfs.checksum, resilver.start, statechange.
   #
   # The kv blob is quote-aware because pool and vdev names are single-quoted
   # and can contain spaces.
@@ -64,9 +63,8 @@ convert:
   zed_cksum_errors: int
   zed_read_errors: int
   zed_write_errors: int
-# file-level default: split the key=value blob. Quote-aware, because pool and
-# vdev names are single-quoted and may contain spaces.
-#
+# Split the key=value blob. Quote-aware, because pool and vdev names are
+# single-quoted and may contain spaces.
 # The zed_ prefix keeps ZFS's own short key names -- eid, class, pool, vdev --
 # from colliding with anything else in a merged record.
 decompose:

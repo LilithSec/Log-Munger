@@ -3,23 +3,23 @@
 #
 # Gates on the syslog PROGRAM field being "php-fpm" or a versioned variant.
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
-# wins.  Every capture is namespaced with php_ .
+# wins. Every capture is namespaced with php_ .
 #
 # PHP-FPM sits behind nginx or apache, so http_access_logs.yaml sees the
-# request and this sees what the interpreter made of it.  The two join on
+# request and this sees what the interpreter made of it. The two join on
 # nothing automatic -- there is no shared request id unless one was configured
 # -- but the timestamps line up, and a 500 in the access log with a matching
 # "child exited on signal 11" here is a complete story that neither half tells
 # alone.
 #
-# The lines worth watching are the pool warnings: children dying on signals,
-# the process manager running out of children, and slow-request traces.  All
-# three are how a site becomes unavailable without anything crashing outright.
+# The pool warnings carry the most: children dying on signals, the process
+# manager running out of children, and slow-request traces. All three are ways
+# a site becomes unavailable without anything crashing outright.
 includes:
 - base
 vars_templated:
   # "[15-Jul-2026 10:00:00] WARNING: " -- the timestamp and severity every line
-  # opens with.  Note the day-month-year with dashes, which is PHP's own format
+  # opens with. Note the day-month-year with dashes, which is PHP's own format
   # and not one of the base timestamp primitives.
   PHP_HEAD: '\[(?<php_timestamp>[^\]]*)\] (?<php_level>[A-Z]+): '
   # "[pool www] child 1234 exited on signal 11 (SIGSEGV) after 100.123456
@@ -28,7 +28,7 @@ vars_templated:
   # "[pool www] seems busy (you may need to increase pm.start_servers, or
   #  pm.min/max_spare_servers), spawning 8 children"
   #
-  # The process manager saying it is out of workers.  Under load this is what
+  # The process manager saying it is out of workers. Under load this is what
   # precedes the requests that never get answered.
   PHP_POOL_BUSY: '[% PHP_HEAD %]\[pool (?<php_pool>[^\]]*)\] seems busy (?<php_pool_advice>[% GREEDYDATA %])'
   # "[pool www] script ''/srv/www/index.php'' (request: "GET /index.php")

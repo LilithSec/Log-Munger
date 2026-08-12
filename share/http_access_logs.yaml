@@ -12,27 +12,34 @@
 includes:
 - base
 vars:
-  # contents of a "double quoted" field (no embedded quotes)
+  # The contents of a double-quoted field, with no embedded quotes.
   HTTPD_QS: '[^"]*'
 vars_templated:
-  # %l / %u are usually "-"; USERNAME already covers "-"
+  # %l and %u are usually "-", which USERNAME already covers.
   HTTPD_USER: '[% EMAILADDRESS %]|[% USERNAME %]'
-  # base INT has no sign, so the "-0700"/"+0000" zone is spelled out here
-  HTTPD_TIMESTAMP: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %]:[% TIME %] [+-][0-9]{4}'
+  # base INT has no sign, so the "-0700"/"+0000" zone is spelled out here.
+  #
+  # Two spellings are accepted. Apache and nginx write the CLF form,
+  # "10/Oct/2000:13:55:36 -0700". Python's servers -- http.server, Werkzeug and
+  # therefore Flask, and Django's runserver -- write "10/Oct/2000 13:55:36",
+  # with a space where CLF has a colon and no zone. Everything else on the line
+  # is identical, so the separator and the zone vary here rather than in a
+  # second pattern. Which form matched is recoverable from http_timestamp
+  # itself, so no flag is needed.
+  HTTPD_TIMESTAMP: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %][: ][% TIME %](?: [+-][0-9]{4})?'
   HTTPD_COMMONLOG: '(?<http_clientip>[% HOSTNAMEorIP %]) (?<http_ident>[% HTTPD_USER %]) (?<http_auth>[% HTTPD_USER %]) \[(?<http_timestamp>[% HTTPD_TIMESTAMP %])\] "(?:(?<http_verb>[% WORD %]) (?<http_request>[% NOTSPACE %])(?: HTTP/(?<http_httpversion>[% NUMBER %]))?|(?<http_rawrequest>[% HTTPD_QS %]))" (?:(?<http_response>[% NUMBER %])|-) (?:(?<http_bytes>[% NUMBER %])|-)'
   HTTPD_COMBINEDLOG: '[% HTTPD_COMMONLOG %] "(?<http_referrer>[% HTTPD_QS %])" "(?<http_agent>[% HTTPD_QS %])"'
   # The same two formats with apache's "%v:%p" (vhost_combined) or "%v"
   # (vhost_common) prefix on the front.
   #
-  # Worth having because Debian and Ubuntu ship vhost_combined in the stock
-  # apache2.conf and point other_vhosts_access.log at it, so on those systems
-  # it is what most of the access logging actually uses.  Without it every one
-  # of those lines is a miss.
+  # Debian and Ubuntu ship vhost_combined in the stock apache2.conf and point
+  # other_vhosts_access.log at it, so on those systems it carries most of the
+  # access logging.
   #
   # The vhost is matched as "no whitespace and no colon" rather than as
-  # NOTSPACE.  A greedy NOTSPACE would swallow "example.com:80" whole and leave
-  # the optional port group empty, which matches but quietly puts the port in
-  # the wrong field.  A vhost name cannot contain a colon anyway.
+  # NOTSPACE. A greedy NOTSPACE would swallow "example.com:80" whole and leave
+  # the optional port group empty, which still matches but puts the port in the
+  # wrong field. A vhost name cannot contain a colon in any case.
   HTTPD_VHOST_PREFIX: '(?<http_vhost>[^\s:]+)(?::(?<http_port>[% INT %]))?'
   HTTPD_VHOST_COMBINEDLOG: '[% HTTPD_VHOST_PREFIX %] [% HTTPD_COMBINEDLOG %]'
   HTTPD_VHOST_COMMONLOG: '[% HTTPD_VHOST_PREFIX %] [% HTTPD_COMMONLOG %]'
@@ -66,6 +73,9 @@ vars_tests:
         result: '10/Oct/2000:13:55:36 -0700'
       - string: '12/Jul/2026:08:15:50 +0000'
         result: '12/Jul/2026:08:15:50 +0000'
+      # The Python form: a space instead of a colon, and no zone.
+      - string: '24/Jul/2026 22:20:26'
+        result: '24/Jul/2026 22:20:26'
     negative:
       - 'Oct 10 13:55:36'
   HTTPD_COMMONLOG:
@@ -75,6 +85,9 @@ vars_tests:
         result: '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326'
       - string: '192.168.1.1 - - [12/Jul/2026:08:15:50 +0000] "GET / HTTP/1.1" 304 -'
         result: '192.168.1.1 - - [12/Jul/2026:08:15:50 +0000] "GET / HTTP/1.1" 304 -'
+      # Django's runserver, Werkzeug and http.server.
+      - string: '192.0.2.10 - - [24/Jul/2026 22:20:26] "GET /static/js/hexdump.js HTTP/1.1" 200 -'
+        result: '192.0.2.10 - - [24/Jul/2026 22:20:26] "GET /static/js/hexdump.js HTTP/1.1" 200 -'
     negative:
       - 'this is not an access log line'
   HTTPD_COMBINEDLOG:
@@ -99,7 +112,7 @@ vars_tests:
       - string: 'example.com:80 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
         result: 'example.com:80 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
     negative:
-      # no vhost prefix: that is plain HTTPD_COMBINEDLOG
+      # No vhost prefix, so this is plain HTTPD_COMBINEDLOG.
       - '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
   HTTPD_VHOST_COMMONLOG:
     test_template: '(?<TEST>[% TEST_VAR %])'
@@ -108,9 +121,9 @@ vars_tests:
         result: 'example.com 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326'
     negative:
       - 'this is not an access log line'
-# the vhost port is new field surface, so coercing it costs no existing
-# consumer anything.  http_response and http_bytes are deliberately left as
-# the strings they have always been.
+# The vhost port is new field surface, so coercing it breaks no existing
+# consumer. http_response and http_bytes stay the strings they have always
+# been.
 convert:
   http_port: int
 rules:
@@ -120,16 +133,15 @@ rules:
     geoip:
       - http_clientip
     patterns:
-      # the vhost-prefixed forms go first: anchoring already keeps them apart
-      # from the bare ones, but a prefix is the more specific shape and should
-      # get first refusal
+      # The vhost-prefixed forms go first. Anchoring already keeps them apart
+      # from the bare ones, but the more specific shape gets first refusal.
       - HTTPD_VHOST_COMBINEDLOG
       - HTTPD_COMBINEDLOG
       - HTTPD_VHOST_COMMONLOG
       - HTTPD_COMMONLOG
     tests:
       positive:
-        # combined (apache LogFormat combined / nginx default)
+        # Combined: apache LogFormat combined, and the nginx default.
         - string: '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
           result:
             http_clientip: '127.0.0.1'
@@ -143,7 +155,7 @@ rules:
             http_bytes: '2326'
             http_referrer: 'http://www.example.com/start.html'
             http_agent: 'Mozilla/4.08 [en] (Win98; I ;Nav)'
-        # nginx-style combined with POST and a referrer
+        # nginx-style combined, with a POST and a referrer.
         - string: '203.0.113.5 - - [15/Jul/2026:10:00:00 +0000] "POST /login HTTP/1.1" 302 512 "https://example.org/" "curl/7.68.0"'
           result:
             http_clientip: '203.0.113.5'
@@ -157,7 +169,7 @@ rules:
             http_bytes: '512'
             http_referrer: 'https://example.org/'
             http_agent: 'curl/7.68.0'
-        # plain Common Log Format (no referrer/agent), and "-" bytes
+        # Plain Common Log Format: no referrer or agent, and "-" bytes.
         - string: '192.168.1.1 - - [12/Jul/2026:08:15:50 +0000] "GET / HTTP/1.1" 304 -'
           result:
             http_clientip: '192.168.1.1'
@@ -168,8 +180,8 @@ rules:
             http_request: '/'
             http_httpversion: '1.1'
             http_response: '304'
-        # apache vhost_combined, which is what Debian and Ubuntu point
-        # other_vhosts_access.log at out of the box
+        # apache vhost_combined, which Debian and Ubuntu point
+        # other_vhosts_access.log at out of the box.
         - string: 'example.com:80 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
           result:
             http_vhost: 'example.com'
@@ -185,7 +197,7 @@ rules:
             http_bytes: '2326'
             http_referrer: '-'
             http_agent: 'Mozilla/5.0'
-        # apache vhost_common, which has the vhost but no port
+        # apache vhost_common, which has the vhost but no port.
         - string: 'example.com 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326'
           result:
             http_vhost: 'example.com'
@@ -198,6 +210,18 @@ rules:
             http_httpversion: '1.0'
             http_response: '200'
             http_bytes: '2326'
+        # Python's servers write CLF with a space where the colon goes, no
+        # zone, and "-" for the byte count.
+        - string: '192.0.2.10 - - [24/Jul/2026 22:20:26] "GET /static/js/hexdump.js HTTP/1.1" 200 -'
+          result:
+            http_clientip: '192.0.2.10'
+            http_ident: '-'
+            http_auth: '-'
+            http_timestamp: '24/Jul/2026 22:20:26'
+            http_verb: 'GET'
+            http_request: '/static/js/hexdump.js'
+            http_httpversion: '1.1'
+            http_response: '200'
       negative:
         - 'this is not an access log line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

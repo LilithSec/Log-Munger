@@ -2,12 +2,12 @@
 # fail2ban intrusion-prevention log enrichment.
 #
 # fail2ban logs via syslog with a PROGRAM field like "fail2ban.actions",
-# "fail2ban.filter", or plain "fail2ban".  The MESSAGE that Log::Munger sees is
-# the text after the program + level, e.g. "[sshd] Ban 203.0.113.7".  Some
+# "fail2ban.filter", or plain "fail2ban". The MESSAGE that Log::Munger sees is
+# the text after the program + level, e.g. "[sshd] Ban 203.0.113.7". Some
 # deployments prefix a bare level token (e.g. "NOTICE " / "WARNING ") before the
 # "[jail]", so every pattern tolerates an optional leading "(?:[A-Z]+ +)?".
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
-# wins.  Every capture is namespaced with f2b_ .
+# wins. Every capture is namespaced with f2b_ .
 includes:
 - base
 vars_templated:
@@ -19,7 +19,7 @@ vars_templated:
   F2B_FOUND: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Found) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
   # "[sshd] Already banned 203.0.113.7".
   F2B_ALREADY_BANNED: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Already banned) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
-  # "[sshd] 203.0.113.7 already banned" (IP-first variant).  f2b_action is
+  # "[sshd] 203.0.113.7 already banned" (IP-first variant). f2b_action is
   # normalised to "Already banned" for consistency with F2B_ALREADY_BANNED.
   F2B_ALREADY_BANNED_ALT: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_ip>[% IP %]) (?<f2b_action>already banned)(?: [% GREEDYDATA %])?'
   # "[sshd] Ignore 203.0.113.7 by ip".
@@ -72,8 +72,7 @@ vars_tests:
         result: '[sshd] Ignore 198.51.100.9'
     negative:
       - '[sshd] Ban 203.0.113.7'
-# file-level default: geoip lookup on the banned/observed source IP (only used
-# when the munger is built with a geoip database)
+# Look up the banned/observed source IP.
 geoip:
   - f2b_ip
 rules:

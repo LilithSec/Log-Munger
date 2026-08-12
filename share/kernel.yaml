@@ -24,24 +24,22 @@ vars_templated:
   # The printk uptime, shared by every Linux pattern below.
   # ==================================================================
   # rsyslog's kernel reader leaves the ring-buffer uptime at the head of the
-  # message: "[ 1234.567890] audit: type=1400 ...". Whether it is there is a
-  # property of the READER, not of the message -- rsyslog's imklog keeps it,
-  # journald's kmsg reader strips it -- and since either may have written the
-  # file being tailed, both shapes have to match. Anchored patterns that did
-  # not lead with this matched only the stripped shape, and on a stock Debian
-  # or Ubuntu the stripped shape is the rarer of the two.
+  # message: "[ 1234.567890] audit: type=1400 ...". Its presence is a property
+  # of the reader rather than of the message, since rsyslog's imklog keeps it
+  # and journald's kmsg reader strips it, and either may have written the file
+  # being tailed. Both shapes therefore have to match. On stock Debian or
+  # Ubuntu the stripped shape is the rarer of the two.
   #
-  # The fragment carries its own "?" and its own trailing space, so a pattern
-  # needs only to lead with it. Every KERNEL_LINUX_* pattern does.
+  # The fragment carries its own "?" and trailing space, so a pattern need only
+  # lead with it. Every KERNEL_LINUX_* pattern does.
   #
-  # It is deliberately NOT captured. The value is the monotonic boot clock,
-  # which the syslog timestamp already covers for ordering, so capturing it
-  # would hang a field off every enriched kernel line to no end. A kernel
-  # built without CONFIG_PRINTK_TIME emits no prefix at all, which is the
-  # same case as a reader that stripped it.
+  # It is deliberately not captured. The value is the monotonic boot clock,
+  # which the syslog timestamp already covers for ordering. A kernel built
+  # without CONFIG_PRINTK_TIME emits no prefix, which is the same case as a
+  # reader that stripped it.
   #
-  # The FreeBSD patterns further down do NOT carry it: FreeBSD's syslogd
-  # writes kernel messages with no such prefix.
+  # The FreeBSD patterns further down do not carry it, as FreeBSD's syslogd
+  # writes kernel messages without one.
   KERNEL_PRINTK: '(?:\[ *[% INT %]\.[% INT %]\] +)?'
   # ==================================================================
   # Linux kernel messages (KERNEL_LINUX_*).
@@ -57,24 +55,23 @@ vars_templated:
   #   br-lan: port 10(phy0-ap2) entered disabled state
   #   br0: port 2(veth1a2b3c) entered forwarding state
   # Logged on every wifi client roam on an access point and on every container
-  # or VM interface coming and going, so on anything running a bridge it is one
-  # of the higher-volume kernel messages there is.
+  # or VM interface coming and going, so on a host running a bridge it is one
+  # of the higher-volume kernel messages.
   KERNEL_LINUX_BRIDGE_PORT: '[% KERNEL_PRINTK %](?<kernel_bridge>[^\s:]+): port (?<kernel_bridge_port>[% INT %])\((?<kernel_iface>[^)]+)\) entered (?<kernel_bridge_state>[% NOTSPACE %]) state'
   # An interface entering or leaving promiscuous / allmulticast mode:
   #   mwlwifi 0000:01:00.0 phy0-ap2: entered promiscuous mode
   #   mwlwifi 0000:01:00.0 phy0-ap2 (unregistering): left allmulticast mode
   #   eth0: entered promiscuous mode
-  # The driver and bus id in front are what netdev_info() adds when the message
-  # comes from a driver-bound device; a message about a software device has
-  # neither, so both are optional. "(unregistering)" is the kernel noting the
-  # device was on its way out, and adds nothing worth a field.
+  # netdev_info() adds the leading driver and bus id when the message comes
+  # from a driver-bound device. A software device has neither, so both are
+  # optional. "(unregistering)" only notes that the device was on its way out.
   KERNEL_LINUX_NETDEV_MODE: '[% KERNEL_PRINTK %](?:(?<kernel_driver>[^\s:]+) (?<kernel_bus_id>[% NOTSPACE %]) )?(?<kernel_iface>[^\s:]+)(?: \(unregistering\))?: (?<kernel_netdev_action>entered|left) (?<kernel_netdev_mode>promiscuous|allmulticast) mode'
   # A physical link coming up or going down, as phylib reports it:
   #   mv88e6085 f1072004.mdio-mii:00 lan2: Link is Down
   #   igb 0000:04:00.0 eth0: Link is Up - 1Gbps/Full - flow control rx/tx
-  # The speed/duplex and flow-control clauses are only on the "Up" form. This
-  # is the message that says a cable was pulled or a switch port flapped, and
-  # it is the same on every driver that uses phylib -- which is most of them.
+  # The speed/duplex and flow-control clauses appear only on the "Up" form.
+  # This is what says a cable was pulled or a switch port flapped, and it is
+  # the same on every driver that uses phylib, which is most of them.
   KERNEL_LINUX_LINK: '[% KERNEL_PRINTK %](?:(?<kernel_driver>[^\s:]+) (?<kernel_bus_id>[% NOTSPACE %]) )?(?<kernel_iface>[^\s:]+): Link is (?<kernel_link_state>Up|Down)(?: - (?<kernel_link_speed>[^/]+)/(?<kernel_link_duplex>[% NOTSPACE %]))?(?: - flow control (?<kernel_link_flow_control>[% GREEDYDATA %]))?'
   # segfault: "php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in
   # libc-2.31.so[7f00+1c000]"
@@ -106,7 +103,7 @@ vars_templated:
   #   - that the tail starts with operation=. Profile-load failures and
   #     disconnected-path denials put info= first and have no operation= at all:
   #       apparmor="STATUS" info="failed to unpack profile" error=-71 profile=...
-  #     Requiring operation= dropped those records on the floor entirely.
+  #     Requiring operation= dropped those records entirely.
   #   - that the numeric type is 1400. AppArmor also emits the 1500-range
   #     APPARMOR_* types; the apparmor=" token is the real discriminator, so the
   #     type is captured rather than hardcoded (a SELinux 1400 has "avc:" here
@@ -118,49 +115,81 @@ vars_templated:
   #     kernel_audit_epoch/kernel_audit_serial.
   #
   # mac_result is the normalized, LSM-agnostic verdict shared with the AVC and
-  # AppArmor patterns in share/auditd.yaml -- lowercased by convert, so
+  # AppArmor patterns in share/auditd.yaml. convert lowercases it, so
   # "mac_result eq 'denied'" holds whether the record came from SELinux or
   # AppArmor and whether it arrived via auditd or via the ring buffer.
-  # kernel_apparmor_mode keeps the raw value for the existing consumers.
+  # kernel_apparmor_mode keeps the raw value for existing consumers.
   KERNEL_LINUX_APPARMOR: '[% KERNEL_PRINTK %]audit: type=(?<kernel_audit_type>[% INT %]) audit\((?<kernel_audit_id>(?<kernel_audit_epoch>[% NUMBER %]):(?<kernel_audit_serial>[% INT %]))\): apparmor="(?<mac_result>(?<kernel_apparmor_mode>[% WORD %]))"(?: +(?<kernel_apparmor_kv>[% GREEDYDATA %]))?'
   # USB device attach: "usb 1-1: new high-speed USB device number 5 using
   # ehci-hcd"
   KERNEL_LINUX_USB: '[% KERNEL_PRINTK %]usb (?<kernel_usb>[% NOTSPACE %]): new [% GREEDYDATA %]'
   # ---- Linux network stack under pressure or under attack ----
   #
-  # The three the stack complains about that are worth waking up for.  All
-  # three arrive with PROGRAM=kernel like everything else here, and all three
-  # were previously misses, which is the worst way for them to arrive: the
-  # host says it is being flooded and nothing downstream hears it.
+  # Three complaints from the stack that say the host is losing traffic. All
+  # arrive with PROGRAM=kernel like everything else here.
   #
   # "TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.
   #  Check SNMP counters."
   #
-  # The wording has drifted a lot across releases -- a doubled "TCP: ", a
+  # The wording has drifted across releases: a doubled "TCP: ", a
   # "request_sock_<proto>: " tag, a lowercase "possible", a trailing hint to
-  # check SNMP -- and 6.x prints the local address alongside the port as
-  # "[::ffff:192.0.2.1]:80".  All of it is optional here except the sentence
-  # itself, since which variant a host emits is a function of its kernel
-  # version and says nothing about the event.
+  # check SNMP. 6.x also prints the local address alongside the port as
+  # "[::ffff:192.0.2.1]:80". Everything but the sentence itself is optional,
+  # since which variant a host emits follows from its kernel version and says
+  # nothing about the event.
   KERNEL_LINUX_SYNFLOOD: '[% KERNEL_PRINTK %](?:TCP: )?(?:request_sock_[A-Za-z0-9_]+: )?(?:TCP: )?[Pp]ossible SYN flooding on port (?:\[(?<kernel_syn_local_addr>[^\]]+)\]:)?(?<kernel_syn_port>[% INT %])\. Sending (?<kernel_syn_action>[% WORD %])\.(?: +[% GREEDYDATA %])?'
   # "nf_conntrack: nf_conntrack: table full, dropping packet"
   #
   # The connection tracker is out of room and the host has started dropping
-  # traffic it would otherwise have passed.  The module name is doubled on
-  # newer kernels because the subsystem prefix and the message both carry it;
-  # the old ip_conntrack spelling is still around on long-lived hosts.
+  # traffic it would otherwise have passed. The module name is doubled on
+  # newer kernels, where the subsystem prefix and the message both carry it.
+  # The old ip_conntrack spelling is still around on long-lived hosts.
   KERNEL_LINUX_CONNTRACK_FULL: '[% KERNEL_PRINTK %](?<kernel_conntrack_module>nf_conntrack|ip_conntrack): (?:(?:nf|ip)_conntrack: )?table full, dropping packet\.?(?: [% GREEDYDATA %])?'
   # "IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0"
   #
-  # A packet arrived whose addressing cannot be right -- the classic signature
+  # A packet arrived whose addressing cannot be right, which is the signature
   # of spoofing or of a routing loop.
   #
-  # The kernel prints the destination first and the source second, despite the
-  # message reading "martian source <a> from <b>", so the captures are named
-  # for what each address actually is rather than for its position in the
-  # sentence.  Naming them the other way round would put the wrong address in
-  # front of the geoip lookup.
+  # Despite the message reading "martian source <a> from <b>", the kernel
+  # prints the destination first and the source second. The captures are named
+  # for what each address is rather than for its position in the sentence.
+  # Naming them the other way round would put the wrong address in front of the
+  # geoip lookup.
   KERNEL_LINUX_MARTIAN: '[% KERNEL_PRINTK %](?:IPv4: )?martian (?<kernel_martian_kind>source|destination) (?<kernel_martian_dst_ip>[% IP %]) from (?<kernel_martian_src_ip>[% IP %]), (?:on )?dev (?<kernel_martian_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # "ll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00"
+  #
+  # The kernel follows a martian-source report with a hex dump of the offending
+  # packet's link-layer header, on its own line. It is a separate record but
+  # not a separate event: alone it says nothing, and as the continuation of the
+  # martian above it, it is the useful half. The martian line carries an IP
+  # that by definition cannot be trusted, while this one carries the MAC of the
+  # port that sent the frame, which can be looked up on a switch.
+  #
+  # The header is captured whole as kernel_ll_header and, where it is a 14-byte
+  # Ethernet header, split by decompose into destination, source and ethertype.
+  # Both MAC captures go through "convert: mac", so they come out in the same
+  # colon-separated form as kernel_arp_from_mac rather than in the kernel's
+  # space-separated hex, and the two can be compared directly.
+  KERNEL_LINUX_LL_HEADER: '[% KERNEL_PRINTK %]ll header: (?<kernel_ll_offset>[0-9a-f]+): (?<kernel_ll_header>[0-9a-f]{2}(?: [0-9a-f]{2})*)'
+  # The Ethernet layout of the dump above: 6 bytes of destination, 6 of source,
+  # 2 of ethertype. Used only as a decompose pattern, never in a patterns list.
+  # Anything other than exactly those 14 bytes, such as a different link type
+  # or a truncated dump, fails to match and leaves kernel_ll_header alone.
+  KERNEL_LL_ETHERNET: '(?<kernel_ll_dst_mac>[0-9a-f]{2}(?: [0-9a-f]{2}){5}) (?<kernel_ll_src_mac>[0-9a-f]{2}(?: [0-9a-f]{2}){5}) (?<kernel_ll_ethertype>[0-9a-f]{2} [0-9a-f]{2})'
+  # "net_ratelimit: 2 callbacks suppressed" / "kauditd_printk_skb: 72 callbacks
+  # suppressed"
+  #
+  # Printed by a rate limiter to admit it has been dropping messages. The count
+  # is the only record that the log is incomplete, which on a host under a
+  # packet flood is the difference between "23 martians" and "23 martians plus
+  # however many net_ratelimit discarded".
+  KERNEL_LINUX_RATELIMIT: '[% KERNEL_PRINTK %](?<kernel_ratelimit_source>[^\s:]+): (?<kernel_ratelimit_suppressed>[% INT %]) callbacks suppressed'
+  # "virbr0: topology change detected, propagating"
+  #
+  # An STP topology change on a bridge. Expected during a reconfiguration and
+  # not otherwise, since it means the spanning tree moved underneath a running
+  # bridge.
+  KERNEL_LINUX_BRIDGE_TOPOLOGY: '[% KERNEL_PRINTK %](?<kernel_bridge>[^\s:]+): topology change detected, (?<kernel_bridge_topology>[% GREEDYDATA %])'
   # ==================================================================
   # FreeBSD kernel messages (additive). These arrive with PROGRAM=kernel
   # exactly like the Linux ones above and share the //^kernel$// gate.
@@ -207,10 +236,66 @@ vars_templated:
   # ---- TIER C: routine ops ----
   # link state change: "em0: link state changed to DOWN" / "... to UP".
   KERNEL_FBSD_LINK: '(?<kernel_iface>[a-z]+[0-9]+): link state changed to (?<kernel_link_state>[% WORD %])(?: [% GREEDYDATA %])?'
-  # USB device attach (FreeBSD ugen): "ugen0.3: <vendor product> at usbus0".
-  KERNEL_FBSD_UGEN: '(?<kernel_usb_dev>ugen[0-9]+\.[0-9]+): <(?<kernel_usb_desc>[^>]*)> at (?<kernel_usb_bus>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
-  # CAM device probe attach: "da0 at umass-sim0 bus 0 scbus0 target 0 lun 0".
-  KERNEL_FBSD_CAM_ATTACH: '(?<kernel_usb_dev>[a-z]+[0-9]+) at (?<kernel_usb_desc>[% NOTSPACE %]) bus [% GREEDYDATA %]'
+  # USB device arrival and departure (FreeBSD ugen): "ugen0.3: <vendor product>
+  # at usbus0", and the same line with a trailing "(disconnected)" when the
+  # device goes away.
+  #
+  # The two differ only by that marker, so it has to be captured. A port that
+  # is flapping emits the pair over and over, and without kernel_usb_state an
+  # attach and a detach reduce to identical fields -- a hub cycling a thousand
+  # times a day is indistinguishable from a thousand devices being plugged in.
+  #
+  # The capture is present only on the departure. Its absence is the arrival,
+  # the same way kernel_core above is set only when a core was actually
+  # written.
+  KERNEL_FBSD_UGEN: '(?<kernel_usb_dev>ugen[0-9]+\.[0-9]+): <(?<kernel_usb_desc>[^>]*)> at (?<kernel_usb_bus>[% NOTSPACE %])(?: \((?<kernel_usb_state>disconnected)\))?(?: [% GREEDYDATA %])?'
+  # CAM peripheral attach: "da0 at umass-sim0 bus 0 scbus0 target 0 lun 0".
+  #
+  # The SIM named after "at" is whichever driver owns the bus. umass-sim0 for
+  # USB mass storage, but mps0/mpr0 for SAS, ahcich0 for SATA, and so on, so
+  # these captures are named for CAM rather than for USB. They were previously
+  # kernel_usb_dev and kernel_usb_desc, which labelled every SAS and SATA disk
+  # on a machine as a USB device and put a SIM name in a description field.
+  #
+  # The bus/scbus/target/lun tail is matched rather than skipped: it is the
+  # address that identifies the peripheral, and CAM always prints all four.
+  #
+  # The peripheral is kernel_cam_periph rather than kernel_cam_device because
+  # KERNEL_FBSD_CAM above already uses the latter for the whole periph path
+  # ("probe0:umass-sim1:1:0:0"). A bare "da12" and a full path are not the same
+  # kind of value and should not share a field.
+  KERNEL_FBSD_CAM_ATTACH: '(?<kernel_cam_periph>[a-z]+[0-9]+) at (?<kernel_cam_sim>[% NOTSPACE %]) bus (?<kernel_cam_bus>[% INT %]) scbus(?<kernel_cam_scbus>[% INT %]) target (?<kernel_cam_target>[% INT %]) lun (?<kernel_cam_lun>[% INT %])(?: [% GREEDYDATA %])?'
+  # ---- newbus device arrival and departure ----
+  # A device that comes and goes emits all four, in this order:
+  #   hidbus3: <HID bus> on usbhid3
+  #   usbhid3 on uhub7
+  #   usbhid3: at uhub7, port 2, addr 80 (disconnected)
+  #   usbhid3: detached
+  # kernel_newbus_state is absent on arrival, as kernel_usb_state above.
+  # "hidbus3: <HID bus> on usbhid3" / "hkbd0: <Corsair K70> on hidbus1"
+  KERNEL_FBSD_NEWBUS_ATTACH_DESC: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): <(?<kernel_newbus_desc>[^>]*)> on (?<kernel_newbus_parent>[% NOTSPACE %])'
+  # "usbhid3 on uhub7" / "kbd2 at hkbd0". The required unit number keeps this
+  # from matching prose; listed after CAM_ATTACH, which it resembles.
+  KERNEL_FBSD_NEWBUS_ATTACH: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+) (?:on|at) (?<kernel_newbus_parent>[% NOTSPACE %])'
+  # "usbhid3: at uhub7, port 2, addr 80 (disconnected)"
+  KERNEL_FBSD_NEWBUS_GONE: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): at (?<kernel_newbus_parent>[^,]+), port (?<kernel_usb_port>[% INT %]), addr (?<kernel_usb_addr>[% INT %]) \((?<kernel_newbus_state>disconnected)\)'
+  # "usbhid3: detached"
+  KERNEL_FBSD_NEWBUS_DETACH: '(?<kernel_newbus_device>[a-z][a-z0-9]*[0-9]+): (?<kernel_newbus_state>detached)'
+  # ---- Linuxulator ----
+  # "linux: jid 0 pid 4242 (claude): unsupported prctl option 59"
+  # "linux: pid 4242 (claude): syscall pidfd_open not implemented"
+  # jid is optional (older releases omit it); comm is [^)]* because the thread
+  # name may contain spaces ("Bun Pool 1"). jid/pid/comm reuse the top-level
+  # FreeBSD names.
+  KERNEL_FBSD_LINUX_PREFIX: 'linux: (?:jid (?<kernel_jid>[% INT %]) )?pid (?<kernel_pid>[% INT %]) \((?<kernel_comm>[^)]*)\): '
+  KERNEL_FBSD_LINUX_PRCTL: '[% KERNEL_FBSD_LINUX_PREFIX %]unsupported prctl option (?<kernel_linux_prctl_option>[% INT %])'
+  KERNEL_FBSD_LINUX_SYSCALL: '[% KERNEL_FBSD_LINUX_PREFIX %]syscall (?<kernel_linux_syscall>[% NOTSPACE %]) not implemented'
+  # Everything else, plus the kernel's own spliced output -- the printf is not
+  # atomic, so concurrent messages interleave:
+  #   linux: jid 0 pid 41 (claude): linux: jid 0 pid 41 (claude): unsupported prctl option 42unsupported prctl option 59
+  # PRCTL and SYSCALL reject that rather than read a wrong option number off
+  # it; here the leading jid/pid/comm still parse and the splice is kept.
+  KERNEL_FBSD_LINUX: '[% KERNEL_FBSD_LINUX_PREFIX %](?<kernel_linux_message>[% GREEDYDATA %])'
   # ---- fatal (single-line only) ----
   # "panic: page fault".
   KERNEL_FBSD_PANIC: 'panic: (?<kernel_panic>[% GREEDYDATA %])'
@@ -218,9 +303,9 @@ vars_templated:
   KERNEL_FBSD_FATAL_TRAP: 'Fatal trap (?<kernel_trap_num>[% INT %]): (?<kernel_trap_desc>[% GREEDYDATA %])'
 vars_tests:
   # ---- the shared printk prefix ----
-  # The whole fragment is optional, so under an anchored ^...$ template a
+  # The fragment is wholly optional, so under an anchored ^...$ template any
   # string it cannot consume entirely is a negative: no dot in the uptime, no
-  # trailing space, or an ordinary message with no prefix to begin with.
+  # trailing space, or an ordinary message with no prefix at all.
   KERNEL_PRINTK:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -231,11 +316,11 @@ vars_tests:
       - string: '[12345.678901]  '
         result: '[12345.678901]  '
     negative:
-      # no fractional part
+      # No fractional part.
       - '[1234] '
-      # the trailing space is part of the fragment
+      # The trailing space is part of the fragment.
       - '[ 9134.220118]'
-      # an ordinary message, prefix or no prefix
+      # An ordinary message, prefix or no prefix.
       - 'audit: type=1400'
   # ---- Linux vars_tests (KERNEL_LINUX_*) ----
   KERNEL_LINUX_OOM:
@@ -261,7 +346,7 @@ vars_tests:
     positive:
       - string: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
         result: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
-      # with the printk uptime stripped by the reader
+      # With the printk uptime stripped by the reader.
       - string: 'br0: port 2(veth1a2b3c) entered forwarding state'
         result: 'br0: port 2(veth1a2b3c) entered forwarding state'
     negative:
@@ -338,23 +423,23 @@ vars_tests:
         result: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
       - string: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
         result: 'audit: type=1400 audit(1700000000.000:99): apparmor="DENIED" operation="exec" profile="/usr/sbin/nginx" name="/bin/sh" pid=4321 comm="nginx" requested_mask="x" denied_mask="x" fsuid=33 ouid=0'
-      # no operation= at all: a profile-load failure, which the old pattern
-      # requiring "operation=" right after the mode did not match
+      # No operation= at all: a profile-load failure, which a pattern requiring
+      # "operation=" right after the mode would not match.
       - string: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
         result: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
-      # info= ahead of profile= on a disconnected-path denial, likewise dropped
+      # info= ahead of profile= on a disconnected-path denial, likewise missed.
       - string: 'audit: type=1400 audit(1700000000.000:101): apparmor="DENIED" info="Failed name lookup - disconnected path" error=-13 profile="snap.foo" name="/" pid=1 comm="foo"'
         result: 'audit: type=1400 audit(1700000000.000:101): apparmor="DENIED" info="Failed name lookup - disconnected path" error=-13 profile="snap.foo" name="/" pid=1 comm="foo"'
-      # the 1500-range APPARMOR_* numeric types, not just 1400
+      # The 1500-range APPARMOR_* numeric types, not just 1400.
       - string: 'audit: type=1502 audit(1700000000.000:102): apparmor="DENIED" operation="mkdir" profile="/usr/bin/foo" name="/tmp/x" pid=77 comm="foo" requested_mask="c" denied_mask="c" fsuid=0 ouid=0'
         result: 'audit: type=1502 audit(1700000000.000:102): apparmor="DENIED" operation="mkdir" profile="/usr/bin/foo" name="/tmp/x" pid=77 comm="foo" requested_mask="c" denied_mask="c" fsuid=0 ouid=0'
-      # carrying the printk uptime rsyslog's imklog leaves on, which is the
-      # shape a Debian or Ubuntu kern.log actually holds
+      # Carrying the printk uptime rsyslog's imklog leaves on, which is the
+      # shape a Debian or Ubuntu kern.log holds.
       - string: '[ 9134.220118] audit: type=1400 audit(1700000000.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
         result: '[ 9134.220118] audit: type=1400 audit(1700000000.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
     negative:
       - 'usb 1-1: new high-speed USB device number 5 using ehci-hcd'
-      # a SELinux AVC on the same ring buffer is not AppArmor's
+      # A SELinux AVC on the same ring buffer is not AppArmor's.
       - 'audit: type=1400 audit(1700000000.000:103): avc:  denied  { read } for  pid=4444 comm="httpd" tclass=file'
   KERNEL_LINUX_USB:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -372,13 +457,13 @@ vars_tests:
         result: 'TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'
       - string: 'TCP: Possible SYN flooding on port 443. Sending cookies.'
         result: 'TCP: Possible SYN flooding on port 443. Sending cookies.'
-      # the older doubled prefix
+      # The older doubled prefix.
       - string: 'TCP: TCP: Possible SYN flooding on port 22. Sending cookies.'
         result: 'TCP: TCP: Possible SYN flooding on port 22. Sending cookies.'
-      # 6.x prints the local address alongside the port
+      # 6.x prints the local address alongside the port.
       - string: 'TCP: Possible SYN flooding on port [::ffff:192.0.2.1]:80. Sending cookies.'
         result: 'TCP: Possible SYN flooding on port [::ffff:192.0.2.1]:80. Sending cookies.'
-      # with the printk uptime the rsyslog kernel reader leaves on
+      # With the printk uptime the rsyslog kernel reader leaves on.
       - string: '[ 1234.567890] TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.'
         result: '[ 1234.567890] TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.'
     negative:
@@ -408,6 +493,41 @@ vars_tests:
         result: 'IPv4: martian destination 224.0.0.1 from 10.0.0.1, dev eth0'
     negative:
       - 'nf_conntrack: table full, dropping packet'
+  KERNEL_LINUX_LL_HEADER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+        result: 'll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+      - string: '[ 1234.567890] ll header: 00000000: ff ff ff ff ff ff 20 43 a8 6a a7 ec 08 06'
+        result: '[ 1234.567890] ll header: 00000000: ff ff ff ff ff ff 20 43 a8 6a a7 ec 08 06'
+    negative:
+      - 'IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
+  KERNEL_LL_ETHERNET:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+        result: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+    negative:
+      # Not 14 bytes, so not an Ethernet header.
+      - 'ff ff ff ff ff ff c4 d8'
+  KERNEL_LINUX_RATELIMIT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'net_ratelimit: 2 callbacks suppressed'
+        result: 'net_ratelimit: 2 callbacks suppressed'
+      - string: 'kauditd_printk_skb: 72 callbacks suppressed'
+        result: 'kauditd_printk_skb: 72 callbacks suppressed'
+    negative:
+      - 'nf_conntrack: table full, dropping packet'
+  KERNEL_LINUX_BRIDGE_TOPOLOGY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'virbr0: topology change detected, propagating'
+        result: 'virbr0: topology change detected, propagating'
+      - string: 'br-lan: topology change detected, sending tcn bpdu'
+        result: 'br-lan: topology change detected, sending tcn bpdu'
+    negative:
+      - 'virbr0: port 1(vnet0) entered disabled state'
   # ---- FreeBSD vars_tests ----
   KERNEL_FBSD_SIGEXIT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -535,6 +655,9 @@ vars_tests:
         result: 'ugen0.3: <vendor product> at usbus0'
       - string: 'ugen1.2: <Generic Flash Disk> at usbus1'
         result: 'ugen1.2: <Generic Flash Disk> at usbus1'
+      # the departure half of the pair
+      - string: 'ugen0.3: <vendor product> at usbus0 (disconnected)'
+        result: 'ugen0.3: <vendor product> at usbus0 (disconnected)'
     negative:
       - 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
   KERNEL_FBSD_CAM_ATTACH:
@@ -544,8 +667,87 @@ vars_tests:
         result: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
       - string: 'ada1 at ahcich1 bus 0 scbus1 target 0 lun 0'
         result: 'ada1 at ahcich1 bus 0 scbus1 target 0 lun 0'
+      # a SAS disk behind an mps(4) HBA, which has nothing to do with USB
+      - string: 'da0 at mps0 bus 0 scbus8 target 61 lun 0'
+        result: 'da0 at mps0 bus 0 scbus8 target 61 lun 0'
     negative:
       - 'ugen0.3: <vendor product> at usbus0'
+      # newbus attach, not a CAM peripheral: no bus/target/lun address
+      - 'uhub7 on uhub6'
+  KERNEL_FBSD_NEWBUS_ATTACH_DESC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'hidbus3: <HID bus> on usbhid3'
+        result: 'hidbus3: <HID bus> on usbhid3'
+      - string: 'usbhid1: <Corsair K70, class 0/0, rev 2.00/1.02, addr 83> on usbus0'
+        result: 'usbhid1: <Corsair K70, class 0/0, rev 2.00/1.02, addr 83> on usbus0'
+    negative:
+      - 'usbhid3 on uhub7'
+      - 'ugen0.3: <vendor product> at usbus0'
+  KERNEL_FBSD_NEWBUS_ATTACH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'usbhid3 on uhub7'
+        result: 'usbhid3 on uhub7'
+      - string: 'kbd2 at hkbd0'
+        result: 'kbd2 at hkbd0'
+    negative:
+      - 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+      - 'hidbus3: <HID bus> on usbhid3'
+  KERNEL_FBSD_NEWBUS_GONE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'usbhid3: at uhub7, port 2, addr 80 (disconnected)'
+        result: 'usbhid3: at uhub7, port 2, addr 80 (disconnected)'
+    negative:
+      - 'usbhid3: detached'
+  KERNEL_FBSD_NEWBUS_DETACH:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'usbhid3: detached'
+        result: 'usbhid3: detached'
+      - string: 'hkbd0: detached'
+        result: 'hkbd0: detached'
+    negative:
+      - 'usbhid3: at uhub7, port 2, addr 80 (disconnected)'
+  KERNEL_FBSD_LINUX_PREFIX:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'linux: jid 0 pid 4242 (claude): '
+        result: 'linux: jid 0 pid 4242 (claude): '
+      # older releases omit the jid
+      - string: 'linux: pid 4242 (claude): '
+        result: 'linux: pid 4242 (claude): '
+      # thread names contain spaces
+      - string: 'linux: jid 0 pid 4242 (Bun Pool 1): '
+        result: 'linux: jid 0 pid 4242 (Bun Pool 1): '
+    negative:
+      - 'linux: jid 0 pid 4242 claude: '
+  KERNEL_FBSD_LINUX_PRCTL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'linux: jid 0 pid 4242 (claude): unsupported prctl option 59'
+        result: 'linux: jid 0 pid 4242 (claude): unsupported prctl option 59'
+    negative:
+      - 'linux: jid 0 pid 4242 (claude): syscall pidfd_open not implemented'
+      # spliced kernel output must not yield an option number
+      - 'linux: jid 0 pid 41 (claude): unsupported prctl option 42unsupported prctl option 59'
+  KERNEL_FBSD_LINUX_SYSCALL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'linux: jid 0 pid 4242 (claude): syscall pidfd_open not implemented'
+        result: 'linux: jid 0 pid 4242 (claude): syscall pidfd_open not implemented'
+    negative:
+      - 'linux: jid 0 pid 4242 (claude): unsupported prctl option 59'
+  KERNEL_FBSD_LINUX:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'linux: jid 0 pid 4242 (claude): unsupported ioctl TIOCGPTPEER'
+        result: 'linux: jid 0 pid 4242 (claude): unsupported ioctl TIOCGPTPEER'
+      - string: 'linux: jid 0 pid 41 (claude): unsupported prctl option 42unsupported prctl option 59'
+        result: 'linux: jid 0 pid 41 (claude): unsupported prctl option 42unsupported prctl option 59'
+    negative:
+      - 'pid 32879 (perl), jid 0, uid 1001, was killed: failed to reclaim memory'
   KERNEL_FBSD_PANIC:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -564,12 +766,11 @@ vars_tests:
         result: 'Fatal trap 9: general protection fault while in kernel mode'
     negative:
       - 'panic: page fault'
-# file-level default: coerce numeric top-level captures at runtime.
-# file-level default: the martian source is the only remote address this file
-# captures. Looking it up is worth doing for the same reason netfilter.yaml
-# looks up a dropped packet's source, with the same caveat: an address the
-# stack called impossible may well be spoofed, so treat the answer as evidence
-# about the packet rather than about whoever really sent it.
+# The martian source is the only remote address this file captures. It is
+# looked up for the same reason netfilter.yaml looks up a dropped packet's
+# source, and with the same caveat: an address the stack called impossible may
+# well be spoofed, so the answer is evidence about the packet rather than about
+# whoever really sent it.
 geoip:
   - kernel_martian_src_ip
 convert:
@@ -588,10 +789,16 @@ convert:
   kernel_audit_type: int
   kernel_audit_epoch: float
   kernel_syn_port: int
-  # normalized LSM verdict, shared with share/auditd.yaml: AppArmor writes
-  # "DENIED" where SELinux writes "denied", so fold the case
+  kernel_ratelimit_suppressed: int
+  # The two halves of the link-layer header dump, printed by the kernel as
+  # space-separated hex and rewritten here into the colon-separated form the
+  # other MAC captures in this file use.
+  kernel_ll_dst_mac: mac
+  kernel_ll_src_mac: mac
+  # Normalized LSM verdict, shared with share/auditd.yaml. AppArmor writes
+  # "DENIED" where SELinux writes "denied", so the case is folded.
   mac_result: lc
-  # FreeBSD numeric top-level captures
+  # FreeBSD numeric top-level captures.
   kernel_pid: int
   kernel_uid: int
   kernel_jid: int
@@ -602,10 +809,19 @@ convert:
   kernel_listenq_occurrences: int
   kernel_geom_error: int
   kernel_trap_num: int
-# file-level default: break the quoted apparmor key=value tail into individual
-# kernel_apparmor_* fields. Values are double-quoted, so quote-aware splitting is
-# used (quotes stripped). The apparmor mode ("DENIED") is captured separately as
-# kernel_apparmor_mode in the pattern; operation/profile/name/comm map 1:1 here.
+  # The CAM address a peripheral attached at.
+  kernel_cam_bus: int
+  kernel_cam_scbus: int
+  kernel_cam_target: int
+  kernel_cam_lun: int
+  # Where on the bus a departing newbus device had been.
+  kernel_usb_port: int
+  kernel_usb_addr: int
+  kernel_linux_prctl_option: int
+# Break the quoted apparmor key=value tail into individual kernel_apparmor_*
+# fields. Values are double-quoted, so the split is quote-aware and strips
+# them. The pattern captures the mode ("DENIED") separately as
+# kernel_apparmor_mode; operation, profile, name and comm map 1:1 here.
 decompose:
   - field: kernel_apparmor_kv
     type: kv
@@ -624,6 +840,23 @@ decompose:
           kernel_apparmor_denied_mask: 'r'
           kernel_apparmor_fsuid: '0'
           kernel_apparmor_ouid: '0'
+  # Split an Ethernet link-layer header dump into its three parts. Fires only
+  # when the dump is exactly 14 bytes; any other link type leaves
+  # kernel_ll_header untouched.
+  - field: kernel_ll_header
+    type: pattern
+    pattern: KERNEL_LL_ETHERNET
+    tests:
+      - input: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+        result:
+          kernel_ll_header: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+          kernel_ll_dst_mac: 'ff ff ff ff ff ff'
+          kernel_ll_src_mac: 'c4 d8 d5 3b 8c 4b'
+          kernel_ll_ethertype: '08 00'
+      # Not Ethernet, so nothing is split out.
+      - input: 'ff ff ff ff ff ff c4 d8'
+        result:
+          kernel_ll_header: 'ff ff ff ff ff ff c4 d8'
 rules:
   - name: kernel
     gate:
@@ -648,6 +881,9 @@ rules:
       - KERNEL_LINUX_BRIDGE_PORT
       - KERNEL_LINUX_NETDEV_MODE
       - KERNEL_LINUX_LINK
+      - KERNEL_LINUX_BRIDGE_TOPOLOGY
+      - KERNEL_LINUX_LL_HEADER
+      - KERNEL_LINUX_RATELIMIT
       # ---- FreeBSD patterns (appended after the Linux ones) ----
       - KERNEL_FBSD_SIGEXIT
       - KERNEL_FBSD_SWAPKILL
@@ -664,6 +900,16 @@ rules:
       - KERNEL_FBSD_UGEN
       - KERNEL_FBSD_CAM_ATTACH
       - KERNEL_FBSD_LINK
+      # newbus after CAM_ATTACH and LINK, both of which it would otherwise
+      # shadow; GONE and DETACH before the two attach forms
+      - KERNEL_FBSD_NEWBUS_GONE
+      - KERNEL_FBSD_NEWBUS_DETACH
+      - KERNEL_FBSD_NEWBUS_ATTACH_DESC
+      - KERNEL_FBSD_NEWBUS_ATTACH
+      # specific Linuxulator messages before the catch-all
+      - KERNEL_FBSD_LINUX_PRCTL
+      - KERNEL_FBSD_LINUX_SYSCALL
+      - KERNEL_FBSD_LINUX
       - KERNEL_FBSD_PANIC
       - KERNEL_FBSD_FATAL_TRAP
     tests:
@@ -738,7 +984,7 @@ rules:
             kernel_apparmor_kv: 'info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
         # [Linux] KERNEL_LINUX_APPARMOR wearing the printk uptime. The captures
         # and the decompose have to come out identical to the stripped shape
-        # above... the prefix is noise the pattern steps over, not data.
+        # above, since the prefix is stepped over rather than captured.
         - string: '[ 9134.220118] audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
           result:
             kernel_audit_type: '1400'
@@ -769,9 +1015,9 @@ rules:
         - string: 'ip_conntrack: table full, dropping packet.'
           result:
             kernel_conntrack_module: 'ip_conntrack'
-        # [Linux] KERNEL_LINUX_MARTIAN. the kernel prints the destination first
-        # even though the sentence reads "source", so check both land in the
-        # field named for what they are
+        # [Linux] KERNEL_LINUX_MARTIAN. The kernel prints the destination first
+        # even though the sentence reads "source", so both are checked against
+        # the field named for what they are.
         - string: 'IPv4: martian source 192.0.2.1 from 10.0.0.1, on dev eth0'
           result:
             kernel_martian_kind: 'source'
@@ -784,9 +1030,28 @@ rules:
             kernel_martian_dst_ip: '224.0.0.1'
             kernel_martian_src_ip: '10.0.0.1'
             kernel_martian_iface: 'eth0'
-        # [Linux] the prefix is not the AppArmor pattern's business alone... it
-        # rides in front of any Linux ring-buffer message, so one more type
-        # proves it is handled file-wide
+        # [Linux] KERNEL_LINUX_LL_HEADER, the continuation line of the martian
+        # above. Only raw captures are asserted here: splitting the header into
+        # its two MACs is decompose's job and rewriting them into colon form is
+        # convert's, and neither has run at this point. The decompose test
+        # above covers the split, and t/rule_gaps.t covers the pair end to end.
+        - string: 'll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+          result:
+            kernel_ll_offset: '00000000'
+            kernel_ll_header: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+        # [Linux] KERNEL_LINUX_RATELIMIT
+        - string: 'net_ratelimit: 2 callbacks suppressed'
+          result:
+            kernel_ratelimit_source: 'net_ratelimit'
+            kernel_ratelimit_suppressed: '2'
+        # [Linux] KERNEL_LINUX_BRIDGE_TOPOLOGY
+        - string: 'virbr0: topology change detected, propagating'
+          result:
+            kernel_bridge: 'virbr0'
+            kernel_bridge_topology: 'propagating'
+        # [Linux] The prefix is not the AppArmor pattern's alone. It rides in
+        # front of any Linux ring-buffer message, so a second type is checked
+        # to prove it is handled file-wide.
         - string: '[ 1234.567890] Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
           result:
             kernel_oom_pid: '1234'
@@ -893,11 +1158,90 @@ rules:
             kernel_usb_dev: 'ugen0.3'
             kernel_usb_desc: 'vendor product'
             kernel_usb_bus: 'usbus0'
+        # [FreeBSD] KERNEL_FBSD_UGEN, the departure half of the same pair. The
+        # only difference from the arrival above is kernel_usb_state.
+        - string: 'ugen0.3: <vendor product> at usbus0 (disconnected)'
+          result:
+            kernel_usb_dev: 'ugen0.3'
+            kernel_usb_desc: 'vendor product'
+            kernel_usb_bus: 'usbus0'
+            kernel_usb_state: 'disconnected'
         # [FreeBSD] KERNEL_FBSD_CAM_ATTACH
         - string: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
           result:
-            kernel_usb_dev: 'da0'
-            kernel_usb_desc: 'umass-sim0'
+            kernel_cam_periph: 'da0'
+            kernel_cam_sim: 'umass-sim0'
+            kernel_cam_bus: '0'
+            kernel_cam_scbus: '0'
+            kernel_cam_target: '0'
+            kernel_cam_lun: '0'
+        # [FreeBSD] KERNEL_FBSD_CAM_ATTACH behind a SAS HBA rather than umass,
+        # which is the case the usb-named captures used to mislabel.
+        - string: 'da0 at mps0 bus 0 scbus8 target 61 lun 0'
+          result:
+            kernel_cam_periph: 'da0'
+            kernel_cam_sim: 'mps0'
+            kernel_cam_bus: '0'
+            kernel_cam_scbus: '8'
+            kernel_cam_target: '61'
+            kernel_cam_lun: '0'
+        # [FreeBSD] KERNEL_FBSD_NEWBUS_ATTACH_DESC
+        - string: 'hidbus3: <HID bus> on usbhid3'
+          result:
+            kernel_newbus_device: 'hidbus3'
+            kernel_newbus_desc: 'HID bus'
+            kernel_newbus_parent: 'usbhid3'
+        # [FreeBSD] KERNEL_FBSD_NEWBUS_ATTACH
+        - string: 'usbhid3 on uhub7'
+          result:
+            kernel_newbus_device: 'usbhid3'
+            kernel_newbus_parent: 'uhub7'
+        # [FreeBSD] KERNEL_FBSD_NEWBUS_ATTACH, the "at" spelling
+        - string: 'kbd2 at hkbd0'
+          result:
+            kernel_newbus_device: 'kbd2'
+            kernel_newbus_parent: 'hkbd0'
+        # [FreeBSD] KERNEL_FBSD_NEWBUS_GONE
+        - string: 'usbhid3: at uhub7, port 2, addr 80 (disconnected)'
+          result:
+            kernel_newbus_device: 'usbhid3'
+            kernel_newbus_parent: 'uhub7'
+            kernel_usb_port: '2'
+            kernel_usb_addr: '80'
+            kernel_newbus_state: 'disconnected'
+        # [FreeBSD] KERNEL_FBSD_NEWBUS_DETACH
+        - string: 'usbhid3: detached'
+          result:
+            kernel_newbus_device: 'usbhid3'
+            kernel_newbus_state: 'detached'
+        # [FreeBSD] KERNEL_FBSD_LINUX_PRCTL
+        - string: 'linux: jid 0 pid 4242 (claude): unsupported prctl option 59'
+          result:
+            kernel_jid: '0'
+            kernel_pid: '4242'
+            kernel_comm: 'claude'
+            kernel_linux_prctl_option: '59'
+        # [FreeBSD] KERNEL_FBSD_LINUX_SYSCALL, no jid, comm with a space
+        - string: 'linux: pid 4242 (Bun Pool 1): syscall pidfd_open not implemented'
+          result:
+            kernel_pid: '4242'
+            kernel_comm: 'Bun Pool 1'
+            kernel_linux_syscall: 'pidfd_open'
+        # [FreeBSD] KERNEL_FBSD_LINUX
+        - string: 'linux: jid 0 pid 4242 (claude): unsupported ioctl TIOCGPTPEER'
+          result:
+            kernel_jid: '0'
+            kernel_pid: '4242'
+            kernel_comm: 'claude'
+            kernel_linux_message: 'unsupported ioctl TIOCGPTPEER'
+        # [FreeBSD] KERNEL_FBSD_LINUX catching spliced kernel output: the
+        # leading fragment still parses, no option number is invented.
+        - string: 'linux: jid 0 pid 41 (claude): unsupported prctl option 42unsupported prctl option 59'
+          result:
+            kernel_jid: '0'
+            kernel_pid: '41'
+            kernel_comm: 'claude'
+            kernel_linux_message: 'unsupported prctl option 42unsupported prctl option 59'
         # [FreeBSD] KERNEL_FBSD_LINK
         - string: 'em0: link state changed to DOWN'
           result:
@@ -953,9 +1297,9 @@ rules:
       negative:
         - 'this is not a kernel line at all'
         - '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
-        # the same firewall line wearing the printk uptime. Now that every
-        # Linux pattern here leads with an optional prefix, the two files could
-        # have started colliding on exactly this shape... they do not.
+        # The same firewall line carrying the printk uptime. Every Linux
+        # pattern here leads with an optional prefix, so this is the shape on
+        # which the two files could collide. They do not.
         - '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
         # FreeBSD firewall lines (start with "ipfw:") are owned by
         # share/ipfw.yaml and must NOT match any kernel pattern here.

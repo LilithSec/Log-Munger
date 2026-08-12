@@ -12,12 +12,12 @@
 # consumer wants them in one place.
 #
 # The port-level neighbour discovery lldpd does at higher verbosity is not
-# covered -- at its default level lldpd logs configuration and errors only,
-# which is what these patterns are built from.
+# covered. At its default level lldpd logs configuration and errors only, which
+# is what these patterns are built from.
 includes:
 - base
 vars_templated:
-  # lldpcli confirming a setting, which is most of what a boot produces:
+  # lldpcli confirming a setting, which is most of what a boot produces.
   #   system name set to new value wap0.example.net
   #   transmit hold set to new value 4
   #   agent type set to new value : nearest bridge

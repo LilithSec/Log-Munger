@@ -197,16 +197,16 @@ rules:
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=198.51.100.9 DST=192.0.2.1 LEN=32 TTL=64 ID=0 PROTO=UDP SPT=68 DPT=67'
-        # the printk uptime is stepped over, not swallowed: nf_action comes out
-        # "[UFW BLOCK]" exactly as it does on a host whose reader stripped it.
-        # This is the assertion the old pattern failed... it came back
+        # The printk uptime is stepped over rather than swallowed, so nf_action
+        # comes out "[UFW BLOCK]" exactly as on a host whose reader stripped
+        # it. A pattern that swallowed it would return
         # "[ 1234.567890] [UFW BLOCK]".
         - string: '[ 1234.567890] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
-        # the same, with no action prefix... only the uptime, which must not
-        # become the action
+        # The same with no action prefix, only the uptime, which must not
+        # become the action.
         - string: '[ 1234.567890] IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=5 DPT=80'
           result:
             nf_kv: 'IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=5 DPT=80'

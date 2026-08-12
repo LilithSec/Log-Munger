@@ -1,28 +1,27 @@
 ---
 # ISC dhcpd (DHCP server) lease-transaction log enrichment.
 #
-# Gates on the syslog PROGRAM field being "dhcpd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture
-# is namespaced with dhcp_ .  A unified dhcp_type capture records the DHCP
+# Gates on the syslog PROGRAM field being "dhcpd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture
+# is namespaced with dhcp_ . A unified dhcp_type capture records the DHCP
 # message type (DHCPDISCOVER / DHCPOFFER / DHCPREQUEST / DHCPACK / DHCPNAK /
-# DHCPRELEASE / DHCPDECLINE).  MAC addresses are the colon-separated hex
+# DHCPRELEASE / DHCPDECLINE). MAC addresses are the colon-separated hex
 # form covered by the base MAC / COMMONMAC primitive.
 includes:
 - base
 vars_templated:
   # The trailing "via <where>" clause, plus whatever dhcpd appended after it.
   #
-  # The interface is matched as a bounded set of characters rather than as
-  # NOTSPACE.  dhcpd separates a trailing note from the interface with a colon
+  # The interface is matched as a bounded character set rather than as
+  # NOTSPACE. dhcpd separates a trailing note from the interface with a colon
   # and no space -- "via eth0: network 192.0.2.0/24: no free leases" -- so a
-  # greedy NOTSPACE captured "eth0:" with the colon stuck on the end, silently
-  # differing from the same interface on a line that had nothing appended.
-  # "via" can also name a relay agent by address, which is why dots are in the
-  # set.
+  # greedy NOTSPACE captures "eth0:" with the colon attached, which differs
+  # from the same interface on a line with nothing appended. "via" can also
+  # name a relay agent by address, hence the dots in the set.
   #
-  # The note itself is captured rather than discarded, because on the failure
-  # lines it IS the message: "no free leases", "unknown lease", "wrong
-  # network".  A pool that has run dry says so only here.
+  # The note is captured rather than discarded, because on the failure lines it
+  # is the message: "no free leases", "unknown lease", "wrong network". A pool
+  # that has run dry says so only here.
   DHCP_VIA: ' via (?<dhcp_iface>[A-Za-z0-9._-]+)(?::)?(?: (?<dhcp_message>[% GREEDYDATA %]))?'
   # "DHCPACK on 192.0.2.50 to aa:bb:cc:dd:ee:ff (myhost) via eth0"
   # ACK/NAK use "on <ip> to <mac>" with an optional client hostname clause.
@@ -42,9 +41,9 @@ vars_templated:
   DHCP_DISCOVER: '(?<dhcp_type>DHCPDISCOVER) from (?<dhcp_mac>[% MAC %])(?: \((?<dhcp_hostname>[% NOTSPACE %])\))?[% DHCP_VIA %]'
   # "DHCPINFORM from 192.0.2.50 via eth0"
   # A client that configured its own address and is only asking for the rest of
-  # the options, so it names itself by address rather than by MAC.  It is the
-  # one message type with no MAC on the line at all, which is why it needs a
-  # pattern of its own rather than a branch in one of the others.
+  # the options, so it names itself by address rather than by MAC. It is the
+  # one message type with no MAC on the line, hence a pattern of its own rather
+  # than a branch in one of the others.
   DHCP_INFORM: '(?<dhcp_type>DHCPINFORM) from (?<dhcp_ip>[% IP %])[% DHCP_VIA %]'
 vars_tests:
   DHCP_ACK:
@@ -102,7 +101,7 @@ vars_tests:
       - string: 'DHCPINFORM from 192.0.2.50 via 192.0.2.1'
         result: 'DHCPINFORM from 192.0.2.50 via 192.0.2.1'
     negative:
-      # INFORM names the client by address, never by MAC
+      # INFORM names the client by address, never by MAC.
       - 'DHCPINFORM from aa:bb:cc:dd:ee:ff via eth0'
       - 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff via eth0'
   DHCP_VIA:
@@ -112,10 +111,10 @@ vars_tests:
         result: ' via eth0'
       - string: ' via br-lan'
         result: ' via br-lan'
-      # a relay agent names itself by address
+      # A relay agent names itself by address.
       - string: ' via 192.0.2.1'
         result: ' via 192.0.2.1'
-      # the colon belongs to the note, not to the interface
+      # The colon belongs to the note, not to the interface.
       - string: ' via eth0: network 192.0.2.0/24: no free leases'
         result: ' via eth0: network 192.0.2.0/24: no free leases'
       - string: ' via eth0 (found)'
@@ -123,8 +122,8 @@ vars_tests:
     negative:
       - 'via eth0'
       - ' via '
-# file-level default: geoip lookup on the lease IP (leases are usually private,
-# but this keeps the file consistent with the other daemon rule files)
+# The lease IP. Leases are usually private, but listing it keeps this file
+# consistent with the other daemon rule files.
 geoip:
   - dhcp_ip
 rules:
@@ -195,8 +194,8 @@ rules:
             dhcp_mac: 'aa:bb:cc:dd:ee:ff'
             dhcp_iface: 'eth0'
             dhcp_message: 'abandoned'
-        # the pool running dry: the interface comes out clean and the reason is
-        # kept rather than dropped
+        # The pool running dry: the interface comes out clean and the reason is
+        # kept rather than dropped.
         - string: 'DHCPDISCOVER from aa:bb:cc:dd:ee:ff via eth0: network 192.0.2.0/24: no free leases'
           result:
             dhcp_type: 'DHCPDISCOVER'

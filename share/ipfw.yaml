@@ -2,15 +2,15 @@
 # FreeBSD ipfw firewall log enrichment.
 #
 # ipfw logs its packet verdicts through the kernel, so the syslog PROGRAM is
-# "kernel" and the MESSAGE Log::Munger sees begins with "ipfw:".  A canonical
+# "kernel" and the MESSAGE Log::Munger sees begins with "ipfw:". A canonical
 # line looks like:
 #   "ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0"
 # i.e. rule number, action, protocol, source (ip:port for TCP/UDP), destination
-# (ip:port), direction (in|out) and "via <iface>".  ICMP lines omit the ports
-# and carry the protocol as "ICMP" with an optional ":type.code".  IPv6
+# (ip:port), direction (in|out) and "via <iface>". ICMP lines omit the ports
+# and carry the protocol as "ICMP" with an optional ":type.code". IPv6
 # endpoints are bracketed literals ("[2001:db8::1]:1234").
 #
-# Patterns are anchored and first-match-wins.  The ports-bearing TCP/UDP shape
+# Patterns are anchored and first-match-wins. The ports-bearing TCP/UDP shape
 # is listed before the port-less ICMP shape so it cannot swallow ICMP lines.
 # Every capture is namespaced with ipfw_ .
 includes:
@@ -22,9 +22,9 @@ vars_templated:
   IPFW_VERDICT: 'ipfw: (?<ipfw_rule>[% INT %]) (?<ipfw_action>Deny|Accept|Reject|Unreach|Count|Divert|Pipe|Queue|Nat|Skipto|Reass) (?<ipfw_proto>TCP|UDP) (?:\[(?<ipfw_src_ip>[% IPv6 %])\]|(?<ipfw_src_ip>[% IPv4 %])):(?<ipfw_src_port>[% INT %]) (?:\[(?<ipfw_dst_ip>[% IPv6 %])\]|(?<ipfw_dst_ip>[% IPv4 %])):(?<ipfw_dst_port>[% INT %]) (?<ipfw_direction>in|out) via (?<ipfw_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
   # ICMP verdict (no ports): "ipfw: 1000 Deny ICMP:8.0 203.0.113.7 192.0.2.1 in via em0".
   # The protocol may carry an optional ":type.code" suffix captured into
-  # ipfw_icmp_type.  Endpoints are bare IPs (bracketed for IPv6).
+  # ipfw_icmp_type. Endpoints are bare IPs (bracketed for IPv6).
   IPFW_ICMP: 'ipfw: (?<ipfw_rule>[% INT %]) (?<ipfw_action>Deny|Accept|Reject|Unreach|Count|Divert|Pipe|Queue|Nat|Skipto|Reass) (?<ipfw_proto>ICMP|ICMPV6|IPV6-ICMP)(?::(?<ipfw_icmp_type>[0-9]+\.[0-9]+))? (?:\[(?<ipfw_src_ip>[% IPv6 %])\]|(?<ipfw_src_ip>[% IPv4 %])) (?:\[(?<ipfw_dst_ip>[% IPv6 %])\]|(?<ipfw_dst_ip>[% IPv4 %])) (?<ipfw_direction>in|out) via (?<ipfw_iface>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
-  # limit reached: "ipfw: limit 100 reached on entry 5000".
+  # Limit reached: "ipfw: limit 100 reached on entry 5000".
   IPFW_LIMIT: 'ipfw: limit (?<ipfw_limit>[% INT %]) reached on entry (?<ipfw_limit_entry>[% INT %])(?: [% GREEDYDATA %])?'
 vars_tests:
   IPFW_VERDICT:
@@ -56,11 +56,11 @@ vars_tests:
         result: 'ipfw: limit 100 reached on entry 5000'
     negative:
       - 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'
-# file-level default: geoip lookup on the source and destination IPs
+# Look up the source and destination IPs.
 geoip:
   - ipfw_src_ip
   - ipfw_dst_ip
-# file-level default: coerce the numeric captures to integers at runtime
+# Coerce the numeric captures to integers.
 convert:
   ipfw_rule: int
   ipfw_src_port: int

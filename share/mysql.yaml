@@ -1,20 +1,20 @@
 ---
 # MySQL / MariaDB error-log enrichment.
 #
-# Gates on the syslog PROGRAM field being one of the server binaries.  Patterns
-# are anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being one of the server binaries. Patterns
+# are anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with mysql_ .
 #
 # The server writes its own timestamp, thread id and severity into the message
 # body, so all three survive into MESSAGE even when syslog has already stamped
-# the line.  How much of that prefix is present depends on the version --
+# the line. How much of that prefix is present depends on the version --
 # MariaDB and MySQL 5.7 write "<date> <thread> [<level>] ", MySQL 8 writes
 # "<date> <thread> [<level>] [<code>] [<subsystem>] " -- so the whole prefix is
 # optional here and the message is matched on its own text.
 #
-# "Access denied" is the line worth counting.  A database reachable from
-# anywhere it should not be says so here first, and it names both the account
-# and the host that tried.
+# "Access denied" is the line to count. A database reachable from somewhere it
+# should not be says so here first, naming both the account and the host that
+# tried.
 includes:
 - base
 vars_templated:
@@ -24,24 +24,24 @@ vars_templated:
   # "Access denied for user ''root''@''192.0.2.5'' (using password: YES)"
   #
   # The host is whatever MySQL resolved the peer to, so it is an address only
-  # when reverse DNS did not answer.  It is matched as an address first and
+  # when reverse DNS did not answer. It is matched as an address first and
   # anything else second, which keeps a real address in the field the geoip
   # lookup reads instead of in a field that is sometimes a name.
   MYSQL_ACCESS_DENIED: '[% MYSQL_PREFIX %]Access denied for user ''(?<mysql_user>[^'']*)''@''(?:(?<mysql_src_ip>[% IP %])|(?<mysql_src_host>[^'']*))''(?: \(using password: (?<mysql_used_password>YES|NO)\))?(?: [% GREEDYDATA %])?'
   # "Aborted connection 5 to db: ''unconnected'' user: ''root'' host: ''192.0.2.5''
   #  (This connection closed normally without authentication)"
   #
-  # A connection that opened and went away without completing.  In bulk this is
+  # A connection that opened and went away without completing. In bulk this is
   # what a port scanner or a misconfigured pooler looks like.
   MYSQL_ABORTED: '[% MYSQL_PREFIX %]Aborted connection (?<mysql_connection_id>[% INT %]) to db: ''(?<mysql_db>[^'']*)'' user: ''(?<mysql_user>[^'']*)'' host: ''(?:(?<mysql_src_ip>[% IP %])|(?<mysql_src_host>[^'']*))''(?: \((?<mysql_abort_reason>[^)]*)\))?(?: [% GREEDYDATA %])?'
   # "Host ''scanner.example.net'' is blocked because of many connection errors;
   #  unblock with ''mysqladmin flush-hosts''"
   #
-  # max_connect_errors tripped: the server has stopped answering a host
-  # entirely.  Rare, and always worth knowing about.
+  # max_connect_errors tripped: the server has stopped answering that host
+  # entirely.
   MYSQL_HOST_BLOCKED: '[% MYSQL_PREFIX %]Host ''(?:(?<mysql_src_ip>[% IP %])|(?<mysql_src_host>[^'']*))'' is blocked because of many connection errors(?:; (?<mysql_block_hint>[% GREEDYDATA %]))?'
   # Anything else the server logged, keeping the severity so a consumer can at
-  # least sort by it.  Requires the prefix, so this only claims lines the
+  # least sort by it. Requires the prefix, so this only claims lines the
   # server actually stamped.
   MYSQL_MESSAGE: '(?<mysql_timestamp>[% TIMESTAMP_ISO8601 %]) +(?<mysql_thread>[% INT %]) \[(?<mysql_level>[A-Za-z]+)\] (?:\[(?<mysql_code>[A-Za-z0-9-]+)\] )?(?:\[(?<mysql_subsystem>[^\]]+)\] )?(?<mysql_message>.+)'
 vars_tests:

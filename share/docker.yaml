@@ -3,7 +3,7 @@
 #
 # Gates on the syslog PROGRAM field being one of the container runtimes.
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
-# wins.  Every capture is namespaced with docker_ .
+# wins. Every capture is namespaced with docker_ .
 #
 # Both daemons log through logrus in logfmt: space-separated key=value pairs
 # with quoted values.
@@ -11,17 +11,17 @@
 #   time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET
 #   /v1.43/containers/json returned error" error="No such container"
 #
-# That is exactly what the quote-aware kv decompose is for, so the line is
-# captured whole and split rather than having each key named in a regexp.
-# Which keys appear varies with the subsystem doing the logging -- container=,
-# image=, plugin=, module= and so on -- and a decompose keeps up with that.
+# That is what the quote-aware kv decompose is for, so the line is captured
+# whole and split rather than having each key named in a regexp. Which keys
+# appear varies with the subsystem doing the logging -- container=, image=,
+# plugin=, module= -- and a decompose keeps up with that.
 #
 # The rule is gated because a bare logfmt line is a shape lots of Go daemons
 # share, and a gateless pattern for it would claim theirs too.
 includes:
 - base
 vars_templated:
-  # A logrus line.  Anchored on the leading time= key, which every one carries
+  # A logrus line. Anchored on the leading time= key, which every one carries
   # and which is what separates this from free text that happens to contain an
   # equals sign.
   DOCKER_LOGFMT: '(?<docker_kv>time="[% GREEDYDATA %])'
@@ -54,12 +54,11 @@ vars_tests:
     negative:
       - ''
 convert:
-  # logrus writes lower case already, but containerd and some plugins do not,
-  # so fold it to make the severity groupable
+  # logrus already writes lower case, but containerd and some plugins do not,
+  # so the case is folded to keep the severity groupable.
   docker_level: lc
-# file-level default: split the logfmt blob. Quote-aware, because msg= and
-# error= values are quoted and contain spaces -- which is the whole reason a
-# plain space split will not do here.
+# Split the logfmt blob. Quote-aware, because msg= and error= values are
+# quoted and hold spaces, which is why a plain space split will not do.
 decompose:
   - field: docker_kv
     type: kv
@@ -89,8 +88,8 @@ rules:
       - DOCKER_MESSAGE
     tests:
       positive:
-        # the logfmt blob is still whole here: rule tests check raw captures,
-        # before the decompose above splits it
+        # The logfmt blob is still whole here. Rule tests check raw captures,
+        # before the decompose above splits it.
         - string: 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"'
           result:
             docker_kv: 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"'

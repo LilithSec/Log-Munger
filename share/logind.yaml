@@ -1,10 +1,10 @@
 ---
 # systemd-logind session/seat/power log enrichment.
 #
-# Gates on the syslog PROGRAM field being "systemd-logind".  Patterns are
+# Gates on the syslog PROGRAM field being "systemd-logind". Patterns are
 # anchored (each must match the whole MESSAGE) and first-match wins, with the
-# most specific patterns listed first.  Every capture is namespaced with
-# logind_ .  No geoip (no source IPs in these messages).
+# most specific patterns listed first. Every capture is namespaced with
+# logind_ . No geoip (no source IPs in these messages).
 includes:
 - base
 vars_templated:

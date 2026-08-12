@@ -2,8 +2,8 @@
 # OpenVPN server connection / certificate / authentication log enrichment.
 #
 # Gates on the syslog PROGRAM field being "openvpn" or "openvpn-server"
-# (systemd's openvpn-server@.service logs under the latter).  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# (systemd's openvpn-server@.service logs under the latter). Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with openvpn_ .
 #
 # OpenVPN prefixes anything it says about a client with that client's identity:
@@ -25,7 +25,7 @@ vars_templated:
   # "192.0.2.5:49152 TLS: Initial packet from [AF_INET]192.0.2.5:49152,
   #  sid=abc123 def456"
   #
-  # The first thing a new peer produces.  On an exposed UDP port this is also
+  # The first thing a new peer produces. On an exposed UDP port this is also
   # what a scanner produces, so it is the line to count when asking who is
   # knocking.
   OPENVPN_TLS_INIT: '[% OPENVPN_PEER %] TLS: Initial packet from \[(?<openvpn_af>[% WORD %])\](?<openvpn_peer_addr>[% NOTSPACE %]), sid=(?<openvpn_sid>[% GREEDYDATA %])'
@@ -36,7 +36,7 @@ vars_templated:
   # "192.0.2.5:49152 TLS Error: TLS key negotiation failed to occur within 60
   #  seconds (check your network connectivity)"
   #
-  # A handshake that never completed.  Distinct from VERIFY ERROR, which is a
+  # A handshake that never completed. Distinct from VERIFY ERROR, which is a
   # certificate that was presented and rejected.
   OPENVPN_TLS_ERROR: '[% OPENVPN_PEER %] TLS Error: (?<openvpn_tls_error>[% GREEDYDATA %])'
   # "neti/192.0.2.5:49152 [neti] Peer Connection Initiated with
@@ -47,7 +47,7 @@ vars_templated:
   # "neti/192.0.2.5:49152 MULTI: primary virtual IP for
   #  neti/192.0.2.5:49152: 10.8.0.2"
   #
-  # Which tunnel address the client was handed.  This is the join between a
+  # Which tunnel address the client was handed. This is the join between a
   # public address in these logs and an internal address everywhere else, so it
   # is what makes the rest of a host's logging attributable to a VPN user.
   # The peer is repeated after "for", and it has colons in it, so it is stepped
@@ -125,9 +125,8 @@ vars_tests:
         result: 'neti/192.0.2.5:49152 SIGTERM[soft,remote-exit] received, client-instance exiting'
     negative:
       - 'neti/192.0.2.5:49152 [neti] Peer Connection Initiated with [AF_INET]192.0.2.5:49152'
-# the tunnel address is not looked up: it is by definition inside the VPN and
-# a lookup on it says nothing. The public source address is the one worth
-# placing.
+# The tunnel address is not looked up: it is by definition inside the VPN, so a
+# lookup on it says nothing. Only the public source address is placed.
 geoip:
   - openvpn_src_ip
 convert:

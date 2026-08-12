@@ -1,20 +1,19 @@
 ---
 # Net-SNMP (snmpd) log enrichment.
 #
-# Gates on the syslog PROGRAM field being "snmpd".  Patterns are anchored (each
-# must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "snmpd". Patterns are anchored (each
+# must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with snmpd_ .
 #
-# snmpd's connection lines are worth having for one reason: SNMP is a UDP
-# service that is frequently left reachable with a default community string,
-# and it answers with a great deal about the host.  These lines are the only
-# record of who asked.
+# The connection lines matter because SNMP is a UDP service often left
+# reachable with a default community string, and it answers with a great deal
+# about the host. These lines are the only record of who asked.
 #
 # Net-SNMP writes a peer as "UDP: [192.0.2.5]:12345->[192.0.2.1]:161", with the
-# local end after the arrow, so both ends are captured.  The source port is the
-# ephemeral one and the destination is 161; a source port of 161 instead means
-# something is talking to the agent from the agent port, which is unusual
-# enough to be worth being able to see.
+# local end after the arrow, so both ends are captured. The source port is the
+# ephemeral one and the destination is 161. A source port of 161 instead means
+# something is talking to the agent from the agent port, which both ports being
+# captured makes visible.
 includes:
 - base
 vars_templated:

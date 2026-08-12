@@ -1,9 +1,9 @@
 ---
 # chrony (chronyd) NTP daemon log enrichment.
 #
-# Gates on the syslog PROGRAM field being "chronyd".  Patterns are anchored
+# Gates on the syslog PROGRAM field being "chronyd". Patterns are anchored
 # (each must match the whole MESSAGE) and first-match wins, most specific
-# first.  Every capture is namespaced with chrony_ .
+# first. Every capture is namespaced with chrony_ .
 includes:
 - base
 vars_templated:
@@ -112,13 +112,12 @@ vars_tests:
         result: 'chronyd version 4.5 starting (+CMDMON +NTP)'
     negative:
       - 'Selected source 192.0.2.2'
-# file-level default: geoip lookup on source / replacement IPs (public time
-# servers can be geolocated).  Only used when the munger is built with a geoip
-# database.
+# Look up the source and replacement addresses. Public time servers can be
+# geolocated.
 geoip:
   - chrony_source_ip
   - chrony_replacement_ip
-# file-level default: coerce the offset / step corrections to float at runtime
+# Coerce the offset and step corrections to float.
 convert:
   chrony_offset: float
   chrony_step: float

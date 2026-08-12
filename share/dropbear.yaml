@@ -131,11 +131,10 @@ vars_tests:
         result: 'Failed listening on 22: Address already in use'
     negative:
       - ''
-# file-level default: geoip lookup on the peer address (only used when the
-# munger is built with a geoip database)
+# Look up the peer address.
 geoip:
   - dropbear_src_ip
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   dropbear_src_port: int
 rules:
@@ -152,7 +151,7 @@ rules:
       - DROPBEAR_NONEXISTENT_USER
       - DROPBEAR_TOO_MANY
       - DROPBEAR_CHILD_CONNECTION
-      # before DROPBEAR_EXIT, which also matches the "Exit before auth" shape
+      # Before DROPBEAR_EXIT, which also matches the "Exit before auth" shape
       - DROPBEAR_EXIT_BEFORE_AUTH
       - DROPBEAR_EXIT
       - DROPBEAR_EARLY_EXIT
@@ -202,7 +201,7 @@ rules:
         - string: 'Early exit: Terminated by signal'
           result:
             dropbear_exit_reason: 'Terminated by signal'
-        # falls through to the catch-all
+        # Falls through to the catch-all.
         - string: 'Not backgrounding'
           result:
             dropbear_message: 'Not backgrounding'

@@ -56,15 +56,15 @@ vars_templated:
     (helo=((?<postfix_cmd_helo_accepted>[% INT %])/)?(?<postfix_cmd_helo>[% INT %]) )?(ehlo=((?<postfix_cmd_ehlo_accepted>[% INT %])/)?(?<postfix_cmd_ehlo>[% INT %]) )?(starttls=((?<postfix_cmd_starttls_accepted>[% INT %])/)?(?<postfix_cmd_starttls>[% INT %]) )?(auth=((?<postfix_cmd_auth_accepted>[% INT %])/)?(?<postfix_cmd_auth>[% INT %]) )?(mail=((?<postfix_cmd_mail_accepted>[% INT %])/)?(?<postfix_cmd_mail>[% INT %]) )?(rcpt=((?<postfix_cmd_rcpt_accepted>[% INT %])/)?(?<postfix_cmd_rcpt>[% INT %]) )?(data=((?<postfix_cmd_data_accepted>[% INT %])/)?(?<postfix_cmd_data>[% INT %]) )?(rset=((?<postfix_cmd_rset_accepted>[% INT %])/)?(?<postfix_cmd_rset>[% INT %]) )?(quit=((?<postfix_cmd_quit_accepted>[% INT %])/)?(?<postfix_cmd_quit>[% INT %]) )?(unknown=((?<postfix_cmd_unknown_accepted>[% INT %])/)?(?<postfix_cmd_unknown>[% INT %]) )?commands=((?<postfix_cmd_count_accepted>[% INT %])/)?(?<postfix_cmd_count>[% INT %])
   POSTFIX_DELAYS: |
     (?<postfix_delay_before_qmgr>[% NUMBER %])/(?<postfix_delay_in_qmgr>[% NUMBER %])/(?<postfix_delay_conn_setup>[% NUMBER %])/(?<postfix_delay_transmission>[% NUMBER %])
-  # The compatibility_level nag.  A daemon left on an older compatibility level
+  # The compatibility_level nag. A daemon left on an older compatibility level
   # names each setting it is still defaulting the old way:
   #
   #   using backwards-compatible default setting smtp_tls_security_level=(empty)
   #   3F8B2A9C1D5E: using backwards-compatible default setting smtputf8_enable=no
   #
   # and the postfix command itself prints a three-line banner pointing at the
-  # documentation.  The banner carries nothing worth naming a field for, so it
-  # is kept whole in postfix_compat_message.
+  # documentation. The banner has no structure to name fields for, so it is
+  # kept whole in postfix_compat_message.
   POSTFIX_COMPAT: |
     [% POSTFIX_COMPAT_SETTING %]|[% POSTFIX_COMPAT_BANNER %]
   POSTFIX_COMPAT_BANNER: |
@@ -214,16 +214,15 @@ vars_templated:
     ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_message_level>[% POSTFIX_WARNING_LEVEL %]): ([% POSTFIX_CLIENT_INFO %]: )?(?<postfix_message>[% GREEDYDATA %])
   POSTFIX_WARNING_WITH_KV: |
     ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_message_level>[% POSTFIX_WARNING_LEVEL %]): ([% POSTFIX_CLIENT_INFO %]: )?(?<postfix_message>[% GREEDYDATA %]); (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
-# file-level default: any rule that captures one of these fields gets a geoip
-# lookup on it (only used when the munger is built with a geoip database)
+# Any rule that captures one of these fields gets a geoip lookup on it.
 geoip:
   - postfix_client_ip
   - postfix_orig_client_ip
   - postfix_relay_ip
-# file-level default: after a rule matches, break these captured fields down
-# further (mirrors the logstash postfix kv + re-grok post-processing). Order
-# matters -- the kv split produces postfix_relay/postfix_delays, which the
-# later pattern entries then decompose.
+# After a rule matches, break these captured fields down further (mirrors the
+# logstash postfix kv + re-grok post-processing). Order matters -- the kv
+# split produces postfix_relay/postfix_delays, which the later pattern entries
+# then decompose.
 decompose:
   - field: postfix_keyvalue_data
     type: kv

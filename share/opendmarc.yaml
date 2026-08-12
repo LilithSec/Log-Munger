@@ -1,8 +1,8 @@
 ---
 # OpenDMARC milter log enrichment.
 #
-# Gates on the syslog PROGRAM field being "opendmarc".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "opendmarc". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with opendmarc_ .
 #
 # Like opendkim.yaml, every result line opens with the MTA's queue id, so these
@@ -10,7 +10,7 @@
 #
 # DMARC is the verdict the other two feed into: it takes the SPF and DKIM
 # results, checks whether either aligns with the From: domain, and applies
-# whatever policy that domain published.  So opendmarc_result is the closest
+# whatever policy that domain published. So opendmarc_result is the closest
 # thing in a mail log to "is this really who it says it is", and a fail on a
 # domain that publishes p=reject is a forgery that got as far as your MTA.
 includes:
@@ -21,8 +21,8 @@ vars_templated:
   # "1rABCD: example.com fail; dkim=fail (bad signature) spf=pass"
   # "1rABCD: example.com pass"
   #
-  # The domain here is the From: domain the policy was looked up for, not the
-  # envelope sender, which is the whole point of DMARC over plain SPF.
+  # The domain is the From: domain the policy was looked up for rather than the
+  # envelope sender, which is what DMARC adds over plain SPF.
   OPENDMARC_RESULT: '[% OPENDMARC_QID %](?<opendmarc_domain>[% NOTSPACE %]) (?<opendmarc_result>pass|fail|none|temperror|permerror)(?:; (?<opendmarc_detail>[% GREEDYDATA %]))?'
   # "1rABCD: SPF(mailfrom): example.com pass"
   #

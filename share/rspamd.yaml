@@ -1,11 +1,11 @@
 ---
 # Rspamd scan-result log enrichment.
 #
-# Gates on the syslog PROGRAM field being "rspamd".  Patterns are anchored
-# (each must match the whole MESSAGE) and first-match wins.  Every capture is
+# Gates on the syslog PROGRAM field being "rspamd". Patterns are anchored
+# (each must match the whole MESSAGE) and first-match wins. Every capture is
 # namespaced with rspamd_ .
 #
-# This completes the mail picture the other files start.  postfix and exim say
+# This completes the mail picture the other files start. postfix and exim say
 # a message arrived and where it went; rspamd says what was in it and what was
 # decided, and the two join on the queue id, which rspamd logs as qid.
 #
@@ -16,24 +16,23 @@
 #   from: <a@b>, (default: F (add header): [8.50/15.00] [SYM(4.50),...]),
 #   len: 1234, time: 50.123ms, ...
 #
-# rspamd_action is the decision (no action / greylist / add header / rewrite
-# subject / soft reject / reject) and rspamd_score against
-# rspamd_required_score is how close it came.  Both are worth having separately
-# from the verdict letter, since a message scoring 14.9 out of 15 was not
-# really "clean".
+# rspamd_action is the decision -- no action, greylist, add header, rewrite
+# subject, soft reject, reject -- and rspamd_score against
+# rspamd_required_score is how close it came. Both are kept separately from the
+# verdict letter, since a message scoring 14.9 out of 15 was not clean.
 includes:
 - base
 vars_templated:
   # Scores are signed: a message can score below zero on whitelisting, and the
   # base NUMBER carries no sign.
   RSPAMD_SCORE: '[-+]?[% NUMBER %]'
-  # The peer.  rspamd writes "unknown" for anything it did not receive over the
+  # The peer. rspamd writes "unknown" for anything it did not receive over the
   # network, so the address is matched first and anything else second, which
   # keeps a real address out of a field that is sometimes a word.
   RSPAMD_SOURCE: '(?:(?<rspamd_src_ip>[% IP %])|(?<rspamd_src_desc>[% NOTSPACE %]))'
   # The full per-message result line.
   #
-  # The symbol list is left as one string.  It is a comma-separated list of
+  # The symbol list is left as one string. It is a comma-separated list of
   # NAME(score) pairs with nested parentheses in the descriptions, which is not
   # something a regexp should be taking apart, and a consumer that wants the
   # individual symbols is better served splitting the field itself.
@@ -41,7 +40,7 @@ vars_templated:
   # "<id>; proxy; rspamd_proxy_handle_mirror: cannot connect to
   #  100.64.0.1:11333: Connection refused"
   #
-  # Anything rspamd logged against a task that was not a result.  Keeps the
+  # Anything rspamd logged against a task that was not a result. Keeps the
   # module, which is what says whether this was the scanner, the proxy, or one
   # of the modules.
   RSPAMD_TASK_MESSAGE: '<(?<rspamd_id>[^>]*)>; (?<rspamd_module>[% NOTSPACE %]); (?<rspamd_function>[A-Za-z0-9_]+): (?<rspamd_message>.+)'

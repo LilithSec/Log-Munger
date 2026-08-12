@@ -1,32 +1,32 @@
 ---
 # NFS server (rpc.mountd / nfsd / rpc.statd) log enrichment.
 #
-# Gates on the syslog PROGRAM field being one of the NFS daemons.  Patterns are
-# anchored (each must match the whole MESSAGE) and first-match wins.  Every
+# Gates on the syslog PROGRAM field being one of the NFS daemons. Patterns are
+# anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with nfs_ .
 #
 # rpc.mountd is the piece that logs, and what it logs is every mount attempt
-# and whether it was allowed.  NFSv3 authenticates by address alone, so these
+# and whether it was allowed. NFSv3 authenticates by address alone, so these
 # lines are the entire access-control record for an export -- there is no user
 # to name, only a host that was let in or was not.
 #
-# "refused mount request" is the one to watch, and its trailing reason says
-# which check failed: "illegal port" is a client not using a reserved port,
-# "unmatched host" is one that is not in the export list at all.
+# On "refused mount request" the trailing reason says which check failed:
+# "illegal port" is a client not using a reserved port, and "unmatched host"
+# one that is not in the export list at all.
 includes:
 - base
 vars_templated:
   # "authenticated mount request from 192.0.2.5:1023 for /export (/export)"
   #
   # The path appears twice: the requested path and, in parentheses, the export
-  # it resolved to.  They differ when a subdirectory of an export was asked
-  # for, which is worth being able to see.
+  # it resolved to. They differ when a subdirectory of an export was asked for,
+  # so both are captured.
   NFS_MOUNT_OK: 'authenticated (?<nfs_request_kind>mount|unmount) request from (?<nfs_src_ip>[% IP %])(?::(?<nfs_src_port>[% INT %]))? for (?<nfs_path>[% NOTSPACE %])(?: \((?<nfs_export>[^)]*)\))?(?: [% GREEDYDATA %])?'
   # "refused mount request from 203.0.113.7 for /export (/export): illegal port"
   NFS_MOUNT_REFUSED: 'refused (?<nfs_request_kind>mount|unmount) request from (?<nfs_src_ip>[% IP %])(?::(?<nfs_src_port>[% INT %]))? for (?<nfs_path>[% NOTSPACE %])(?: \((?<nfs_export>[^)]*)\))?: (?<nfs_refusal_reason>[% GREEDYDATA %])'
   # "export request from 192.0.2.5"
   #
-  # A client asking what is exported, before mounting anything.  On an exposed
+  # A client asking what is exported, before mounting anything. On an exposed
   # server this is the enumeration step.
   NFS_EXPORT_REQUEST: '(?<nfs_request_kind>export|dump) request from (?<nfs_src_ip>[% IP %])(?::(?<nfs_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Cannot export /export, possibly unsupported filesystem or fsid= required"

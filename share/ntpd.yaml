@@ -1,12 +1,12 @@
 ---
 # Classic ntpd (Network Time Protocol daemon) log enrichment.
 #
-# Gates on the syslog PROGRAM field being "ntpd".  Patterns are anchored (each
+# Gates on the syslog PROGRAM field being "ntpd". Patterns are anchored (each
 # must match the whole MESSAGE) and first-match wins, most specific first.
 # Every capture is namespaced with ntpd_ .
 includes:
 - base
-# additional primitives used below that are not in base.yaml.
+# Additional primitives used below that are not in base.yaml.
 vars:
   # NOTSPACE that also excludes ":" (used to bound a bare function or syscall
   # name that is followed by ": ")
@@ -43,9 +43,8 @@ vars_templated:
   # A failed system call, reported by ntpd with the source file and line it was
   # made from, e.g.:
   #   local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted
-  # This is what a jailed or otherwise unprivileged ntpd logs on every poll, so
-  # it is worth pulling the syscall and errno out rather than leaving the whole
-  # line as prose.
+  # A jailed or otherwise unprivileged ntpd logs this on every poll, so the
+  # syscall and errno are pulled out rather than left as prose.
   NTPD_SYSCALL_ERROR: '(?<ntpd_function>[% NOTSPACE_NO_COLON %]): (?<ntpd_source_file>[% NOTSPACE %]) line (?<ntpd_source_line>[% INT %]): (?<ntpd_syscall>[% NOTSPACE_NO_COLON %]): (?<ntpd_error>[% GREEDYDATA %])'
   # The same class of failure logged without a source location, e.g.:
   #   adj_systime: Operation not permitted
@@ -199,12 +198,11 @@ vars_tests:
         result: '----------------------------------------------------'
     negative:
       - ''
-# file-level default: geoip lookup on peer / listen source IPs (only used when
-# the munger is built with a geoip database)
+# Look up peer / listen source IPs.
 geoip:
   - ntpd_peer_ip
   - ntpd_listen_ip
-# file-level default: coerce numeric captures at runtime
+# Coerce numeric captures.
 convert:
   ntpd_stratum: int
   ntpd_listen_port: int

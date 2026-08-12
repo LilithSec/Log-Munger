@@ -1,8 +1,8 @@
 # Writing a rule file
 
-This walks through building a rule file from a raw log line to a tested, installable file.
-For the full schema see [rule-files.md](rule-files.md); for the available primitives see
-[primitives.md](primitives.md).
+This walks through building a rule file, from a raw log line to a tested, installable
+result. For the full schema see [rule-files.md](rule-files.md); for the available
+primitives see [primitives.md](primitives.md).
 
 We'll parse a made-up application log:
 
@@ -26,8 +26,8 @@ includes:
 ## 2. Write the pattern
 
 The message is a status word followed by a `k=v` blob. Rather than name every key in the
-regexp, capture the status and the blob, then let `decompose` split the blob. Add a
-templated var:
+regexp, capture the status and the blob, then let `decompose` split it. Add a templated
+var:
 
 ```yaml
 vars_templated:
@@ -72,8 +72,8 @@ rules:
 
 `STATUS_WORD` is `[\w-]*`, which stops at the first space, so `app_status` captures
 `login` and `app_kv` gets the rest: `ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"`.
-(The leading `ok` has no `=`, so the kv step in the next section simply ignores it.) Adjust
-captures to taste — `log_munger explain` shows you exactly what each pattern produces.
+The leading `ok` has no `=`, so the kv step in the next section ignores it. Use
+`log_munger explain` to see what a pattern produces as you adjust the captures.
 
 ## 5. Break the blob down with `decompose`
 
@@ -111,16 +111,16 @@ convert:
 ```
 
 `geoip` only fires when a database is supplied via `--geoip`. `convert` makes `app_dur`
-serialize as a JSON number rather than the string the regexp captured. Besides `int` and
-`float`, `convert` also takes `lc` and `uc`, which are for tokens whose case varies
-between the sources that write them.
+serialize as a JSON number rather than the string the regexp captured. The other types
+are `int`, the case folds `lc` and `uc`, and `mac`; see
+[rule-files.md](rule-files.md#convert--coerce-captured-fields) for what each does.
 
 ## 7. Add a rule test
 
-A rule's `tests` assert the **raw pattern captures** — what the winning pattern's
-`(?<...>)` groups produce, *before* `decompose`, `geoip`, or `convert` run. (Those steps
-are validated separately: `decompose` by its own entry-level `tests` from step 5, and
-`convert`/`geoip` at runtime.) So the expected `result` here is just `app_status` and the
+A rule's `tests` assert the **raw pattern captures**: what the winning pattern's
+`(?<...>)` groups produce, *before* `decompose`, `geoip` or `convert` run. Those steps are
+validated separately — `decompose` by its own entry-level `tests` from step 5, and
+`convert` and `geoip` at runtime. So the expected `result` here is `app_status` and the
 still-whole `app_kv`:
 
 ```yaml
@@ -143,14 +143,14 @@ rules:
         - 'nospacehere'
 ```
 
-The negative case must be a string the pattern really does *not* match. `MYAPP_EVENT` is
-loose — a word, a space, then anything — so a good negative has no space at all, which is
-why `nospacehere` works. Something merely unrelated, like `some unrelated line`, would
-*not* work: it matches, with `app_status=some`.
+A negative case has to be a string the pattern genuinely does not match. `MYAPP_EVENT` is
+loose — a word, a space, then anything — so a good negative contains no space, which is
+why `nospacehere` works. Something merely unrelated, such as `some unrelated line`, does
+match, with `app_status=some`.
 
-Run the item through `munge` for real and `decompose` and `convert` do the rest, turning
-`app_kv` into `app_user`, `app_ip`, `app_dur` and `app_tags`, and coercing `app_dur` to
-the number `0.42`. Step 8 shows how to check that.
+Running the item through `munge` for real lets `decompose` and `convert` finish the job:
+`app_kv` becomes `app_user`, `app_ip`, `app_dur` and `app_tags`, and `app_dur` is coerced
+to the number `0.42`. Step 8 shows how to check that.
 
 ## 8. Test and iterate
 
@@ -169,7 +169,7 @@ keep them that way.
 
 ## Tips
 
-- Anchor :: Rules that consume the whole message want `anchored: true`. Leave gateless,
+- Anchor :: Rules that consume the whole message want `anchored: true`. Reserve gateless,
   anchored rules like `http_access_logs` for whole-line formats fed in raw.
 - Namespace :: Give every capture a short prefix — `ssh_`, `postfix_`, `app_` — so fields
   from different rule files never collide in a merged record.
