@@ -1659,6 +1659,8 @@ rules:
             kernel_link_flow_control: 'rx/tx'
         # the 1500-range APPARMOR_* types, whose kv carries a capability rather than a path
         - string: 'audit: type=1502 audit(1700000000.000:97): apparmor="ALLOWED" operation="capable" profile="/usr/sbin/nginx" pid=4321 comm="nginx" capability=12 capname="net_admin"'
+          numeric:
+            - kernel_apparmor_capability
           program: 'kernel'
           result:
             kernel_apparmor_kv: 'operation="capable" profile="/usr/sbin/nginx" pid=4321 comm="nginx" capability=12 capname="net_admin"'

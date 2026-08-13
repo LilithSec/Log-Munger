@@ -60,13 +60,13 @@ foreach my $path (@files) {
 	# thing in a rule file to get wrong -- the field is still captured and the
 	# value is still right, it just arrives as a string where a consumer
 	# expected a number
-	my @unconverted = grep {/no test lists it as numeric/} @{ $res->{'warnings'} };
+	my @unconverted = grep {/no test lists as numeric/} @{ $res->{'warnings'} };
 	is( scalar(@unconverted), 0, "$name: every numeric convert is exercised by a test" )
 		or diag( "unexercised converts:\n" . join( "\n", @unconverted ) );
 
 	# and every decompose is checked as the rule uses it, not just in the
 	# isolation its own tests give it
-	my @unwired = grep {/no test says what it produces/} @{ $res->{'warnings'} };
+	my @unwired = grep {/no test says it produces/} @{ $res->{'warnings'} };
 	is( scalar(@unwired), 0, "$name: every decompose is checked where it is wired in" )
 		or diag( "unchecked decomposes:\n" . join( "\n", @unwired ) );
 }

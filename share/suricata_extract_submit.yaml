@@ -190,6 +190,11 @@ rules:
             ses_message: 'some future message'
         # a full run-stats payload, so every counter the JSON flatten produces is seen
         - string: 'Run Stats: {"sub":845,"sub_fail":8,"sub_fail_delta":3,"sub_size":920866106,"timestamp":1780440085}'
+          numeric:
+            - ses_sub_fail
+            - ses_sub_fail_delta
+            - ses_sub_size
+            - ses_timestamp
           program: 'suricata_extract_submit'
           result:
             ses_json: '{"sub":845,"sub_fail":8,"sub_fail_delta":3,"sub_size":920866106,"timestamp":1780440085}'

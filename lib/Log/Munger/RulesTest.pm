@@ -607,15 +607,19 @@ sub test {
 					# checked. It is the quietest thing in a rule file to get
 					# wrong: the field is captured, the value is right, and it
 					# arrives as a string where a consumer expected a number
-					if ( !$converted && __has_testable_convert( $rule, $compiled ) ) {
-						push( @warnings, $where . ' converts a field to a number but no test lists it as numeric' );
+					my @unchecked = __unchecked_converts( $rule, $compiled );
+					if (@unchecked) {
+						push( @warnings,
+							$where . ' converts to a number but no test lists as numeric: ' . join( ', ', @unchecked ) );
 					}
 
 					# a decompose entry's own tests say it works, not that the rule is
 					# wired to it. Rename a capture and the entry's tests still pass
 					# while the rule quietly stops splitting anything
-					if ( !$enriched && __has_testable_decompose( $rule, $compiled ) ) {
-						push( @warnings, $where . ' decomposes a captured field but no test says what it produces' );
+					my @unwired = __unchecked_decomposes( $rule, $compiled );
+					if (@unwired) {
+						push( @warnings,
+							$where . ' decomposes into fields no test says it produces: ' . join( ', ', @unwired ) );
 					}
 				}
 
@@ -1127,95 +1131,45 @@ sub __test_numeric {
 	return;
 } ## end sub __test_numeric
 
-# Reports whether a rule has a decompose its own tests could say something about.
+# Lists the numeric conversions a rule's own tests do not check.
 #
-# Not every rule that carries one does. A file level decompose is shared by every
-# rule in the file, and most of them capture none of the fields it names -- squid
-# has one rule feeding it and another that never touches it. Warning about the
-# second would be noise, and noise in a lint teaches people to skip the output.
+# Asking this per field rather than per rule matters: a rule that lists one
+# converted field satisfies a per-rule check while its other converts go
+# unwatched, which is exactly how http_access_logs kept a status code and a byte
+# count as strings while its port conversion was tested.
 #
-# So the question asked is the narrow one: is there a positive test whose captures
-# the decompose actually changes. If there is, a case could say what it produces,
-# and one should.
+# Only fields the rule's own positive tests really produce are considered, and
+# only int and float entries -- lc, uc and mac turn a string into another string,
+# and a rule that inherits the file level map often produces none of the fields in
+# it. Warning about either would be noise, and noise in a lint teaches people to
+# skip the output.
 #
 # Args:
 #
-#     - $rule :: The raw rule hash ref, read for its positive test strings.
+#     - $rule :: The raw rule hash ref, read for its positive tests: their
+#         strings, and the numeric lists they already carry.
 #
 #     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule.
 #
-# Returns 1 when at least one positive test is changed by the decompose,
-# otherwise 0.
+# Returns a sorted list of field names, empty when everything convertible is
+# already listed.
 #
-#     if ( __has_testable_decompose( $rule, $compiled ) ) { ... }
-sub __has_testable_decompose {
+#     my @unchecked = __unchecked_converts( $rule, $compiled );
+sub __unchecked_converts {
 	my ( $rule, $compiled ) = @_;
 
-	if ( !@{ $compiled->{'decompose'} } ) {
-		return 0;
-	}
-
-	foreach my $test ( @{ $rule->{'tests'}{'positive'} || [] } ) {
-		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
-
-		my %captures;
-		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
-			if ( $test->{'string'} =~ $pattern ) {
-				%captures = %+;
-				last;
-			}
-		}
-		next if ( !keys(%captures) );
-
-		my %split = %captures;
-		Log::Munger::LogProcessor->_decompose( $compiled, \%split );
-		if ( scalar( keys(%split) ) != scalar( keys(%captures) ) ) {
-			return 1;
-		}
-		foreach my $field ( keys(%split) ) {
-			if ( !exists( $captures{$field} ) ) {
-				return 1;
-			}
-		}
-	} ## end foreach my $test ( @{ $rule->...})
-
-	return 0;
-} ## end sub __has_testable_decompose
-
-# Reports whether a rule has a numeric conversion its own tests could check.
-#
-# Not every convert can be: lc, uc and mac change a string into another string,
-# and a rule that inherits the file level map often produces none of the fields
-# in it -- squid's cache.log rule shares the access rule's convert and captures
-# none of the fields it names. Warning about either would be noise, and noise in
-# a lint is worse than silence because it teaches people to skip the output.
-#
-# So the question asked is the narrow one: is there a field this rule's own
-# positive tests really produce, that an int or float entry really covers. If
-# there is, a test could list it, and one should.
-#
-# Args:
-#
-#     - $rule :: The raw rule hash ref, read for its positive test strings.
-#
-#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
-#         read for its patterns, decompose list and convert map.
-#
-# Returns 1 when at least one such field exists, otherwise 0.
-#
-#     if ( __has_testable_convert( $rule, $compiled ) ) { ... }
-sub __has_testable_convert {
-	my ( $rule, $compiled ) = @_;
-
-	my @numeric_fields
-		= grep { $compiled->{'convert'}{$_} eq 'int' || $compiled->{'convert'}{$_} eq 'float' }
+	my %numeric_type = map { $_ => 1 }
+		grep { $compiled->{'convert'}{$_} eq 'int' || $compiled->{'convert'}{$_} eq 'float' }
 		keys( %{ $compiled->{'convert'} } );
-	if ( !@numeric_fields ) {
-		return 0;
+	if ( !keys(%numeric_type) ) {
+		return ();
 	}
 
+	my %listed;
+	my %produced;
 	foreach my $test ( @{ $rule->{'tests'}{'positive'} || [] } ) {
 		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
+		$listed{$_} = 1 for @{ $test->{'numeric'} || [] };
 
 		my %captures;
 		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
@@ -1229,15 +1183,65 @@ sub __has_testable_convert {
 		if ( @{ $compiled->{'decompose'} } ) {
 			Log::Munger::LogProcessor->_decompose( $compiled, \%captures );
 		}
-		foreach my $field (@numeric_fields) {
-			if ( exists( $captures{$field} ) ) {
-				return 1;
+		foreach my $field ( keys(%captures) ) {
+			$produced{$field} = 1 if ( $numeric_type{$field} );
+		}
+	} ## end foreach my $test
+
+	return sort grep { !$listed{$_} } keys(%produced);
+} ## end sub __unchecked_converts
+
+# Lists the fields a rule's decompose produces that no enriched map names.
+#
+# Per field for the same reason as the converts above: one enriched case covers
+# the entries that fired for that line, and a rule whose other tests reach a
+# different entry would otherwise look covered.
+#
+# A file level decompose is shared by every rule in the file and most of them
+# capture none of the fields it names, so a rule whose decompose never fires for
+# any of its own tests is not asked about.
+#
+# Args:
+#
+#     - $rule :: The raw rule hash ref, read for its positive tests and the
+#         enriched maps they already carry.
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule.
+#
+# Returns a sorted list of field names, empty when nothing is missing.
+#
+#     my @unwired = __unchecked_decomposes( $rule, $compiled );
+sub __unchecked_decomposes {
+	my ( $rule, $compiled ) = @_;
+
+	if ( !@{ $compiled->{'decompose'} } ) {
+		return ();
+	}
+
+	my %named;
+	my %produced;
+	foreach my $test ( @{ $rule->{'tests'}{'positive'} || [] } ) {
+		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
+		$named{$_} = 1 for keys( %{ $test->{'enriched'} || {} } );
+
+		my %captures;
+		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+			if ( $test->{'string'} =~ $pattern ) {
+				%captures = %+;
+				last;
 			}
 		}
-	} ## end foreach my $test ( @{ $rule->...})
+		next if ( !keys(%captures) );
 
-	return 0;
-} ## end sub __has_testable_convert
+		my %split = %captures;
+		Log::Munger::LogProcessor->_decompose( $compiled, \%split );
+		foreach my $field ( keys(%split) ) {
+			$produced{$field} = 1 if ( !exists( $captures{$field} ) );
+		}
+	} ## end foreach my $test
+
+	return sort grep { !$named{$_} } keys(%produced);
+} ## end sub __unchecked_decomposes
 
 # Runs a compiled rule's gates against a program name, the way the engine does.
 #

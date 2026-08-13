@@ -121,11 +121,20 @@ vars_tests:
         result: 'example.com 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326'
     negative:
       - 'this is not an access log line'
-# The vhost port is new field surface, so coercing it breaks no existing
-# consumer. http_response and http_bytes stay the strings they have always
-# been.
+# A status code and a byte count are numbers, and a consumer that wants to ask
+# "5xx" or "how much did we serve" should not have to coerce them first. squid
+# has always converted its equivalents, so leaving these as strings made the two
+# access-log files disagree about the same two fields.
+#
+# The "-" CLF writes for a request that sent no body needs no special handling:
+# the patterns match it outside the capture, as (?:(?<http_bytes>NUMBER)|-), so
+# the field is either a number or absent and the convert never sees a non-number.
+# "Nothing was sent" stays distinguishable from "zero bytes were" by the field
+# being missing rather than by its value.
 convert:
   http_port: int
+  http_response: int
+  http_bytes: int
 rules:
   - name: http_access
     field: MESSAGE
@@ -143,6 +152,9 @@ rules:
       positive:
         # Combined: apache LogFormat combined, and the nginx default.
         - string: '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"'
+          numeric:
+            - http_bytes
+            - http_response
           result:
             http_clientip: '127.0.0.1'
             http_ident: '-'

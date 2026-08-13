@@ -216,7 +216,7 @@ like(
 	join( "\n", @{ Log::Munger::RulesTest->test(
 				'hash' => $converting->( 'convert' => { 'port' => 'int' }, 'numeric' => undef )
 			)->{'warnings'} } ),
-	qr/converts a field to a number but no test lists it as numeric/,
+	qr/converts to a number but no test lists as numeric/,
 	'numeric: an unchecked numeric convert is a warning'
 );
 
@@ -225,7 +225,7 @@ unlike(
 	join( "\n", @{ Log::Munger::RulesTest->test(
 				'hash' => $converting->( 'convert' => { 'blob' => 'lc' }, 'numeric' => undef )
 			)->{'warnings'} } ),
-	qr/converts a field to a number but no test lists it as numeric/,
+	qr/converts to a number but no test lists as numeric/,
 	'numeric: an lc convert is not warned about'
 );
 
@@ -300,7 +300,7 @@ like(
 	join( "\n", @{ Log::Munger::RulesTest->test(
 				'hash' => $wired->( 'field' => 'blob', 'enriched' => undef )
 			)->{'warnings'} } ),
-	qr/decomposes a captured field but no test says what it produces/,
+	qr/decomposes into fields no test says it produces/,
 	'enriched: an untested decompose wiring is a warning'
 );
 
@@ -309,7 +309,7 @@ unlike(
 	join( "\n", @{ Log::Munger::RulesTest->test(
 				'hash' => $wired->( 'field' => 'nosuchcapture', 'enriched' => undef )
 			)->{'warnings'} } ),
-	qr/decomposes a captured field but no test says what it produces/,
+	qr/decomposes into fields no test says it produces/,
 	'enriched: a decompose that never fires is not warned about'
 );
 
