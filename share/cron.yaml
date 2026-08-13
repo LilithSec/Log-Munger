@@ -157,6 +157,8 @@ vars_tests:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
       - string: "anacron[1234]: Job `cron.daily' started"
+        program: 'anacron'
+        program: 'anacron'
         result: "anacron[1234]: Job `cron.daily' started"
       - string: "anacron[1234]: Job `cron.weekly' terminated"
         result: "anacron[1234]: Job `cron.weekly' terminated"
@@ -194,14 +196,20 @@ rules:
     tests:
       positive:
         - string: '(root) CMD (/usr/bin/foo --flag)'
+          program: 'CRON'
           result:
             cron_user: 'root'
             cron_command: '/usr/bin/foo --flag'
         - string: '(neti) CMD (command_name)'
+          program: 'crond'
           result:
             cron_user: 'neti'
             cron_command: 'command_name'
         - string: 'pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)'
+          numeric:
+            - cron_by_uid
+            - cron_uid
+          program: 'cron'
           result:
             cron_session_action: 'opened'
             cron_user: 'root'
@@ -233,6 +241,8 @@ rules:
             cron_mail_status: '0x0000'
         # FreeBSD names no MTA; the status must not absorb the trailing space.
         - string: '(root) MAIL (mailed 1993 bytes of output but got status 0x0001 )'
+          numeric:
+            - cron_mail_bytes
           result:
             cron_user: 'root'
             cron_mail_bytes: '1993'
@@ -244,11 +254,15 @@ rules:
             cron_info_type: 'LIST'
             cron_info: 'neti'
         - string: '(neti) BEGIN EDIT (neti)'
+          program: 'crontab'
           result:
             cron_user: 'neti'
             cron_info_type: 'BEGIN EDIT'
             cron_info: 'neti'
         - string: '(CRON) error (grandchild #1234 failed with exit status 1)'
+          numeric:
+            - cron_exit_status
+            - cron_grandchild_pid
           result:
             cron_user: 'CRON'
             cron_grandchild_pid: '1234'
@@ -262,6 +276,8 @@ rules:
             cron_error: 'bad minute'
             cron_crontab: '/etc/crontab'
         - string: '(root) MAIL (mailed 46 bytes of output but got status 0x004b from MTA#012)'
+          numeric:
+            - cron_mail_bytes
           result:
             cron_user: 'root'
             cron_mail_bytes: '46'
@@ -272,6 +288,9 @@ rules:
             cron_mta_level: 'fatal'
             cron_error: 'open /etc/postfix/main.cf: No such file or directory'
         - string: "anacron[1234]: Job `cron.daily' started"
+          numeric:
+            - cron_anacron_pid
+          program: 'anacron'
           result:
             cron_anacron_pid: '1234'
             cron_anacron_job: 'cron.daily'
@@ -287,3 +306,5 @@ rules:
             cron_error: "can't start PAM"
       negative:
         - 'this is not a valid cron line at all'
+        - string: '(root) CMD (/usr/bin/foo --flag)'
+          program: 'cron-extra'

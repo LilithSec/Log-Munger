@@ -96,6 +96,7 @@ rules:
     tests:
       positive:
         - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)'
+          program: 'polkit'
           result:
             polkit_subject: 'unix-session:1'
             polkit_action: 'org.freedesktop.systemd1.manage-units'
@@ -103,6 +104,7 @@ rules:
             polkit_command: 'systemctl restart foo'
             polkit_owner: 'unix-user:neti'
         - string: 'Operator of unix-session:1 successfully authenticated as unix-user:neti to gain ONE-SHOT authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl] (owned by unix-user:neti)'
+          program: 'polkit-agent-helper-1'
           result:
             polkit_subject: 'unix-session:1'
             polkit_authenticated_as: 'unix-user:neti'
@@ -117,9 +119,12 @@ rules:
             polkit_subject: 'unix-process:1234:5678'
             polkit_agent_detail: 'disconnected from bus'
         - string: 'Loading rules from directory /etc/polkit-1/rules.d'
+          program: 'polkitd'
           result:
             polkit_message: 'Loading rules from directory /etc/polkit-1/rules.d'
       negative:
         # the catch-all takes anything with text in it, so the empty string is
         # the only thing this rule can refuse
         - ''
+        - string: 'Operator of unix-session:1 FAILED to authenticate to gain authorization for action org.freedesktop.systemd1.manage-units for system-bus-name::1.234 [systemctl restart foo] (owned by unix-user:neti)'
+          program: 'polkit-extra'

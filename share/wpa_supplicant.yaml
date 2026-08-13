@@ -159,12 +159,19 @@ rules:
             wpa_connect_detail: 'id=0 id_str='
         # reason 15 is a 4-way handshake timeout: what a wrong PSK looks like
         - string: 'wlan0: CTRL-EVENT-DISCONNECTED bssid=aa:bb:cc:dd:ee:ff reason=15 locally_generated=1'
+          numeric:
+            - wpa_locally_generated
+            - wpa_reason_code
           result:
             wpa_iface: 'wlan0'
             wpa_bssid: 'aa:bb:cc:dd:ee:ff'
             wpa_reason_code: '15'
             wpa_locally_generated: '1'
         - string: 'wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=''home'' auth_failures=1 duration=10 reason=WRONG_KEY'
+          numeric:
+            - wpa_auth_failures
+            - wpa_duration
+            - wpa_network_id
           result:
             wpa_iface: 'wlan0'
             wpa_ssid_state: 'TEMP-DISABLED'
@@ -179,6 +186,8 @@ rules:
             wpa_eap_event: 'FAILURE'
             wpa_eap_detail: 'EAP authentication failed'
         - string: 'wlan0: SME: Trying to authenticate with aa:bb:cc:dd:ee:ff (SSID=''home'' freq=2412 MHz)'
+          numeric:
+            - wpa_freq
           result:
             wpa_iface: 'wlan0'
             wpa_phase: 'authenticate'
@@ -195,7 +204,10 @@ rules:
             wpa_iface: 'wlan0'
             wpa_message: 'WPA: Key negotiation completed with aa:bb:cc:dd:ee:ff [PTK=CCMP GTK=CCMP]'
         - string: 'Successfully initialized wpa_supplicant'
+          program: 'wpa_supplicant'
           result:
             wpa_message: 'Successfully initialized wpa_supplicant'
       negative:
         - ''
+        - string: 'wlan0: CTRL-EVENT-CONNECTED - Connection to aa:bb:cc:dd:ee:ff completed [id=0 id_str=]'
+          program: 'wpa_supplicant-extra'

@@ -67,12 +67,14 @@ rules:
     tests:
       positive:
         - string: 'luci: accepted login on / for root from 192.0.2.5'
+          program: 'uhttpd'
           result:
             luci_result: 'accepted'
             luci_path: '/'
             luci_user: 'root'
             luci_src_ip: '192.0.2.5'
         - string: '[info] luci: accepted login on /admin/system/package-manager for root from 192.0.2.5'
+          program: 'luci'
           result:
             luci_level: 'info'
             luci_result: 'accepted'
@@ -80,6 +82,7 @@ rules:
             luci_user: 'root'
             luci_src_ip: '192.0.2.5'
         - string: '[info] luci: failed login on / for root from 203.0.113.7'
+          program: 'dispatcher.uc'
           result:
             luci_level: 'info'
             luci_result: 'failed'
@@ -92,3 +95,5 @@ rules:
       negative:
         - 'this is not a luci line at all'
         - "Runtime error: Unable to dlopen file '/usr/lib/ucode/ubus.so'"
+        - string: 'luci: accepted login on / for root from 192.0.2.5'
+          program: 'luci-extra'

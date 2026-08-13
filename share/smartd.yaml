@@ -152,6 +152,11 @@ rules:
     tests:
       positive:
         - string: 'Device: /dev/sda [SAT], SMART Prefailure Attribute: 5 Reallocated_Sector_Ct changed from 100 to 99'
+          numeric:
+            - smartd_attribute_id
+            - smartd_value_from
+            - smartd_value_to
+          program: 'smartd'
           result:
             smartd_device: '/dev/sda'
             smartd_device_type: 'SAT'
@@ -161,6 +166,8 @@ rules:
             smartd_value_from: '100'
             smartd_value_to: '99'
         - string: 'Device: /dev/sda [SAT], 1 Currently unreadable (pending) sectors'
+          numeric:
+            - smartd_sector_count
           result:
             smartd_device: '/dev/sda'
             smartd_device_type: 'SAT'
@@ -179,6 +186,9 @@ rules:
             smartd_value_from: '0'
             smartd_value_to: '1'
         - string: 'Device: /dev/sda [SAT], Temperature 60 Celsius reached critical limit of 55 Celsius (Min/Max 20/60)'
+          numeric:
+            - smartd_temperature
+            - smartd_temperature_limit
           result:
             smartd_device: '/dev/sda'
             smartd_device_type: 'SAT'
@@ -196,3 +206,5 @@ rules:
       negative:
         - 'this is not a smartd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: 'Device: /dev/sda [SAT], SMART Prefailure Attribute: 5 Reallocated_Sector_Ct changed from 100 to 99'
+          program: 'smartd-extra'

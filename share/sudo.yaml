@@ -237,6 +237,13 @@ rules:
     tests:
       positive:
         - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+          enriched:
+            sudo_COMMAND: '/bin/ls -la'
+            sudo_PWD: '/home/neti'
+            sudo_TTY: 'pts/0'
+            sudo_USER: 'root'
+            sudo_user: 'neti'
+          program: 'sudo'
           result:
             sudo_user: 'neti'
             sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
@@ -253,6 +260,9 @@ rules:
             sudo_user: 'root'
             sudo_kv: 'TTY=pts/6 ; PWD=/root ; USER=root ; COMMAND=/usr/bin/true'
         - string: 'pam_unix(sudo:session): session opened for user root(uid=0) by neti(uid=1000)'
+          numeric:
+            - sudo_by_uid
+            - sudo_target_uid
           result:
             sudo_session_action: 'opened'
             sudo_target_user: 'root'
@@ -279,6 +289,8 @@ rules:
             sudo_error: "user NOT allowed to execute '/bin/su' as root"
             sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/su'
         - string: 'neti : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls'
+          numeric:
+            - sudo_pw_attempts
           result:
             sudo_user: 'neti'
             sudo_error: '3 incorrect password attempts'
@@ -294,6 +306,18 @@ rules:
             sudo_user: 'www-data'
             sudo_error: 'sorry, you must have a tty to run sudo'
         - string: 'pam_unix(sudo:auth): authentication failure; logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
+          enriched:
+            sudo_euid: '0'
+            sudo_logname: 'neti'
+            sudo_pam_type: 'auth'
+            sudo_rhost: ''
+            sudo_ruser: 'neti'
+            sudo_tty: '/dev/pts/0'
+            sudo_uid: '1000'
+            sudo_user: 'neti'
+          numeric:
+            - sudo_euid
+            - sudo_uid
           result:
             sudo_pam_type: 'auth'
             sudo_pam_kv: 'logname=neti uid=1000 euid=0 tty=/dev/pts/0 ruser=neti rhost=  user=neti'
@@ -303,3 +327,5 @@ rules:
             sudo_error: 'Conversation failure'
       negative:
         - 'this is not a valid sudo line at all'
+        - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+          program: 'sudo-extra'

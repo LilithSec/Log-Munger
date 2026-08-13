@@ -116,6 +116,7 @@ rules:
     tests:
       positive:
         - string: '2026-07-15T10:00:00.123456Z 12 [Warning] Access denied for user ''root''@''192.0.2.5'' (using password: YES)'
+          program: 'mysql'
           result:
             mysql_timestamp: '2026-07-15T10:00:00.123456Z'
             mysql_thread: '12'
@@ -125,11 +126,16 @@ rules:
             mysql_used_password: 'YES'
         # the peer resolved to a name, so it does not land in mysql_src_ip
         - string: 'Access denied for user ''admin''@''scanner.example.net'' (using password: NO)'
+          program: 'mysqld'
           result:
             mysql_user: 'admin'
             mysql_src_host: 'scanner.example.net'
             mysql_used_password: 'NO'
         - string: '2026-07-15T10:00:00.123456Z 5 [Warning] Aborted connection 5 to db: ''unconnected'' user: ''root'' host: ''192.0.2.5'' (This connection closed normally without authentication)'
+          numeric:
+            - mysql_connection_id
+            - mysql_thread
+          program: 'mysqld_safe'
           result:
             mysql_timestamp: '2026-07-15T10:00:00.123456Z'
             mysql_thread: '5'
@@ -140,6 +146,7 @@ rules:
             mysql_src_ip: '192.0.2.5'
             mysql_abort_reason: 'This connection closed normally without authentication'
         - string: 'Host ''203.0.113.7'' is blocked because of many connection errors; unblock with ''mysqladmin flush-hosts'''
+          program: 'mariadbd'
           result:
             mysql_src_ip: '203.0.113.7'
             mysql_block_hint: 'unblock with ''mysqladmin flush-hosts'''
@@ -152,3 +159,5 @@ rules:
       negative:
         - 'this is not a mysql line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '2026-07-15T10:00:00.123456Z 12 [Warning] Access denied for user ''root''@''192.0.2.5'' (using password: YES)'
+          program: 'mysql-extra'

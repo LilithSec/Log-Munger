@@ -166,12 +166,18 @@ rules:
             bph_pid: '29308'
             bph_command: '/usr/local/bin/galla --foreground --name sshd'
         - string: 'galla "sshd" PID 42876 exited with 2'
+          numeric:
+            - bph_exit_status
+            - bph_pid
           result:
             bph_galla: 'sshd'
             bph_pid: '42876'
             bph_action: 'exited'
             bph_exit_status: '2'
         - string: 'galla "sshd" died, restarting in 1 seconds'
+          numeric:
+            - bph_restart_delay
+          program: 'baphomet'
           result:
             bph_galla: 'sshd'
             bph_action: 'died'
@@ -201,3 +207,5 @@ rules:
             bph_message: 'some future baphomet message'
       negative:
         - ''
+        - string: 'started... socket=/var/run/baphomet/socket auth=off gallas=sshd,suricata'
+          program: 'baphomet-extra'

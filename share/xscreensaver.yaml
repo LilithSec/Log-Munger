@@ -50,11 +50,13 @@ rules:
     tests:
       positive:
         - string: 'Failed login on display ":0" for "neti"'
+          program: 'xscreensaver'
           result:
             xscreensaver_result: 'Failed'
             xscreensaver_display: ':0'
             xscreensaver_user: 'neti'
         - string: 'Successful login on display ":0.0" for "neti"'
+          program: 'xscreensaver-auth'
           result:
             xscreensaver_result: 'Successful'
             xscreensaver_display: ':0.0'
@@ -64,3 +66,5 @@ rules:
         # PAM's own lines, which pam.yaml owns
         - 'Authentication error; user=neti'
         - 'in _pam_exec(): pam_sm_setcred: pam_get_authtok(): authentication token not available'
+        - string: 'Failed login on display ":0" for "neti"'
+          program: 'xscreensaverx'

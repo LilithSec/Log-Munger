@@ -339,6 +339,18 @@ rules:
     tests:
       positive:
         - string: 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+          enriched:
+            dovecot_event: 'Login'
+            dovecot_lip: '192.0.2.1'
+            dovecot_method: 'PLAIN'
+            dovecot_mpid: '1234'
+            dovecot_rip: '203.0.113.7'
+            dovecot_service: 'imap'
+            dovecot_session: 'AbC123'
+            dovecot_user: 'neti'
+          numeric:
+            - dovecot_mpid
+          program: 'dovecot'
           result:
             dovecot_service: 'imap'
             dovecot_event: 'Login'
@@ -358,6 +370,28 @@ rules:
         # into dovecot_stats (the space-split decompose + int convert of
         # dovecot_in/out/deleted/expunged is exercised by the decompose tests).
         - string: 'imap(neti)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
+          enriched:
+            dovecot_body_bytes: '300'
+            dovecot_body_count: '2'
+            dovecot_deleted: '0'
+            dovecot_event: 'Disconnected'
+            dovecot_expunged: '0'
+            dovecot_hdr_bytes: '50'
+            dovecot_hdr_count: '1'
+            dovecot_in: '100'
+            dovecot_out: '200'
+            dovecot_pid: '1234'
+            dovecot_reason: 'Logged out'
+            dovecot_service: 'imap'
+            dovecot_session: 'AbC'
+            dovecot_trashed: '0'
+            dovecot_user: 'neti'
+          numeric:
+            - dovecot_deleted
+            - dovecot_expunged
+            - dovecot_in
+            - dovecot_out
+            - dovecot_pid
           result:
             dovecot_service: 'imap'
             dovecot_user: 'neti'
@@ -494,3 +528,5 @@ rules:
       negative:
         - 'this is not a dovecot login line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
+        - string: 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+          program: 'dovecot-extra'

@@ -142,6 +142,9 @@ rules:
     tests:
       positive:
         - string: '12[IKE] IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]'
+          numeric:
+            - ipsec_sa_unique
+          program: 'strongswan'
           result:
             ipsec_thread: '12'
             ipsec_subsystem: 'IKE'
@@ -153,6 +156,7 @@ rules:
             ipsec_remote_ip: '203.0.113.7'
             ipsec_remote_id: 'client'
         - string: '12[IKE] IKE_SA remote[1] state change: CONNECTING => ESTABLISHED'
+          program: 'ipsec'
           result:
             ipsec_thread: '12'
             ipsec_subsystem: 'IKE'
@@ -162,6 +166,12 @@ rules:
             ipsec_state_from: 'CONNECTING'
             ipsec_state_to: 'ESTABLISHED'
         - string: '08[NET] received packet: from 203.0.113.7[500] to 192.0.2.1[500] (464 bytes)'
+          numeric:
+            - ipsec_dst_port
+            - ipsec_packet_bytes
+            - ipsec_src_port
+            - ipsec_thread
+          program: 'charon-systemd'
           result:
             ipsec_thread: '08'
             ipsec_subsystem: 'NET'
@@ -191,7 +201,10 @@ rules:
             ipsec_subsystem: 'DMN'
             ipsec_message: 'Starting IKE charon daemon (strongSwan 5.9.8)'
         - string: 'charon stopped after 200 ms'
+          program: 'charon'
           result:
             ipsec_message: 'charon stopped after 200 ms'
       negative:
         - ''
+        - string: '12[IKE] IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]'
+          program: 'strongswan-extra'

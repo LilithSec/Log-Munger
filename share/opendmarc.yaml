@@ -114,6 +114,7 @@ rules:
     tests:
       positive:
         - string: '1rABCD: SPF(mailfrom): example.com pass'
+          program: 'opendmarc'
           result:
             opendmarc_qid: '1rABCD'
             opendmarc_method: 'SPF'
@@ -144,3 +145,5 @@ rules:
             opendmarc_message: 'OpenDMARC Filter v1.4.2 starting (args: -c /etc/opendmarc.conf)'
       negative:
         - ''
+        - string: '1rABCD: SPF(mailfrom): example.com pass'
+          program: 'opendmarc-extra'

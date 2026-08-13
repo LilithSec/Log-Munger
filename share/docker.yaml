@@ -91,13 +91,28 @@ rules:
         # The logfmt blob is still whole here. Rule tests check raw captures,
         # before the decompose above splits it.
         - string: 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"'
+          enriched:
+            docker_error: 'No such container'
+            docker_level: 'error'
+            docker_msg: 'Handler for GET /v1.43/containers/json returned error'
+            docker_time: '2026-07-15T10:00:00.123456789Z'
+          program: 'dockerd'
           result:
             docker_kv: 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"'
         - string: 'level=info msg="starting containerd" revision=abc123 version=v1.7.2'
+          enriched:
+            docker_level: 'info'
+            docker_msg: 'starting containerd'
+            docker_revision: 'abc123'
+            docker_version: 'v1.7.2'
+          program: 'docker'
           result:
             docker_kv: 'level=info msg="starting containerd" revision=abc123 version=v1.7.2'
         - string: 'failed to start daemon: error while opening volume store metadata database'
+          program: 'podman'
           result:
             docker_message: 'failed to start daemon: error while opening volume store metadata database'
       negative:
         - ''
+        - string: 'time="2026-07-15T10:00:00.123456789Z" level=error msg="Handler for GET /v1.43/containers/json returned error" error="No such container"'
+          program: 'docker-extra'

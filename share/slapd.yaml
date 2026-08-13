@@ -130,6 +130,11 @@ rules:
     tests:
       positive:
         - string: 'conn=1000 fd=12 ACCEPT from IP=192.0.2.5:49152 (IP=0.0.0.0:389)'
+          numeric:
+            - slapd_conn
+            - slapd_dst_port
+            - slapd_fd
+            - slapd_src_port
           result:
             slapd_conn: '1000'
             slapd_fd: '12'
@@ -146,6 +151,11 @@ rules:
             slapd_method: '128'
         # err=49 is LDAP_INVALID_CREDENTIALS: the failed bind
         - string: 'conn=1000 op=0 RESULT tag=97 err=49 text='
+          numeric:
+            - slapd_err
+            - slapd_op
+            - slapd_tag
+          program: 'slapd'
           result:
             slapd_conn: '1000'
             slapd_op: '0'
@@ -155,6 +165,9 @@ rules:
             # the capture is present and empty rather than absent
             slapd_text: ''
         - string: 'conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0 filter="(uid=neti)"'
+          numeric:
+            - slapd_deref
+            - slapd_scope
           result:
             slapd_conn: '1000'
             slapd_op: '1'
@@ -175,3 +188,5 @@ rules:
       negative:
         - 'this is not a slapd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: 'conn=1000 fd=12 ACCEPT from IP=192.0.2.5:49152 (IP=0.0.0.0:389)'
+          program: 'slapd-extra'

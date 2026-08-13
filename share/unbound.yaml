@@ -160,6 +160,7 @@ rules:
     tests:
       positive:
         - string: 'info: 192.0.2.5 example.com. A IN'
+          program: 'unbound'
           result:
             unbound_client_ip: '192.0.2.5'
             unbound_query_name: 'example.com.'
@@ -178,6 +179,10 @@ rules:
             unbound_query_type: 'MX'
             unbound_query_class: 'IN'
         - string: 'info: 203.0.113.7 example.com. A IN NOERROR 0.084232 0 44'
+          numeric:
+            - unbound_answer_size
+            - unbound_flag
+            - unbound_response_time
           result:
             unbound_client_ip: '203.0.113.7'
             unbound_query_name: 'example.com.'
@@ -219,6 +224,13 @@ rules:
             unbound_query_class: 'IN'
             unbound_reason: 'no signatures from 192.0.2.2 for key example.com. while building chain of trust'
         - string: 'info: server stats for thread 0: 1000 queries, 800 answers from cache, 200 recursions, 0 prefetch, 0 rejected by ip ratelimiting'
+          numeric:
+            - unbound_cache_answers
+            - unbound_prefetch
+            - unbound_queries
+            - unbound_ratelimited
+            - unbound_recursions
+            - unbound_thread
           result:
             unbound_thread: '0'
             unbound_queries: '1000'
@@ -227,6 +239,8 @@ rules:
             unbound_prefetch: '0'
             unbound_ratelimited: '0'
         - string: 'notice: init module 0: validator'
+          numeric:
+            - unbound_module_num
           result:
             unbound_module_num: '0'
             unbound_module: 'validator'
@@ -238,6 +252,8 @@ rules:
           result:
             unbound_version: '1.17.1'
         - string: 'error: udp connect failed: Connection refused for 192.0.2.2 port 53'
+          numeric:
+            - unbound_src_port
           result:
             unbound_error: 'udp connect failed'
             unbound_reason: 'Connection refused'
@@ -249,3 +265,5 @@ rules:
       negative:
         - 'this is not an unbound query line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
+        - string: 'info: 192.0.2.5 example.com. A IN'
+          program: 'unbound-extra'

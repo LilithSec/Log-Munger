@@ -207,12 +207,32 @@ rules:
         # the kv blob is still whole here: rule tests check the raw captures,
         # before the decompose above splits it
         - string: 'spamd: result: Y 12 - BAYES_99,HTML_MESSAGE scantime=1.2,size=1234,user=neti,uid=1000,required_score=5.0,rhost=localhost,raddr=127.0.0.1'
+          enriched:
+            raddr: '127.0.0.1'
+            required_score: '5.0'
+            rhost: 'localhost'
+            scantime: '1.2'
+            size: '1234'
+            spamd_score_int: '12'
+            spamd_symbols: 'BAYES_99,HTML_MESSAGE'
+            spamd_verdict: 'Y'
+            uid: '1000'
+            user: 'neti'
+          numeric:
+            - spamd_score_int
+          program: 'spamd'
           result:
             spamd_verdict: 'Y'
             spamd_score_int: '12'
             spamd_symbols: 'BAYES_99,HTML_MESSAGE'
             spamd_kv: 'scantime=1.2,size=1234,user=neti,uid=1000,required_score=5.0,rhost=localhost,raddr=127.0.0.1'
         - string: 'spamd: identified spam (12.3/5.0) for neti:1000 in 1.2 seconds, 1234 bytes.'
+          numeric:
+            - spamd_required_score
+            - spamd_scantime
+            - spamd_score
+            - spamd_size
+            - spamd_uid
           result:
             spamd_disposition: 'identified spam'
             spamd_score: '12.3'
@@ -222,6 +242,8 @@ rules:
             spamd_scantime: '1.2'
             spamd_size: '1234'
         - string: 'spamd: connection from mail.example.net [192.0.2.5] to port 783, fd 7'
+          numeric:
+            - spamd_port
           result:
             spamd_client_host: 'mail.example.net'
             spamd_client_ip: '192.0.2.5'
@@ -241,11 +263,18 @@ rules:
           result:
             spamd_child_pid: '86270'
         - string: 'spamd: handled cleanup of child pid [23902] due to SIGCHLD: exit 0'
+          numeric:
+            - spamd_child_exit
+            - spamd_child_pid
           result:
             spamd_child_pid: '23902'
             spamd_child_signal: 'SIGCHLD'
             spamd_child_exit: '0'
         - string: 'prefork: adjust: 3 idle children more than 2 maximum idle children. Decreasing spamd children: 1 killed.'
+          numeric:
+            - spamd_children_changed
+            - spamd_idle_children
+            - spamd_idle_children_limit
           result:
             spamd_idle_children: '3'
             spamd_adjust_direction: 'more'
@@ -260,3 +289,5 @@ rules:
             spamd_message: 'spamd: server started on IO::Socket::IP [::1]:783 (running version 4.0.0)'
       negative:
         - ''
+        - string: 'spamd: result: Y 12 - BAYES_99,HTML_MESSAGE scantime=1.2,size=1234,user=neti,uid=1000,required_score=5.0,rhost=localhost,raddr=127.0.0.1'
+          program: 'spamd-extra'

@@ -92,6 +92,7 @@ rules:
             su_by_user: 'neti'
             su_tty: 'pts/0'
         - string: 'FAILED SU (to root) neti on pts/0'
+          program: 'su'
           result:
             su_result: 'FAILED'
             su_target_user: 'root'
@@ -126,3 +127,5 @@ rules:
             su_tty: 'tty'
       negative:
         - 'this is not a valid su line at all'
+        - string: '(to root) neti on pts/0'
+          program: 'su-extra'

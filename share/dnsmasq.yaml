@@ -401,7 +401,12 @@ rules:
       - DNSMASQ_EXITING
     tests:
       positive:
+        # dnsmasq is three services sharing a process, and under journald it
+        # splits its output between dnsmasq, dnsmasq-dhcp and dnsmasq-tftp. The
+        # gate has to cover all three or every DHCP line on a systemd host is a
+        # miss, so each is named on the case that arrives under it.
         - string: 'query[A] example.com from 192.0.2.5'
+          program: 'dnsmasq'
           result:
             dnsmasq_query_type: 'A'
             dnsmasq_name: 'example.com'
@@ -439,11 +444,13 @@ rules:
             dnsmasq_name: 'example.com'
             dnsmasq_result: '93.184.216.34'
         - string: 'DHCPDISCOVER(eth0) aa:bb:cc:dd:ee:ff'
+          program: 'dnsmasq-dhcp'
           result:
             dnsmasq_dhcp_type: 'DHCPDISCOVER'
             dnsmasq_dhcp_iface: 'eth0'
             dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
         - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+          program: 'dnsmasq-dhcp'
           result:
             dnsmasq_dhcp_type: 'DHCPACK'
             dnsmasq_dhcp_iface: 'eth0'
@@ -457,6 +464,7 @@ rules:
             dnsmasq_dhcp_ip: '192.0.2.50'
             dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
         - string: 'DHCPNAK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff wrong network'
+          program: 'dnsmasq-dhcp'
           result:
             dnsmasq_dhcp_type: 'DHCPNAK'
             dnsmasq_dhcp_iface: 'eth0'
@@ -469,11 +477,14 @@ rules:
             dnsmasq_tftp_file: '/srv/tftp/pxelinux.0'
             dnsmasq_tftp_client_ip: '192.0.2.50'
         - string: 'failed sending /srv/tftp/pxelinux.0 to 192.0.2.50'
+          program: 'dnsmasq-tftp'
           result:
             dnsmasq_tftp_action: 'failed sending'
             dnsmasq_tftp_file: '/srv/tftp/pxelinux.0'
             dnsmasq_tftp_client_ip: '192.0.2.50'
         - string: 'error 0 File not found received from 192.0.2.50'
+          numeric:
+            - dnsmasq_tftp_error_code
           result:
             dnsmasq_tftp_error_code: '0'
             dnsmasq_tftp_error: 'File not found'
@@ -482,6 +493,8 @@ rules:
           result:
             dnsmasq_name: 'foo.example.com'
         - string: 'Maximum number of concurrent DNS queries reached (max: 150)'
+          numeric:
+            - dnsmasq_max_queries
           result:
             dnsmasq_max_queries: '150'
         - string: 'Maximum number of concurrent DNS queries to 8.8.8.8 reached (max: 150)'
@@ -489,6 +502,8 @@ rules:
             dnsmasq_server_ip: '8.8.8.8'
             dnsmasq_max_queries: '150'
         - string: 'read /etc/hosts - 12 names'
+          numeric:
+            - dnsmasq_hosts_count
           result:
             dnsmasq_hosts_file: '/etc/hosts'
             dnsmasq_hosts_count: '12'
@@ -498,6 +513,8 @@ rules:
             dnsmasq_resolution: 'only locally-known addresses'
             dnsmasq_domain: 'local'
         - string: 'using nameserver 192.0.2.1#53 for domain example.com'
+          numeric:
+            - dnsmasq_server_port
           result:
             dnsmasq_server_ip: '192.0.2.1'
             dnsmasq_server_port: '53'
@@ -506,6 +523,8 @@ rules:
           result:
             dnsmasq_hosts_file: '/var/lib/libvirt/dnsmasq/default.hostsfile'
         - string: 'using 19 more local addresses'
+          numeric:
+            - dnsmasq_local_addresses
           result:
             dnsmasq_local_addresses: '19'
         - string: 'DHCP, IP range 192.0.2.2 -- 192.0.2.254, lease time 1h'
@@ -538,4 +557,11 @@ rules:
             dnsmasq_signal_name: 'SIGTERM'
       negative:
         - 'this is not a dnsmasq line at all'
+        # a line this rule handles perfectly well, arriving under a program it
+        # has no business claiming. The gate is a regexp, so it is worth pinning
+        # that it does not reach past the sub-identifiers it was written for.
+        - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+          program: 'dhcpd'
+        - string: 'query[A] example.com from 192.0.2.5'
+          program: 'dnsmasq-extra'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

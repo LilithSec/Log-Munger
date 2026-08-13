@@ -280,16 +280,32 @@ rules:
       positive:
         # decompose does NOT run in rule tests, so the message stays whole here
         - string: 'notice Sympa::Spindle::ProcessTask::_execute() Running task Sympa::Task <date=1769401093;label=;model=eval_bouncers;context=*>'
+          enriched:
+            sympa_function: 'Sympa::Spindle::ProcessTask::_execute'
+            sympa_level: 'notice'
+            sympa_message: 'Running task Sympa::Task <date=1769401093;label=;model=eval_bouncers;context=*>'
+            sympa_task: 'date=1769401093;label=;model=eval_bouncers;context=*'
+            sympa_task_context: '*'
+            sympa_task_date: '1769401093'
+            sympa_task_label: ''
+            sympa_task_model: 'eval_bouncers'
+          numeric:
+            - sympa_task_date
+          program: 'sympa_msg'
           result:
             sympa_level: 'notice'
             sympa_function: 'Sympa::Spindle::ProcessTask::_execute'
             sympa_message: 'Running task Sympa::Task <date=1769401093;label=;model=eval_bouncers;context=*>'
         - string: 'notice main::sigterm() Signal TERM received, still processing current task'
+          program: 'bounced'
           result:
             sympa_level: 'notice'
             sympa_function: 'main::sigterm'
             sympa_message: 'Signal TERM received, still processing current task'
         - string: 'err main::#1518 > main::do_create_list#9390 > Sympa::Spindle::spin#95 Missing list parameter "subject"'
+          numeric:
+            - sympa_line
+          program: 'bulk'
           result:
             sympa_level: 'err'
             sympa_stack: 'main::#1518 > main::do_create_list#9390 > Sympa::Spindle::spin#95'
@@ -297,6 +313,7 @@ rules:
             sympa_line: '95'
             sympa_message: 'Missing list parameter "subject"'
         - string: 'notice main:: Task_Manager 6.2.76 Started'
+          program: 'archived'
           result:
             sympa_level: 'notice'
             sympa_daemon: 'Task_Manager'
@@ -307,6 +324,38 @@ rules:
             sympa_level: 'notice'
             sympa_daemon: 'Bounced'
             sympa_daemon_state: 'exited normally due to signal'
+        # a request reference, whose body is a second kv split
+        - string: 'notice Sympa::Spindle::ProcessRequest::_twist() Processing Sympa::Request <action=create_list;context=example.net>'
+          program: 'sympa_msg'
+          result:
+            sympa_function: 'Sympa::Spindle::ProcessRequest::_twist'
+            sympa_level: 'notice'
+            sympa_message: 'Processing Sympa::Request <action=create_list;context=example.net>'
+          enriched:
+            sympa_function: 'Sympa::Spindle::ProcessRequest::_twist'
+            sympa_level: 'notice'
+            sympa_message: 'Processing Sympa::Request <action=create_list;context=example.net>'
+            sympa_request: 'action=create_list;context=example.net'
+            sympa_request_action: 'create_list'
+            sympa_request_context: 'example.net'
+        # two object references in one line, each lifted out by its own pattern decompose
+        - string: 'notice Sympa::Mailer::store() Done sending message Sympa::Message <1.5.1769403034.x.familytest@example.net_s,90281,2422/s> for Sympa::List <familytest@example.net>'
+          program: 'bulk'
+          result:
+            sympa_function: 'Sympa::Mailer::store'
+            sympa_level: 'notice'
+            sympa_message: 'Done sending message Sympa::Message <1.5.1769403034.x.familytest@example.net_s,90281,2422/s> for Sympa::List <familytest@example.net>'
+          enriched:
+            sympa_function: 'Sympa::Mailer::store'
+            sympa_level: 'notice'
+            sympa_list: 'familytest@example.net'
+            sympa_message: 'Done sending message Sympa::Message <1.5.1769403034.x.familytest@example.net_s,90281,2422/s> for Sympa::List <familytest@example.net>'
+            sympa_message_id: '1.5.1769403034.x.familytest@example.net_s,90281,2422/s'
       negative:
         - 'this is not a sympa line at all'
+        # a bare word under one of sympa's very generic program names: the gate
+        # lets it in, and nothing may match it
+        - 'started'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'
+        - string: 'notice Sympa::Spindle::ProcessTask::_execute() Running task Sympa::Task <date=1769401093;label=;model=eval_bouncers;context=*>'
+          program: 'sympa-extra'

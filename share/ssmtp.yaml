@@ -85,17 +85,32 @@ rules:
     tests:
       positive:
         - string: '501 5.1.7 Bad sender address syntax'
+          program: 'ssmtp'
           result:
             ssmtp_code: '501'
             ssmtp_status: '5.1.7'
             ssmtp_message: 'Bad sender address syntax'
         - string: '250 Ok'
+          program: 'sSMTP'
           result:
             ssmtp_code: '250'
             ssmtp_message: 'Ok'
         # ssmtp_code / ssmtp_status / ssmtp_message come from the decompose,
         # which rule tests do not run; they are covered by its own tests above.
         - string: 'Sent mail for root@example.net (221 2.0.0 Bye) uid=0 username=neti outbytes=9907'
+          enriched:
+            ssmtp_bytes: '9907'
+            ssmtp_code: '221'
+            ssmtp_message: 'Bye'
+            ssmtp_reply: '221 2.0.0 Bye'
+            ssmtp_status: '2.0.0'
+            ssmtp_to: 'root@example.net'
+            ssmtp_uid: '0'
+            ssmtp_user: 'neti'
+          numeric:
+            - ssmtp_bytes
+            - ssmtp_code
+            - ssmtp_uid
           result:
             ssmtp_to: 'root@example.net'
             ssmtp_reply: '221 2.0.0 Bye'
@@ -104,3 +119,5 @@ rules:
             ssmtp_bytes: '9907'
       negative:
         - 'this is not an ssmtp line at all'
+        - string: '501 5.1.7 Bad sender address syntax'
+          program: 'ssmtp-extra'

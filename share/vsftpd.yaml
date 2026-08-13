@@ -121,6 +121,7 @@ rules:
     tests:
       positive:
         - string: '[pid 1234] [neti] FAIL LOGIN: Client "192.0.2.5"'
+          program: 'vsftpd'
           result:
             vsftpd_pid: '1234'
             vsftpd_user: 'neti'
@@ -136,6 +137,10 @@ rules:
             vsftpd_client_ip: '192.0.2.5'
             vsftpd_anon_password: '?'
         - string: 'Tue Jul 15 10:00:00 2026 [pid 1234] [neti] OK DOWNLOAD: Client "192.0.2.5", "/home/neti/file.txt", 1234 bytes, 12.34Kbyte/sec'
+          numeric:
+            - vsftpd_bytes
+            - vsftpd_pid
+            - vsftpd_rate
           result:
             vsftpd_pid: '1234'
             vsftpd_user: 'neti'
@@ -162,3 +167,5 @@ rules:
       negative:
         - 'this is not a vsftpd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '[pid 1234] [neti] FAIL LOGIN: Client "192.0.2.5"'
+          program: 'vsftpd-extra'

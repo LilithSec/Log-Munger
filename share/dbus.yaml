@@ -169,6 +169,18 @@ rules:
     tests:
       positive:
         - string: '[system] Activating via systemd: service name=''org.freedesktop.fwupd'' unit=''fwupd.service'' requested by '':1.558'' (uid=989 pid=190138 comm="/usr/bin/fwupdmgr refresh")'
+          enriched:
+            dbus_bus: 'system'
+            dbus_requested_by: ':1.558'
+            dbus_requester_comm: '/usr/bin/fwupdmgr refresh'
+            dbus_requester_pid: '190138'
+            dbus_requester_uid: '989'
+            dbus_service: 'org.freedesktop.fwupd'
+            dbus_unit: 'fwupd.service'
+          numeric:
+            - dbus_requester_pid
+            - dbus_requester_uid
+          program: 'dbus-broker'
           result:
             dbus_bus: 'system'
             dbus_service: 'org.freedesktop.fwupd'
@@ -176,6 +188,7 @@ rules:
             dbus_requested_by: ':1.558'
             dbus_requester: 'uid=989 pid=190138 comm="/usr/bin/fwupdmgr refresh"'
         - string: '[system] Successfully activated service ''org.freedesktop.fwupd'''
+          program: 'dbus-broker-launch'
           result:
             dbus_bus: 'system'
             dbus_service: 'org.freedesktop.fwupd'
@@ -185,6 +198,7 @@ rules:
             dbus_unit: 'dbus-org.freedesktop.resolve1.service'
             dbus_error: 'Unit dbus-org.freedesktop.resolve1.service not found.'
         - string: '[system] Reloaded configuration'
+          program: 'dbus-daemon'
           result:
             dbus_bus: 'system'
         # Written before the bus tag exists, so there is no dbus_bus.
@@ -197,3 +211,5 @@ rules:
             dbus_message: 'Rejected send message, 1 matched rules'
       negative:
         - ''
+        - string: '[system] Activating via systemd: service name=''org.freedesktop.fwupd'' unit=''fwupd.service'' requested by '':1.558'' (uid=989 pid=190138 comm="/usr/bin/fwupdmgr refresh")'
+          program: 'dbus-extra'

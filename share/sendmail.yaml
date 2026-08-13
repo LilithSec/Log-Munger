@@ -182,17 +182,57 @@ rules:
         # the kv blob is still whole here: rule tests check raw captures,
         # before the decomposes above split it
         - string: '1rABCD012345: from=<sender@example.com>, size=1234, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=mail.example.com [192.0.2.5]'
+          enriched:
+            sendmail_class: '0'
+            sendmail_daemon: 'MTA'
+            sendmail_from: '<sender@example.com>'
+            sendmail_nrcpts: '1'
+            sendmail_proto: 'ESMTP'
+            sendmail_qid: '1rABCD012345'
+            sendmail_relay: 'mail.example.com [192.0.2.5]'
+            sendmail_relay_host: 'mail.example.com'
+            sendmail_relay_ip: '192.0.2.5'
+            sendmail_size: '1234'
+          numeric:
+            - sendmail_nrcpts
+            - sendmail_size
+          program: 'sendmail'
           result:
             sendmail_qid: '1rABCD012345'
             sendmail_kv: 'from=<sender@example.com>, size=1234, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=mail.example.com [192.0.2.5]'
         - string: '1rABCD012345: to=<victim@example.org>, delay=00:00:01, mailer=local, pri=31234, dsn=2.0.0, stat=Sent'
+          enriched:
+            sendmail_delay: '00:00:01'
+            sendmail_dsn: '2.0.0'
+            sendmail_mailer: 'local'
+            sendmail_pri: '31234'
+            sendmail_qid: '1rABCD012345'
+            sendmail_stat: 'Sent'
+            sendmail_to: '<victim@example.org>'
+          numeric:
+            - sendmail_pri
+          program: 'sm-msp-queue'
           result:
             sendmail_qid: '1rABCD012345'
             sendmail_kv: 'to=<victim@example.org>, delay=00:00:01, mailer=local, pri=31234, dsn=2.0.0, stat=Sent'
         - string: 'ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner [203.0.113.7], reject=550 5.7.1 Access denied'
+          enriched:
+            sendmail_arg1: 'scanner'
+            sendmail_arg2: '203.0.113.7'
+            sendmail_reject: '550 5.7.1 Access denied'
+            sendmail_relay: 'scanner [203.0.113.7]'
+            sendmail_relay_host: 'scanner'
+            sendmail_relay_ip: '203.0.113.7'
+            sendmail_ruleset: 'check_relay'
           result:
             sendmail_kv: 'ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner [203.0.113.7], reject=550 5.7.1 Access denied'
         - string: 'AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not found, relay=scanner [203.0.113.7]'
+          enriched:
+            sendmail_auth_error: 'authentication failure (-1) SASL(-13): user not found'
+            sendmail_auth_mech: 'LOGIN'
+            sendmail_relay: 'scanner [203.0.113.7]'
+            sendmail_relay_host: 'scanner'
+            sendmail_relay_ip: '203.0.113.7'
           result:
             sendmail_auth_mech: 'LOGIN'
             sendmail_auth_error: 'authentication failure (-1) SASL(-13): user not found'
@@ -206,7 +246,10 @@ rules:
             sendmail_qid: '1rABCD012345'
             sendmail_message: 'SYSERR: cannot open /etc/mail/access'
         - string: 'starting daemon (8.17.1): SMTP+queueing@00:30:00'
+          program: 'sm-mta'
           result:
             sendmail_message: 'starting daemon (8.17.1): SMTP+queueing@00:30:00'
       negative:
         - ''
+        - string: '1rABCD012345: from=<sender@example.com>, size=1234, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=mail.example.com [192.0.2.5]'
+          program: 'sendmail-extra'

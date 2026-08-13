@@ -182,9 +182,27 @@ rules:
     tests:
       positive:
         - string: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002" type="event" user="admin" srcip=203.0.113.45 action="login" status="failed"'
+          enriched:
+            fg_action: 'login'
+            fg_date: '2026-07-12'
+            fg_devname: 'FGT60F'
+            fg_logid: '0100032002'
+            fg_offender_ip: '203.0.113.45'
+            fg_srcip: '203.0.113.45'
+            fg_status: 'failed'
+            fg_time: '08:15:50'
+            fg_type: 'event'
+            fg_user: 'admin'
           result:
             fg_kv: 'date=2026-07-12 time=08:15:50 devname="FGT60F" logid="0100032002" type="event" user="admin" srcip=203.0.113.45 action="login" status="failed"'
         - string: 'date=2026-07-12 time=09:07:02 log_id=73001 type=traffic src=192.0.2.7'
+          enriched:
+            fg_date: '2026-07-12'
+            fg_log_id: '73001'
+            fg_offender_ip: '192.0.2.7'
+            fg_src: '192.0.2.7'
+            fg_time: '09:07:02'
+            fg_type: 'traffic'
           result:
             fg_kv: 'date=2026-07-12 time=09:07:02 log_id=73001 type=traffic src=192.0.2.7'
       negative:

@@ -220,12 +220,15 @@ rules:
     tests:
       positive:
         - string: 'Bootstrapped 75% (enough_dirinfo): Loaded enough directory info to build circuits'
+          numeric:
+            - tor_bootstrap_percent
           result:
             tor_bootstrap_percent: '75'
             tor_bootstrap_tag: 'enough_dirinfo'
             tor_bootstrap_summary: 'Loaded enough directory info to build circuits'
         # The stdout form: Tor's own timestamp and level are kept.
         - string: 'Jul 28 14:41:30.650 [notice] Bootstrapped 0% (starting): Starting'
+          program: 'tor'
           result:
             tor_timestamp: 'Jul 28 14:41:30.650'
             tor_level: 'notice'
@@ -241,6 +244,7 @@ rules:
             tor_listener_type: 'Socks'
             tor_listener_addr: '127.0.0.1:9050'
         - string: 'Opened Transparent pf/netfilter listener connection (ready) on 192.0.2.1:9040'
+          program: 'Tor'
           result:
             tor_listener_action: 'Opened'
             tor_listener_type: 'Transparent pf/netfilter'
@@ -257,6 +261,8 @@ rules:
             tor_listener_addr: '192.0.2.1:5353'
             tor_listener_type: 'DNSPort'
         - string: "Heartbeat: Tor's uptime is 23:46 hours, with 0 circuits open. I've sent 395 kB and received 2.74 MB."
+          numeric:
+            - tor_circuits_open
           result:
             tor_uptime: '23:46 hours'
             tor_circuits_open: '0'
@@ -275,3 +281,5 @@ rules:
             tor_message: 'Signaled readiness to systemd'
       negative:
         - ''
+        - string: 'Bootstrapped 75% (enough_dirinfo): Loaded enough directory info to build circuits'
+          program: 'tor-extra'

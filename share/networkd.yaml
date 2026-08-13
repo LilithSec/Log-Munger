@@ -114,6 +114,9 @@ rules:
             networkd_iface: 'eth0'
             networkd_carrier_event: 'Gained'
         - string: 'eth0: DHCPv4 address 192.0.2.50/24 via 192.0.2.1'
+          numeric:
+            - networkd_dhcp_family
+            - networkd_prefix_length
           result:
             networkd_iface: 'eth0'
             networkd_dhcp_family: '4'
@@ -133,7 +136,10 @@ rules:
             networkd_iface: 'eth0'
             networkd_message: 'Gained IPv6LL'
         - string: 'Enumeration completed'
+          program: 'systemd-networkd'
           result:
             networkd_message: 'Enumeration completed'
       negative:
         - ''
+        - string: 'eth0: Gained carrier'
+          program: 'networkd-extra'

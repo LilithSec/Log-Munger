@@ -332,6 +332,9 @@ rules:
     tests:
       positive:
         - string: '0 : Started. Remote IP: 192.0.2.5  API key:'
+          numeric:
+            - cape_submit_item
+          program: 'mojo_cape_submit'
           result:
             cape_submit_item: '0'
             cape_submit_src_ip: '192.0.2.5'
@@ -352,13 +355,37 @@ rules:
         # The two k=v blobs are still whole here. Rule tests check raw
         # captures, before the decomposes above split them.
         - string: '0 : Got File... size=237985792 filename="sample.msi" sha256="88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e"'
+          enriched:
+            cape_submit_filename: 'sample.msi'
+            cape_submit_item: '0'
+            cape_submit_sha256: '88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e'
+            cape_submit_size: '237985792'
+          numeric:
+            - cape_submit_size
           result:
             cape_submit_item: '0'
             cape_submit_file_kv: 'size=237985792 filename="sample.msi" sha256="88d47f551082e6284d5c0845261a8110e361b6d9ce3fe805af6bec711514a34e"'
         - string: '0 : proto=undef src_ip=undef src_port=undef dest_ip=undef dest_port=undef flow_id=undef'
+          enriched:
+            cape_submit_flow_dest_ip: 'undef'
+            cape_submit_flow_dest_port: 'undef'
+            cape_submit_flow_flow_id: 'undef'
+            cape_submit_flow_proto: 'undef'
+            cape_submit_flow_src_ip: 'undef'
+            cape_submit_flow_src_port: 'undef'
+            cape_submit_item: '0'
           result:
             cape_submit_item: '0'
             cape_submit_flow_kv: 'proto=undef src_ip=undef src_port=undef dest_ip=undef dest_port=undef flow_id=undef'
+        # a filled-in flow, so the ports the decompose splits out reach convert
+        - string: '0 : proto=TCP src_ip=198.51.100.9 src_port=44444 dest_ip=192.0.2.1 dest_port=80 flow_id=12345'
+          numeric:
+            - cape_submit_flow_flow_id
+            - cape_submit_flow_src_port
+            - cape_submit_flow_dest_port
+          result:
+            cape_submit_item: '0'
+            cape_submit_flow_kv: 'proto=TCP src_ip=198.51.100.9 src_port=44444 dest_ip=192.0.2.1 dest_port=80 flow_id=12345'
         - string: '0 : Source Host: sensor.example.net'
           result:
             cape_submit_item: '0'
@@ -372,6 +399,7 @@ rules:
             cape_submit_item: '0'
             cape_submit_app_proto: 'http'
         - string: '0 : Submitting "sample.msi" submitted as 116'
+          program: 'nergal'
           result:
             cape_submit_item: '0'
             cape_submit_filename: 'sample.msi'
@@ -382,11 +410,16 @@ rules:
             cape_submit_json_file: '/malware/client-incoming/json/sample.msi'
         # Written outside a submission, so there is no counter.
         - string: 'resubmitted "/malware/client-incoming/json/sample.msi" as task 107 (was 106)'
+          numeric:
+            - cape_submit_task_id
+            - cape_submit_previous_task_id
           result:
             cape_submit_json_file: '/malware/client-incoming/json/sample.msi'
             cape_submit_task_id: '107'
             cape_submit_previous_task_id: '106'
         - string: '[2026-07-30 22:53:37.63887] [235029] [info] Listening at "http://*:8080"'
+          numeric:
+            - cape_submit_pid
           result:
             cape_submit_timestamp: '2026-07-30 22:53:37.63887'
             cape_submit_pid: '235029'
@@ -396,9 +429,13 @@ rules:
           result:
             cape_submit_url: 'http://127.0.0.1:8080'
         - string: 'Route pattern "/results/:task_id/*path" contains a reserved stash value at /usr/share/perl5/Mojolicious/Lite.pm line 33.'
+          numeric:
+            - cape_submit_source_line
           result:
             cape_submit_warning: 'Route pattern "/results/:task_id/*path" contains a reserved stash value'
             cape_submit_source_file: '/usr/share/perl5/Mojolicious/Lite.pm'
             cape_submit_source_line: '33'
       negative:
         - ''
+        - string: '0 : Started. Remote IP: 192.0.2.5  API key:'
+          program: 'mojo_cape_submit-extra'

@@ -1197,6 +1197,8 @@ rules:
         # -- Linux message types --
         # [Linux] KERNEL_LINUX_OOM
         - string: 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+          numeric:
+            - kernel_oom_pid
           result:
             kernel_oom_pid: '1234'
             kernel_oom_process: 'mysqld'
@@ -1211,6 +1213,8 @@ rules:
             kernel_oom_anon_rss: '50kB'
         # [Linux] KERNEL_LINUX_SEGV
         - string: 'php[12345]: segfault at 0 ip 00007f00 sp 00007ffe error 4 in libc-2.31.so[7f00+1c000]'
+          numeric:
+            - kernel_segv_pid
           result:
             kernel_segv_comm: 'php'
             kernel_segv_pid: '12345'
@@ -1220,6 +1224,8 @@ rules:
             kernel_segv_error: '4'
         # [Linux] KERNEL_LINUX_TRAP
         - string: 'traps: nginx[1234] general protection ip:00007f00 sp:00007ffe error:0 in libc-2.31.so[7f00+1c000]'
+          numeric:
+            - kernel_trap_pid
           result:
             kernel_trap_comm: 'nginx'
             kernel_trap_pid: '1234'
@@ -1238,11 +1244,37 @@ rules:
             kernel_fs_detail: 'Metadata corruption detected at xfs_agf_read_verify+0x90, xfs_agf block 0x1'
         # [Linux] KERNEL_LINUX_BLK_IO
         - string: 'blk_update_request: I/O error, dev sda, sector 12345678 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 0'
+          numeric:
+            - kernel_io_sector
           result:
             kernel_io_dev: 'sda'
             kernel_io_sector: '12345678'
         # [Linux] KERNEL_LINUX_APPARMOR
         - string: 'audit: type=1400 audit(1626345600.123:456): apparmor="DENIED" operation="open" profile="/usr/bin/foo" name="/etc/shadow" pid=1234 comm="foo" requested_mask="r" denied_mask="r" fsuid=0 ouid=0'
+          enriched:
+            kernel_apparmor_comm: 'foo'
+            kernel_apparmor_denied_mask: 'r'
+            kernel_apparmor_fsuid: '0'
+            kernel_apparmor_mode: 'DENIED'
+            kernel_apparmor_name: '/etc/shadow'
+            kernel_apparmor_operation: 'open'
+            kernel_apparmor_ouid: '0'
+            kernel_apparmor_pid: '1234'
+            kernel_apparmor_profile: '/usr/bin/foo'
+            kernel_apparmor_requested_mask: 'r'
+            kernel_audit_epoch: '1626345600.123'
+            kernel_audit_id: '1626345600.123:456'
+            kernel_audit_serial: '456'
+            kernel_audit_type: '1400'
+            mac_result: 'denied'
+          numeric:
+            - kernel_apparmor_fsuid
+            - kernel_apparmor_ouid
+            - kernel_apparmor_pid
+            - kernel_audit_epoch
+            - kernel_audit_serial
+            - kernel_audit_type
+          program: 'kernel'
           result:
             kernel_audit_type: '1400'
             kernel_audit_id: '1626345600.123:456'
@@ -1254,6 +1286,20 @@ rules:
         # [Linux] KERNEL_LINUX_APPARMOR, profile-load failure: no operation=,
         # which the previous pattern required and therefore never matched
         - string: 'audit: type=1400 audit(1700000000.000:100): apparmor="STATUS" info="failed to unpack profile" error=-71 profile="unconfined" pid=123 comm="apparmor_parser"'
+          enriched:
+            kernel_apparmor_comm: 'apparmor_parser'
+            kernel_apparmor_error: '-71'
+            kernel_apparmor_info: 'failed to unpack profile'
+            kernel_apparmor_mode: 'STATUS'
+            kernel_apparmor_pid: '123'
+            kernel_apparmor_profile: 'unconfined'
+            kernel_audit_epoch: '1700000000'
+            kernel_audit_id: '1700000000.000:100'
+            kernel_audit_serial: '100'
+            kernel_audit_type: '1400'
+            mac_result: 'status'
+          numeric:
+            - kernel_apparmor_error
           result:
             kernel_audit_type: '1400'
             kernel_audit_id: '1700000000.000:100'
@@ -1280,6 +1326,8 @@ rules:
             kernel_usb: '1-1'
         # [Linux] KERNEL_LINUX_SYNFLOOD
         - string: 'TCP: request_sock_TCP: Possible SYN flooding on port 80. Sending cookies.  Check SNMP counters.'
+          numeric:
+            - kernel_syn_port
           result:
             kernel_syn_port: '80'
             kernel_syn_action: 'cookies'
@@ -1316,11 +1364,19 @@ rules:
         # convert's, and neither has run at this point. The decompose test
         # above covers the split, and t/rule_gaps.t covers the pair end to end.
         - string: 'll header: 00000000: ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+          enriched:
+            kernel_ll_dst_mac: 'ff:ff:ff:ff:ff:ff'
+            kernel_ll_ethertype: '08 00'
+            kernel_ll_header: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
+            kernel_ll_offset: '00000000'
+            kernel_ll_src_mac: 'c4:d8:d5:3b:8c:4b'
           result:
             kernel_ll_offset: '00000000'
             kernel_ll_header: 'ff ff ff ff ff ff c4 d8 d5 3b 8c 4b 08 00'
         # [Linux] KERNEL_LINUX_RATELIMIT
         - string: 'net_ratelimit: 2 callbacks suppressed'
+          numeric:
+            - kernel_ratelimit_suppressed
           result:
             kernel_ratelimit_source: 'net_ratelimit'
             kernel_ratelimit_suppressed: '2'
@@ -1345,6 +1401,11 @@ rules:
         # -- FreeBSD message types --
         # [FreeBSD] KERNEL_FBSD_SIGEXIT
         - string: 'pid 48822 (httpd), jid 0, uid 80: exited on signal 11 (core dumped)'
+          numeric:
+            - kernel_jid
+            - kernel_pid
+            - kernel_signal
+            - kernel_uid
           result:
             kernel_pid: '48822'
             kernel_comm: 'httpd'
@@ -1374,6 +1435,9 @@ rules:
             kernel_swap_count: '16'
         # [FreeBSD] KERNEL_FBSD_LIMIT
         - string: 'Limiting closed port RST response from 400 to 200 packets/sec'
+          numeric:
+            - kernel_limit_from
+            - kernel_limit_to
           result:
             kernel_limit_type: 'closed port RST'
             kernel_limit_from: '400'
@@ -1386,6 +1450,9 @@ rules:
             kernel_limit_to: '100'
         # [FreeBSD] KERNEL_FBSD_LISTENQ
         - string: 'sonewconn: pcb 0xfffff800: Listen queue overflow: 193 already in queue awaiting acceptance (5 occurrences)'
+          numeric:
+            - kernel_listenq_depth
+            - kernel_listenq_occurrences
           result:
             kernel_listenq_pcb: '0xfffff800'
             kernel_listenq_depth: '193'
@@ -1409,6 +1476,8 @@ rules:
             kernel_disk_failure: 'READ_DMA48. ACB: 25 00 00 00 00 40 00 00 00 00 00 00'
         # [FreeBSD] KERNEL_FBSD_GEOM_IO
         - string: 'g_vfs_done():ada0p2[READ(offset=12345, length=4096)]error = 5'
+          numeric:
+            - kernel_geom_error
           result:
             kernel_geom_provider: 'ada0p2'
             kernel_geom_op: 'READ'
@@ -1448,6 +1517,11 @@ rules:
             kernel_usb_state: 'disconnected'
         # [FreeBSD] KERNEL_FBSD_CAM_ATTACH
         - string: 'da0 at umass-sim0 bus 0 scbus0 target 0 lun 0'
+          numeric:
+            - kernel_cam_bus
+            - kernel_cam_lun
+            - kernel_cam_scbus
+            - kernel_cam_target
           result:
             kernel_cam_periph: 'da0'
             kernel_cam_sim: 'umass-sim0'
@@ -1483,6 +1557,9 @@ rules:
             kernel_newbus_parent: 'hkbd0'
         # [FreeBSD] KERNEL_FBSD_NEWBUS_GONE
         - string: 'usbhid3: at uhub7, port 2, addr 80 (disconnected)'
+          numeric:
+            - kernel_usb_addr
+            - kernel_usb_port
           result:
             kernel_newbus_device: 'usbhid3'
             kernel_newbus_parent: 'uhub7'
@@ -1496,6 +1573,8 @@ rules:
             kernel_newbus_state: 'detached'
         # [FreeBSD] KERNEL_FBSD_LINUX_PRCTL
         - string: 'linux: jid 0 pid 4242 (claude): unsupported prctl option 59'
+          numeric:
+            - kernel_linux_prctl_option
           result:
             kernel_jid: '0'
             kernel_pid: '4242'
@@ -1538,10 +1617,14 @@ rules:
             kernel_panic: 'page fault'
         # [FreeBSD] KERNEL_FBSD_FATAL_TRAP
         - string: 'Fatal trap 12: page fault while in kernel mode'
+          numeric:
+            - kernel_trap_num
           result:
             kernel_trap_num: '12'
             kernel_trap_desc: 'page fault while in kernel mode'
         - string: '[ 4391.338436] br-lan: port 10(phy0-ap2) entered disabled state'
+          numeric:
+            - kernel_bridge_port
           result:
             kernel_bridge: 'br-lan'
             kernel_bridge_port: '10'
@@ -1574,6 +1657,30 @@ rules:
             kernel_link_speed: '1Gbps'
             kernel_link_duplex: 'Full'
             kernel_link_flow_control: 'rx/tx'
+        # the 1500-range APPARMOR_* types, whose kv carries a capability rather than a path
+        - string: 'audit: type=1502 audit(1700000000.000:97): apparmor="ALLOWED" operation="capable" profile="/usr/sbin/nginx" pid=4321 comm="nginx" capability=12 capname="net_admin"'
+          program: 'kernel'
+          result:
+            kernel_apparmor_kv: 'operation="capable" profile="/usr/sbin/nginx" pid=4321 comm="nginx" capability=12 capname="net_admin"'
+            kernel_apparmor_mode: 'ALLOWED'
+            kernel_audit_epoch: '1700000000.000'
+            kernel_audit_id: '1700000000.000:97'
+            kernel_audit_serial: '97'
+            kernel_audit_type: '1502'
+            mac_result: 'ALLOWED'
+          enriched:
+            kernel_apparmor_capability: '12'
+            kernel_apparmor_capname: 'net_admin'
+            kernel_apparmor_comm: 'nginx'
+            kernel_apparmor_mode: 'ALLOWED'
+            kernel_apparmor_operation: 'capable'
+            kernel_apparmor_pid: '4321'
+            kernel_apparmor_profile: '/usr/sbin/nginx'
+            kernel_audit_epoch: '1700000000'
+            kernel_audit_id: '1700000000.000:97'
+            kernel_audit_serial: '97'
+            kernel_audit_type: '1502'
+            mac_result: 'allowed'
       negative:
         - 'this is not a kernel line at all'
         - '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
@@ -1584,3 +1691,8 @@ rules:
         # FreeBSD firewall lines (start with "ipfw:") are owned by
         # share/ipfw.yaml and must NOT match any kernel pattern here.
         - 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'
+        # a SELinux AVC rides the same ring buffer and is not AppArmor's to
+        # claim, so no pattern in this rule may take it
+        - 'audit: type=1400 audit(1700000000.000:96): avc:  denied  { read } for  pid=1 comm="x" tclass=file'
+        - string: 'Out of memory: Killed process 1234 (mysqld) total-vm:100kB, anon-rss:50kB, file-rss:0kB, shmem-rss:0kB, UID:999 pgtables:1kB oom_score_adj:0'
+          program: 'kernel-extra'

@@ -85,11 +85,16 @@ rules:
     tests:
       positive:
         - string: 'START: ftp pid=1234 from=192.0.2.5'
+          program: 'xinetd'
           result:
             xinetd_service: 'ftp'
             xinetd_pid: '1234'
             xinetd_src_ip: '192.0.2.5'
         - string: 'EXIT: ftp status=0 pid=1234 duration=5(sec)'
+          numeric:
+            - xinetd_duration
+            - xinetd_pid
+            - xinetd_status
           result:
             xinetd_service: 'ftp'
             xinetd_status: '0'
@@ -107,3 +112,5 @@ rules:
             xinetd_message: 'xinetd Version 2.3.15 started with libwrap loadavg labeled-networking options compiled in.'
       negative:
         - ''
+        - string: 'START: ftp pid=1234 from=192.0.2.5'
+          program: 'xinetd-extra'

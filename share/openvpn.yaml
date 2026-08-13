@@ -151,6 +151,7 @@ rules:
     tests:
       positive:
         - string: '192.0.2.5:49152 TLS: Initial packet from [AF_INET]192.0.2.5:49152, sid=abc123 def456'
+          program: 'openvpn'
           result:
             openvpn_src_ip: '192.0.2.5'
             openvpn_src_port: '49152'
@@ -158,6 +159,10 @@ rules:
             openvpn_peer_addr: '192.0.2.5:49152'
             openvpn_sid: 'abc123 def456'
         - string: '192.0.2.5:49152 VERIFY ERROR: depth=0, error=certificate has expired: CN=client'
+          numeric:
+            - openvpn_cert_depth
+            - openvpn_src_port
+          program: 'openvpn-client'
           result:
             openvpn_src_ip: '192.0.2.5'
             openvpn_src_port: '49152'
@@ -166,6 +171,7 @@ rules:
             openvpn_verify_error: 'certificate has expired'
             openvpn_cert_subject: 'CN=client'
         - string: '192.0.2.5:49152 VERIFY OK: depth=1, CN=ca'
+          program: 'openvpn-server'
           result:
             openvpn_src_ip: '192.0.2.5'
             openvpn_src_port: '49152'
@@ -205,3 +211,5 @@ rules:
       negative:
         - 'this is not an openvpn line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '192.0.2.5:49152 TLS: Initial packet from [AF_INET]192.0.2.5:49152, sid=abc123 def456'
+          program: 'openvpn-extra'

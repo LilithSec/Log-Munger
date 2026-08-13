@@ -270,6 +270,8 @@ rules:
     tests:
       positive:
         - string: '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234 id=<abc@x>'
+          numeric:
+            - exim_size
           result:
             exim_msgid: '1rABCD-0001Ab-2x'
             exim_flag: '<='
@@ -327,6 +329,7 @@ rules:
             exim_reject_reason: 'relay not permitted'
         # -- authentication, TLS and connection handling --
         - string: 'login authenticator failed for (helo) [203.0.113.7]: 535 Incorrect authentication data (set_id=admin)'
+          program: 'exim4'
           result:
             exim_authenticator: 'login'
             exim_helo: 'helo'
@@ -340,6 +343,9 @@ rules:
             exim_src_ip: '203.0.113.7'
             exim_auth_error: '535 Incorrect authentication data'
         - string: 'login authenticator failed for mail.example.com (helo) [198.51.100.9]:41234 I=[192.0.2.1]:25: 535 Incorrect authentication data (set_id=user@example.com)'
+          numeric:
+            - exim_local_port
+            - exim_src_port
           result:
             exim_authenticator: 'login'
             exim_h_host: 'mail.example.com'
@@ -357,6 +363,7 @@ rules:
             exim_tls_stage: 'SSL_accept'
             exim_tls_error: 'sslv3 alert certificate unknown'
         - string: 'H=(helo) [203.0.113.7] rejected connection in "connect" ACL'
+          program: 'exim'
           result:
             exim_helo: 'helo'
             exim_src_ip: '203.0.113.7'
@@ -386,3 +393,5 @@ rules:
       negative:
         - 'this is not an exim line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '1rABCD-0001Ab-2x <= sender@example.com H=mail.example.com [203.0.113.7] P=esmtp S=1234 id=<abc@x>'
+          program: 'exim-extra'

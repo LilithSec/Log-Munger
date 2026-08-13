@@ -161,6 +161,32 @@ rules:
     tests:
       positive:
         - string: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+          enriched:
+            nf_DPT: '22'
+            nf_DST: '192.0.2.1'
+            nf_ID: '1234'
+            nf_IN: 'eth0'
+            nf_LEN: '60'
+            nf_MAC: '00:11:22:33:44:55'
+            nf_OUT: ''
+            nf_PREC: '0x00'
+            nf_PROTO: 'TCP'
+            nf_RES: '0x00'
+            nf_SPT: '44444'
+            nf_SRC: '203.0.113.7'
+            nf_TOS: '0x00'
+            nf_TTL: '54'
+            nf_URGP: '0'
+            nf_WINDOW: '1024'
+            nf_action: '[UFW BLOCK]'
+          numeric:
+            - nf_DPT
+            - nf_ID
+            - nf_LEN
+            - nf_SPT
+            - nf_TTL
+            - nf_WINDOW
+          program: 'kernel'
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
@@ -170,11 +196,48 @@ rules:
             nf_kv: 'IN=eth0 OUT= SRC=198.51.100.9 DST=192.0.2.1 LEN=28 TTL=64 ID=0 PROTO=UDP SPT=53 DPT=1234 LEN=8'
         # ICMP echo-request: the whole "IN=..." tail (incl. TYPE/CODE/ID/SEQ) is nf_kv.
         - string: '[UFW BLOCK] IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 LEN=84 TOS=0x00 PREC=0x00 TTL=54 ID=1234 PROTO=ICMP TYPE=8 CODE=0 ID=1234 SEQ=1'
+          enriched:
+            nf_CODE: '0'
+            nf_DST: '192.0.2.1'
+            nf_ID: '1234'
+            nf_IN: 'eth0'
+            nf_LEN: '84'
+            nf_OUT: ''
+            nf_PREC: '0x00'
+            nf_PROTO: 'ICMP'
+            nf_SEQ: '1'
+            nf_SRC: '203.0.113.7'
+            nf_TOS: '0x00'
+            nf_TTL: '54'
+            nf_TYPE: '8'
+            nf_action: '[UFW BLOCK]'
+          numeric:
+            - nf_CODE
+            - nf_SEQ
+            - nf_TYPE
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 LEN=84 TOS=0x00 PREC=0x00 TTL=54 ID=1234 PROTO=ICMP TYPE=8 CODE=0 ID=1234 SEQ=1'
         # IPv6 source/destination.
         - string: '[UFW BLOCK] IN=eth0 OUT= SRC=2001:db8::1 DST=2001:db8::2 LEN=60 TC=0 HOPLIMIT=64 FLOWLBL=0 PROTO=TCP SPT=1 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+          enriched:
+            nf_DPT: '22'
+            nf_DST: '2001:db8::2'
+            nf_FLOWLBL: '0'
+            nf_HOPLIMIT: '64'
+            nf_IN: 'eth0'
+            nf_LEN: '60'
+            nf_OUT: ''
+            nf_PROTO: 'TCP'
+            nf_RES: '0x00'
+            nf_SPT: '1'
+            nf_SRC: '2001:db8::1'
+            nf_TC: '0'
+            nf_URGP: '0'
+            nf_WINDOW: '1024'
+            nf_action: '[UFW BLOCK]'
+          numeric:
+            - nf_HOPLIMIT
           result:
             nf_action: '[UFW BLOCK]'
             nf_kv: 'IN=eth0 OUT= SRC=2001:db8::1 DST=2001:db8::2 LEN=60 TC=0 HOPLIMIT=64 FLOWLBL=0 PROTO=TCP SPT=1 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
@@ -212,3 +275,5 @@ rules:
             nf_kv: 'IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=5 DPT=80'
       negative:
         - 'martian source 203.0.113.7 from 198.51.100.9, on dev eth0'
+        - string: '[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.7 DST=192.0.2.1 LEN=60 TOS=0x00 PREC=0x00 TTL=54 ID=1234 DF PROTO=TCP SPT=44444 DPT=22 WINDOW=1024 RES=0x00 SYN URGP=0'
+          program: 'netfilter-extra'

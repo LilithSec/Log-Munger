@@ -137,6 +137,12 @@ rules:
             pf_dst_port: '22'
             pf_detail: 'Flags [S], seq 1234, win 65535, length 0'
         - string: 'rule 5.2/0(match): pass out on igb0: 192.0.2.1.53 > 198.51.100.9.53: 12345+ A? example.com. (29)'
+          numeric:
+            - pf_dst_port
+            - pf_rule
+            - pf_rule_index
+            - pf_src_port
+            - pf_subrule
           result:
             pf_rule: '5'
             pf_subrule: '2'

@@ -293,11 +293,15 @@ rules:
     tests:
       positive:
         - string: 'banished 192.0.2.7 to Kur ban_time=300'
+          numeric:
+            - galla_ban_time
+          program: 'galla'
           result:
             galla_action: 'banished'
             galla_ip: '192.0.2.7'
             galla_ban_time: '300'
         - string: 'banished 198.51.100.0/24 to Kur'
+          program: 'galla-suricata'
           result:
             galla_action: 'banished'
             galla_cidr: '198.51.100.0/24'
@@ -313,6 +317,8 @@ rules:
             galla_ip: '192.0.2.7'
             galla_error: 'no answer from below'
         - string: 'recidivist 192.0.2.7 banished 5 times, dragging through to the recidive kur "recidive"'
+          numeric:
+            - galla_banish_count
           result:
             galla_action: 'recidivist'
             galla_ip: '192.0.2.7'
@@ -334,6 +340,8 @@ rules:
             galla_file: '/var/log/auth.log'
             galla_watcher: 'authlog'
         - string: 'resuming "/var/log/auth.log" at offset 979 for the watcher "authlog"'
+          numeric:
+            - galla_offset
           result:
             galla_action: 'resuming'
             galla_file: '/var/log/auth.log'
@@ -354,6 +362,8 @@ rules:
             galla_action: 'kur client disconnected'
             galla_error: 'server closed connection'
         - string: '"wide.example.com" resolves to 5 addresses, past usedns_max_addrs... refused whole, banishing nobody'
+          numeric:
+            - galla_address_count
           result:
             galla_hostname: 'wide.example.com'
             galla_address_count: '5'
@@ -380,3 +390,10 @@ rules:
             galla_message: 'some future galla message'
       negative:
         - ''
+        - string: 'banished 192.0.2.7 to Kur ban_time=300'
+          program: 'gallax'
+        # a sibling in the same suite, and a name the prefix must not swallow
+        - string: 'stopped'
+          program: 'baphomet'
+        - string: 'stopped'
+          program: 'gallant'

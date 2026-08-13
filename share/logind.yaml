@@ -135,6 +135,9 @@ rules:
     tests:
       positive:
         - string: 'New session 3 of user neti.'
+          numeric:
+            - logind_session_id
+          program: 'systemd-logind'
           result:
             logind_session_id: '3'
             logind_user: 'neti'
@@ -180,3 +183,5 @@ rules:
       negative:
         - 'this is not a systemd-logind line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted password for root'
+        - string: 'New session 3 of user neti.'
+          program: 'logind-extra'

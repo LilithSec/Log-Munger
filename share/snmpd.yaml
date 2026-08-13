@@ -95,6 +95,9 @@ rules:
     tests:
       positive:
         - string: 'Connection from UDP: [192.0.2.5]:12345->[192.0.2.1]:161'
+          numeric:
+            - snmpd_dst_port
+            - snmpd_src_port
           result:
             snmpd_transport: 'UDP'
             snmpd_src_ip: '192.0.2.5'
@@ -115,7 +118,10 @@ rules:
             snmpd_src_ip: '203.0.113.7'
             snmpd_src_port: '12345'
         - string: 'NET-SNMP version 5.9.3'
+          program: 'snmpd'
           result:
             snmpd_message: 'NET-SNMP version 5.9.3'
       negative:
         - ''
+        - string: 'Connection from UDP: [192.0.2.5]:12345->[192.0.2.1]:161'
+          program: 'snmpd-extra'

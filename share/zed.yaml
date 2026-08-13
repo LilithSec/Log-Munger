@@ -100,6 +100,15 @@ rules:
         # the kv blob is still whole here: rule tests check raw captures,
         # before the decompose above splits it
         - string: 'eid=5 class=checksum pool=''tank'' vdev=sda1 cksum_errors=1'
+          enriched:
+            zed_cksum_errors: '1'
+            zed_class: 'checksum'
+            zed_eid: '5'
+            zed_pool: 'tank'
+            zed_vdev: 'sda1'
+          numeric:
+            - zed_cksum_errors
+            - zed_eid
           result:
             zed_kv: 'eid=5 class=checksum pool=''tank'' vdev=sda1 cksum_errors=1'
         - string: 'Diagnosis Engine: vdev sda1 in pool tank is FAULTED'
@@ -107,7 +116,10 @@ rules:
             zed_component: 'Diagnosis Engine'
             zed_message: 'vdev sda1 in pool tank is FAULTED'
         - string: 'ZFS Event Daemon 2.1.11-1 (PID 1234)'
+          program: 'zed'
           result:
             zed_message: 'ZFS Event Daemon 2.1.11-1 (PID 1234)'
       negative:
         - ''
+        - string: 'eid=5 class=checksum pool=''tank'' vdev=sda1 cksum_errors=1'
+          program: 'zed-extra'

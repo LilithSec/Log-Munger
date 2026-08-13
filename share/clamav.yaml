@@ -128,20 +128,26 @@ rules:
     tests:
       positive:
         - string: '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+          program: 'clamav'
           result:
             clamav_path: '/home/neti/file.exe'
             clamav_signature: 'Win.Test.EICAR_HDB-1'
         - string: '/tmp/x: Can''t open file or directory ERROR'
+          program: 'clamav-daemon'
           result:
             clamav_path: '/tmp/x'
             clamav_error: 'Can''t open file or directory'
         - string: '/tmp/x: OK'
+          program: 'clamonacc'
           result:
             clamav_path: '/tmp/x'
         - string: 'Database correctly reloaded (8700000 signatures)'
           result:
             clamav_signature_count: '8700000'
         - string: 'daily.cvd database is up-to-date (version: 27000, sigs: 2000000, f-level: 90, builder: raynman)'
+          numeric:
+            - clamav_db_version
+            - clamav_signature_count
           result:
             clamav_database: 'daily.cvd'
             clamav_db_version: '27000'
@@ -154,7 +160,10 @@ rules:
             clamav_signature_count: '2000010'
             clamav_db_detail: 'f-level: 90, builder: raynman'
         - string: 'SelfCheck: Database status OK.'
+          program: 'clamd'
           result:
             clamav_message: 'SelfCheck: Database status OK.'
       negative:
         - ''
+        - string: '/home/neti/file.exe: Win.Test.EICAR_HDB-1 FOUND'
+          program: 'clamav-extra'

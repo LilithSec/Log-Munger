@@ -230,11 +230,19 @@ rules:
     tests:
       positive:
         - string: 'banned 192.0.2.7 expires=1785727347'
+          numeric:
+            - kur_expires
+          program: 'kur'
           result:
             kur_action: 'banned'
             kur_ip: '192.0.2.7'
             kur_expires: '1785727347'
+        # expires=0 is how a permanent ban is spelled, so the convert has to
+        # keep it as the number 0 rather than dropping it for being falsy
         - string: 'banned cidr 192.0.2.0/24 expires=0'
+          numeric:
+            - kur_expires
+          program: 'kur-sshd'
           result:
             kur_action: 'banned'
             kur_cidr: '192.0.2.0/24'
@@ -285,6 +293,8 @@ rules:
             kur_action: 'dropping CIDR command'
             kur_drop_reason: 'the "dummy" backend does not support CIDR bans'
         - string: 'skipping malformed line 5 in "/var/cache/ereshkigal/kur.loader.csv"... "not,enough"'
+          numeric:
+            - kur_line_number
           result:
             kur_line_number: '5'
             kur_file: '/var/cache/ereshkigal/kur.loader.csv'
@@ -301,3 +311,10 @@ rules:
             kur_message: 'some future kur message'
       negative:
         - ''
+        - string: 'banned 192.0.2.7 expires=1785727347'
+          program: 'kurx'
+        # a sibling in the same suite, and a name the prefix must not swallow
+        - string: 'stopped'
+          program: 'ereshkigal'
+        - string: 'stopped'
+          program: 'kurt'

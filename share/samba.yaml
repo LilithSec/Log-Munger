@@ -250,6 +250,21 @@ rules:
     tests:
       positive:
         - string: '  Auth: [SMB2,(null)] user [DOMAIN]\[admin] at [Tue, 15 Jul 2026 10:00:00 UTC] with [NTLMv2] status [NT_STATUS_NO_SUCH_USER] workstation [WORKSTATION] remote host [ipv4:192.0.2.5:49152] mapped to [DOMAIN]\[admin]. local host [ipv4:192.0.2.1:445]'
+          enriched:
+            samba_auth_service: 'SMB2,(null)'
+            samba_auth_time: 'Tue, 15 Jul 2026 10:00:00 UTC'
+            samba_auth_type: 'NTLMv2'
+            samba_domain: 'DOMAIN'
+            samba_remote: 'ipv4:192.0.2.5:49152'
+            samba_remote_ip: '192.0.2.5'
+            samba_remote_port: '49152'
+            samba_remote_proto: 'ipv4'
+            samba_status: 'NT_STATUS_NO_SUCH_USER'
+            samba_user: 'admin'
+            samba_workstation: 'WORKSTATION'
+          numeric:
+            - samba_remote_port
+          program: 'smbd'
           result:
             samba_auth_service: 'SMB2,(null)'
             samba_domain: 'DOMAIN'
@@ -260,6 +275,7 @@ rules:
             samba_workstation: 'WORKSTATION'
             samba_remote: 'ipv4:192.0.2.5:49152'
         - string: '  Authorization: [SMB2] user [DOMAIN]\[neti] [S-1-5-21-1-2-3-1000] at [Tue, 15 Jul 2026 10:00:00 UTC] Remote host [ipv4:192.0.2.5:49152] local host [ipv4:192.0.2.1:445]'
+          program: 'samba'
           result:
             samba_auth_service: 'SMB2'
             samba_domain: 'DOMAIN'
@@ -268,16 +284,22 @@ rules:
             samba_auth_time: 'Tue, 15 Jul 2026 10:00:00 UTC'
             samba_remote: 'ipv4:192.0.2.5:49152'
         - string: '  check_ntlm_password:  Authentication for user [admin] -> [admin] FAILED with error NT_STATUS_NO_SUCH_USER, authoritative=1'
+          program: 'samba-dcerpcd'
           result:
             samba_user: 'admin'
             samba_mapped_user: 'admin'
             samba_status: 'NT_STATUS_NO_SUCH_USER'
         - string: '  check_ntlm_password:  authentication for user [neti] -> [neti] -> [neti] succeeded'
+          program: 'nmbd'
           result:
             samba_user: 'neti'
             samba_mapped_user: 'neti'
             samba_effective_user: 'neti'
         - string: '  connect to service data initially as user neti (uid=1000, gid=1000) (pid 1234)'
+          numeric:
+            - samba_gid
+            - samba_pid
+            - samba_uid
           result:
             samba_service: 'data'
             samba_user: 'neti'
@@ -290,6 +312,9 @@ rules:
             samba_remote_ip: '198.51.100.9'
         # -- the debug-log envelope --
         - string: '[2026/07/27 10:41:12.853887,  0] ../../source3/nmbd/nmbd_subnetdb.c:117(make_subnet)'
+          numeric:
+            - samba_debug_level
+            - samba_source_line
           result:
             samba_debug_time: '2026/07/27 10:41:12.853887'
             samba_debug_level: '0'
@@ -310,3 +335,5 @@ rules:
       negative:
         - 'this is not a samba line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '  Auth: [SMB2,(null)] user [DOMAIN]\[admin] at [Tue, 15 Jul 2026 10:00:00 UTC] with [NTLMv2] status [NT_STATUS_NO_SUCH_USER] workstation [WORKSTATION] remote host [ipv4:192.0.2.5:49152] mapped to [DOMAIN]\[admin]. local host [ipv4:192.0.2.1:445]'
+          program: 'samba-extra'

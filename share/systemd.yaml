@@ -306,6 +306,9 @@ rules:
     tests:
       positive:
         - string: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
+          numeric:
+            - systemd_status
+          program: 'systemd'
           result:
             systemd_unit: 'nginx.service'
             systemd_code: 'exited'
@@ -316,6 +319,8 @@ rules:
             systemd_unit: 'nginx.service'
             systemd_result: 'exit-code'
         - string: 'nginx.service: Scheduled restart job, restart counter is at 3.'
+          numeric:
+            - systemd_restart_counter
           result:
             systemd_unit: 'nginx.service'
             systemd_restart_counter: '3'
@@ -405,4 +410,8 @@ rules:
             systemd_message: 'A process of this unit has been killed by the OOM killer.'
       negative:
         - 'this is not a systemd line at all'
+        # a colon with no unit suffix in front of it is not a unit
+        - 'Failed to open /dev/tty0: No such device'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: 'nginx.service: Main process exited, code=exited, status=1/FAILURE'
+          program: 'systemd-extra'

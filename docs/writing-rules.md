@@ -136,17 +136,57 @@ rules:
     tests:
       positive:
         - string: 'login ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"'
+          program: myapp
           result:
             app_status: login
             app_kv: 'ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"'
       negative:
         - 'nospacehere'
+        - string: 'login ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"'
+          program: myapp-worker
 ```
 
 A negative case has to be a string the pattern genuinely does not match. `MYAPP_EVENT` is
 loose — a word, a space, then anything — so a good negative contains no space, which is
 why `nospacehere` works. Something merely unrelated, such as `some unrelated line`, does
 match, with `app_status=some`.
+
+A `numeric` list does the same for `convert`. `app_dur` is captured as the string
+`'0.42'` and coerced by the `convert:` from step 6, and listing it says so — the rule test
+compares the capture, this says what it becomes:
+
+```yaml
+        - string: 'login ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"'
+          program: myapp
+          numeric:
+            - app_dur
+          result:
+            app_status: login
+            app_kv: 'ok user=alice ip=192.0.2.9 dur=0.42 tags="beta user"'
+```
+
+`numeric` runs `decompose` and then `convert` over a copy of the captures, so `app_dur` can
+be listed even though it only exists after the kv split. A rule that converts a field to a
+number and lists none is reported as a warning.
+
+An `enriched` map does the same for `decompose` — it is the field set after both steps, so
+`app_kv` is gone and the fields it was split into are there:
+
+```yaml
+          enriched:
+            app_status: login
+            app_user: alice
+            app_ip: 192.0.2.9
+            app_dur: '0.42'
+            app_tags: 'beta user'
+```
+
+Naming a `program` puts the `gate` under test too. The positive case above says `myapp`
+gets in; the second negative says `myapp-worker` does not, even though the line is one the
+pattern handles. Both matter: a wrong pattern loses one message type, a wrong gate loses
+the daemon — and every pattern test still passes while it does. That is the single easiest
+way to ship a rule file that tests clean and enriches nothing. A gated rule with no case
+naming a program is reported as a warning for exactly that reason.
 
 Running the item through `munge` for real lets `decompose` and `convert` finish the job:
 `app_kv` becomes `app_user`, `app_ip`, `app_dur` and `app_tags`, and `app_dur` is coerced

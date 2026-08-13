@@ -75,6 +75,8 @@ rules:
     tests:
       positive:
         - string: 'Starting job 5 (a000050192abc) for user ''neti'' (1000)'
+          numeric:
+            - atd_uid
           result:
             atd_action: 'Starting'
             atd_job: '5'
@@ -91,7 +93,10 @@ rules:
             atd_failed_command: 'mail command'
             atd_error: 'No such file or directory'
         - string: 'File a000050192abc is in the future'
+          program: 'atd'
           result:
             atd_message: 'File a000050192abc is in the future'
       negative:
         - ''
+        - string: 'Starting job 5 (a000050192abc) for user ''neti'' (1000)'
+          program: 'atd-extra'

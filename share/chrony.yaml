@@ -142,6 +142,7 @@ rules:
     tests:
       positive:
         - string: 'Selected source 192.0.2.2 (pool.ntp.org)'
+          program: 'chronyd'
           result:
             chrony_source_ip: '192.0.2.2'
             chrony_source_name: 'pool.ntp.org'
@@ -149,9 +150,13 @@ rules:
           result:
             chrony_source_ip: '198.51.100.9'
         - string: 'System clock wrong by 1.234567 seconds, adjustment started'
+          numeric:
+            - chrony_offset
           result:
             chrony_offset: '1.234567'
         - string: 'System clock was stepped by -0.000123 seconds'
+          numeric:
+            - chrony_step
           result:
             chrony_step: '-0.000123'
         - string: 'Source 192.0.2.2 replaced with 192.0.2.3'
@@ -184,3 +189,5 @@ rules:
       negative:
         - 'this is not a chronyd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: 'Selected source 192.0.2.2 (pool.ntp.org)'
+          program: 'chrony-extra'

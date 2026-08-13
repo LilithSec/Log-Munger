@@ -199,6 +199,36 @@ rules:
     tests:
       positive:
         - string: 'SECURITY[101196]: res_security_log.c:114 in security_event_stasis_cb: SecurityEvent="SuccessfulAuth",EventTV="2026-07-01T00:00:25.218-0500",Severity="Informational",Service="PJSIP",EventVersion="1",AccountID="1002",SessionID="4b4cd701",LocalAddress="IPV4/UDP/192.168.15.2/5060",RemoteAddress="IPV4/UDP/192.168.15.4/43185",UsingPassword="1"'
+          enriched:
+            asterisk_AccountID: '1002'
+            asterisk_EventTV: '2026-07-01T00:00:25.218-0500'
+            asterisk_EventVersion: '1'
+            asterisk_LocalAddress: 'IPV4/UDP/192.168.15.2/5060'
+            asterisk_RemoteAddress: 'IPV4/UDP/192.168.15.4/43185'
+            asterisk_SecurityEvent: 'SuccessfulAuth'
+            asterisk_Service: 'PJSIP'
+            asterisk_SessionID: '4b4cd701'
+            asterisk_Severity: 'Informational'
+            asterisk_UsingPassword: '1'
+            asterisk_dst_family: 'IPV4'
+            asterisk_dst_ip: '192.168.15.2'
+            asterisk_dst_port: '5060'
+            asterisk_dst_proto: 'UDP'
+            asterisk_function: 'security_event_stasis_cb'
+            asterisk_level: 'SECURITY'
+            asterisk_source_file: 'res_security_log.c'
+            asterisk_source_line: '114'
+            asterisk_src_family: 'IPV4'
+            asterisk_src_ip: '192.168.15.4'
+            asterisk_src_port: '43185'
+            asterisk_src_proto: 'UDP'
+            asterisk_thread_id: '101196'
+          numeric:
+            - asterisk_dst_port
+            - asterisk_source_line
+            - asterisk_src_port
+            - asterisk_thread_id
+          program: 'asterisk'
           result:
             asterisk_level: 'SECURITY'
             asterisk_thread_id: '101196'
@@ -220,6 +250,8 @@ rules:
             asterisk_sip_call_id: '260084097-5062-1@BJC.BGI.BF.BGG'
             asterisk_reason: 'Failed to authenticate'
         - string: "WARNING[101149]: res_pjsip_registrar.c:841 in register_aor_core: Registration attempt from endpoint '1002' (192.168.15.166:5060) to AOR '1002' will exceed max contacts of 1"
+          numeric:
+            - asterisk_max_contacts
           result:
             asterisk_level: 'WARNING'
             asterisk_thread_id: '101149'
@@ -253,3 +285,5 @@ rules:
       negative:
         - 'this is not an asterisk line at all'
         - 'WARNING: no thread id, so not an asterisk log line'
+        - string: 'SECURITY[101196]: res_security_log.c:114 in security_event_stasis_cb: SecurityEvent="SuccessfulAuth",EventTV="2026-07-01T00:00:25.218-0500",Severity="Informational",Service="PJSIP",EventVersion="1",AccountID="1002",SessionID="4b4cd701",LocalAddress="IPV4/UDP/192.168.15.2/5060",RemoteAddress="IPV4/UDP/192.168.15.4/43185",UsingPassword="1"'
+          program: 'asterisk-extra'

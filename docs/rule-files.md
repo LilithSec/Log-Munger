@@ -309,6 +309,88 @@ when a `convert:` coerces them at runtime. See the bundled `sshd.yaml` / `netfil
 for full worked examples — their rule tests expect the raw port string and the still-whole
 `nf_kv` blob respectively.
 
+A test case may also name the `program` the line arrived under, and that puts the rule's
+`gate` under test alongside its patterns. On a `positive` case the gate must accept the
+program before the patterns are tried. On a `negative` case — written as
+`{ string, program }` rather than a bare string — the case passes if the gate refuses the
+program *or* no pattern matches, which is how a gate that reaches too far is caught: the
+line is one the rule handles perfectly well, and the point is that it arrived under a
+program the rule has no business claiming.
+
+```yaml
+tests:
+  positive:
+    - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+      program: 'dnsmasq-dhcp'
+      result:
+        dnsmasq_dhcp_type: 'DHCPACK'
+        dnsmasq_dhcp_iface: 'eth0'
+        dnsmasq_dhcp_ip: '192.0.2.50'
+        dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+        dnsmasq_dhcp_hostname: 'myhost'
+  negative:
+    - 'this is not a dnsmasq line at all'
+    - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+      program: 'dhcpd'
+```
+
+Worth the line it costs. A wrong pattern loses one message type; a wrong gate loses the
+whole daemon, and every pattern test still passes while it does. A gated rule no case names
+a program for is reported as a warning. Gates are checked against a record holding nothing
+but `PROGRAM`, which is what every gate in every bundled file keys on — see the bundled
+`dnsmasq.yaml`, whose gate has to cover `dnsmasq`, `dnsmasq-dhcp` and `dnsmasq-tftp`.
+
+A case may also carry a `numeric` list, naming the fields the `convert` map has to have
+turned into numbers:
+
+```yaml
+- string: 'Maximum number of concurrent DNS queries reached (max: 150)'
+  program: 'dnsmasq'
+  numeric:
+    - dnsmasq_max_queries
+  result:
+    # captures are compared as the strings they are, before any conversion
+    dnsmasq_max_queries: '150'
+```
+
+`result` and `numeric` ask different questions of the same case, which is why both can name
+the same field. `result` compares the raw capture — the string `'150'`. `numeric` runs
+`decompose` and then `convert` over a *copy* of those captures and asks what `'150'` became,
+so a field a decompose produced can be listed too. That is the case worth covering most: a
+kv blob split into fields, one of which a convert then coerces.
+
+What it checks is how perl is holding the value, not what the value looks like. Asking
+`looks_like_number` would pass on the captured string whether the convert ran or not, which
+is the one thing the case was written to find out. A rule that converts a field to a number
+and lists none is reported as a warning; `lc`, `uc` and `mac` are not numeric conversions
+and are not warned about.
+
+An `enriched` map says what the whole field set looks like at that same point, which is what
+puts a `decompose` under test as the rule really uses it:
+
+```yaml
+- string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+  program: 'sudo'
+  result:
+    # the raw captures: one blob, not yet split
+    sudo_user: 'neti'
+    sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+  enriched:
+    # and what a consumer receives
+    sudo_user: 'neti'
+    sudo_TTY: 'pts/0'
+    sudo_PWD: '/home/neti'
+    sudo_USER: 'root'
+    sudo_COMMAND: '/bin/ls -la'
+```
+
+A decompose entry's own `tests` feed it a hand-written input, which says the entry works but
+not that anything is wired to it — rename the capture it reads and those tests still pass
+while the rule quietly stops splitting. `enriched` is compared exactly in both directions,
+so the missing fields are caught, and so is one that turns up unasked for. A rule whose
+decompose fires for one of its own tests and says nothing about the result is reported as a
+warning.
+
 ## Complete minimal example
 
 ```yaml

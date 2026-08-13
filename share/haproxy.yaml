@@ -134,6 +134,7 @@ rules:
     tests:
       positive:
         - string: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] http-in backend1/server1 0/0/1/2/3 200 1234 - - ---- 1/1/0/0/0 0/0 "GET /path HTTP/1.1"'
+          program: 'haproxy'
           result:
             haproxy_client_ip: '192.0.2.5'
             haproxy_client_port: '49152'
@@ -193,6 +194,9 @@ rules:
           result:
             haproxy_backend: 'backend1'
         - string: 'Connect from 192.0.2.5:49152 to 192.0.2.1:443 (http-in/HTTP)'
+          numeric:
+            - haproxy_client_port
+            - haproxy_dst_port
           result:
             haproxy_client_ip: '192.0.2.5'
             haproxy_client_port: '49152'
@@ -203,3 +207,5 @@ rules:
       negative:
         - 'this is not a haproxy line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] http-in backend1/server1 0/0/1/2/3 200 1234 - - ---- 1/1/0/0/0 0/0 "GET /path HTTP/1.1"'
+          program: 'haproxy-extra'

@@ -270,6 +270,9 @@ rules:
             nslcd_request_arg: '1004'
             nslcd_error: 'Server is unavailable: Resource temporarily unavailable'
         - string: '[fb867b] <group/member="root"> no available LDAP server found, sleeping 1 seconds'
+          numeric:
+            - nslcd_sleep_seconds
+          program: 'nslcd'
           result:
             nslcd_session: 'fb867b'
             nslcd_request: 'group/member="root"'
@@ -318,6 +321,8 @@ rules:
             nslcd_version: '0.9.12'
             nslcd_state: 'starting'
         - string: 'caught signal SIGTERM (15), shutting down'
+          numeric:
+            - nslcd_signal
           result:
             nslcd_signal_name: 'SIGTERM'
             nslcd_signal: '15'
@@ -332,3 +337,5 @@ rules:
             nslcd_message: 'no such user'
       negative:
         - ''
+        - string: '[045836] <authc="neti"> uid=neti,ou=users,dc=example,dc=com: Invalid credentials'
+          program: 'nslcd-extra'

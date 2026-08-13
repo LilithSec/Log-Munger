@@ -616,12 +616,14 @@ rules:
             ssh_src_ip: '198.51.100.9'
             ssh_src_port: '40000'
         - string: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
+          program: 'sshd'
           result:
             ssh_method: 'password'
             ssh_user: 'root'
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
         - string: 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2'
+          program: 'sshd-session'
           result:
             ssh_invalid: 'invalid'
             ssh_method: 'password'
@@ -653,6 +655,8 @@ rules:
             ssh_src_port: '44444'
         # -- new message types --
         - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID neti@example (serial 7) CA ED25519 SHA256:ZzYyXx'
+          numeric:
+            - ssh_cert_serial
           result:
             ssh_method: 'publickey'
             ssh_user: 'neti'
@@ -716,12 +720,18 @@ rules:
             ssh_src_port: '44444'
         # the older wording, which names both ends and the pid
         - string: 'Timeout before authentication for connection from 203.0.113.7 to 198.51.100.1, pid = 12345'
+          numeric:
+            - ssh_conn_pid
           result:
             ssh_src_ip: '203.0.113.7'
             ssh_dst_ip: '198.51.100.1'
             ssh_conn_pid: '12345'
         # OpenSSH 9.8+ PerSourcePenalties
         - string: 'drop connection #10 from [203.0.113.7]:40000 on [198.51.100.1]:22 penalty: failed authentication'
+          numeric:
+            - ssh_drop_count
+            - ssh_dst_port
+            - ssh_src_port
           result:
             ssh_drop_count: '10'
             ssh_src_ip: '203.0.113.7'
@@ -738,6 +748,8 @@ rules:
             ssh_dst_port: '22'
             ssh_drop_reason: 'past MaxStartups'
         - string: 'Received signal 15; terminating.'
+          numeric:
+            - ssh_signal
           result:
             ssh_signal: '15'
         # a refusal decided before any connection, so no source address
@@ -777,6 +789,8 @@ rules:
             ssh_src_ip: '198.51.100.9'
             ssh_src_port: '40000'
         - string: 'Server listening on 0.0.0.0 port 22.'
+          numeric:
+            - ssh_listen_port
           result:
             ssh_listen_addr: '0.0.0.0'
             ssh_listen_port: '22'
@@ -895,3 +909,5 @@ rules:
       negative:
         - 'this is not an sshd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: RSA SHA256:AbCdEf0123456789'
+          program: 'sshd-extra'

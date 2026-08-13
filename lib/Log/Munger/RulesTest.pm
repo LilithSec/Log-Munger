@@ -6,6 +6,7 @@ use warnings;
 use Template;
 use Log::Munger::RuleFileParser;
 use Log::Munger::LogProcessor ();
+use B ();
 
 =head1 NAME
 
@@ -37,6 +38,77 @@ negative cases under C<vars_tests>, each rule has a C<tests> block naming string
 that should and should not match, and each C<decompose> entry has its own
 C<tests>. This module is what runs all of that, along with a lint pass over every
 resolved var.
+
+A rule's test case may also name the program the line arrived under, which is
+what puts the rule's C<gate> under test alongside its patterns:
+
+    tests:
+      positive:
+        # the gate has to let dnsmasq-dhcp through before the patterns are tried
+        - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+          program: 'dnsmasq-dhcp'
+          result:
+            dnsmasq_dhcp_type: 'DHCPACK'
+            dnsmasq_dhcp_iface: 'eth0'
+            dnsmasq_dhcp_ip: '192.0.2.50'
+            dnsmasq_dhcp_mac: 'aa:bb:cc:dd:ee:ff'
+            dnsmasq_dhcp_hostname: 'myhost'
+      negative:
+        # a plain string is a line no pattern may match, whatever the program
+        - 'this is not a dnsmasq line at all'
+        # naming a program instead says the gate must not let this daemon in,
+        # even though the line itself is one the patterns handle
+        - string: 'DHCPACK(eth0) 192.0.2.50 aa:bb:cc:dd:ee:ff myhost'
+          program: 'dhcpd'
+
+Naming a program is worth the line it costs. A wrong pattern loses one message
+type; a wrong gate loses the daemon, and every pattern test still passes while it
+does. Gates are checked against a record holding nothing but C<PROGRAM>, which is
+what every gate any rule file has needed keys on.
+
+A case may also carry a C<numeric> list, naming the fields the file's C<convert>
+has to have turned into numbers:
+
+    - string: 'Maximum number of concurrent DNS queries reached (max: 150)'
+      program: 'dnsmasq'
+      numeric:
+        - dnsmasq_max_queries
+      result:
+        # captures are compared as the strings they are, before any conversion
+        dnsmasq_max_queries: '150'
+
+C<result> and C<numeric> are asking different questions of the same case, which
+is why both can name the same field. C<result> compares the raw capture, which is
+the string C<'150'>. C<numeric> runs decompose and convert over a copy of those
+captures and asks what C<'150'> became -- so a field a decompose produced can be
+listed too, which is the case worth covering most: a kv blob split into fields,
+one of which a convert then coerces.
+
+What C<numeric> checks is how perl is holding the value, not what it looks like.
+Asking C<looks_like_number> would pass on the captured string whether the convert
+ran or not, which is the one thing the case was written to find out.
+
+An C<enriched> map says what the whole field set looks like at the same point,
+which is what puts a C<decompose> under test as the rule really uses it:
+
+    - string: 'neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+      program: 'sudo'
+      result:
+        # the raw captures: one blob, not yet split
+        sudo_user: 'neti'
+        sudo_kv: 'TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls -la'
+      enriched:
+        # and what a consumer receives
+        sudo_user: 'neti'
+        sudo_TTY: 'pts/0'
+        sudo_PWD: '/home/neti'
+        sudo_USER: 'root'
+        sudo_COMMAND: '/bin/ls -la'
+
+A decompose entry's own C<tests> feed it a hand-written input, which says the
+entry works but not that anything is wired to it: rename the capture it reads and
+those tests still pass while the rule quietly stops splitting. C<enriched> is
+compared exactly in both directions, so the missing fields are caught.
 
 Nothing here needs live log data or a running system, so it is cheap enough to
 wire into CI. That is what C<log_munger test_all> does, and it exits non-zero if
@@ -70,6 +142,22 @@ then run against its C<tests>. Positive strings have to match with the expected
 captures and negative strings have to match nothing. A pattern that looks like a
 var reference but names no existing var is flagged, since the engine would
 silently treat it as an inline regexp.
+
+=item * Every rule's C<gate>, for the test cases that name a C<program>. A
+positive case naming one requires the gate to accept it before the patterns are
+tried; a negative case naming one passes if the gate refuses it or no pattern
+matches. A gated rule no case names a program for is a warning.
+
+=item * Every rule's C<convert>, for the test cases carrying a C<numeric> list.
+The case's captures are run through decompose and convert on a copy, and each
+field named has to come out held as a number rather than as the string the
+pattern captured. A rule that converts a field to a number and lists none is a
+warning.
+
+=item * Every rule's C<decompose>, for the test cases carrying an C<enriched> map.
+The case's captures are run through decompose and convert on a copy, and the
+whole field set is compared exactly. A rule whose decompose fires for one of its
+own tests and says nothing about the result is a warning.
 
 =item * Every C<decompose> entry, rule level and file level, applied on its own to
 its C<tests> input and checked against the expected output.
@@ -475,7 +563,18 @@ sub test {
 				# compile the rule exactly as the engine does; a failure here is
 				# what surfaces un-degrokked grok and illegal capture names
 				my $compiled;
-				eval { $compiled = Log::Munger::LogProcessor->_compile_rule( 'rule' => $rule, 'vars' => $vars ); };
+				# compiled with the file-level defaults the engine passes, so a
+				# rule that declares no convert or decompose of its own is
+				# tested holding the ones it actually runs with
+				eval {
+					$compiled = Log::Munger::LogProcessor->_compile_rule(
+						'rule'              => $rule,
+						'vars'              => $vars,
+						'default_geoip'     => $rules->{'geoip'},
+						'default_decompose' => $rules->{'decompose'},
+						'default_convert'   => $rules->{'convert'},
+					);
+				};
 				if ($@) {
 					push( @errors, $where . ' failed to compile... ' . $@ );
 					$rule_int++;
@@ -491,8 +590,33 @@ sub test {
 					push( @errors,
 						$where . '.tests has a ref of "' . ref( $rule->{'tests'} ) . '" and not "HASH"' );
 				} else {
-					__test_rule_positive( $where, $rule, $compiled, \@errors );
-					__test_rule_negative( $where, $rule, $compiled, \@errors );
+					my $gated     = 0;
+					my $converted = 0;
+					my $enriched  = 0;
+					__test_rule_positive( $where, $rule, $compiled, \@errors, \$gated, \$converted, \$enriched );
+					__test_rule_negative( $where, $rule, $compiled, \@errors, \$gated );
+
+					# a gate nothing ever names is a gate nothing has checked,
+					# and a wrong one costs the whole daemon rather than one
+					# message type
+					if ( !$gated && @{ $compiled->{'gate'} } ) {
+						push( @warnings, $where . ' is gated but no test names a program' );
+					}
+
+					# a convert nothing ever lists is a convert nothing has
+					# checked. It is the quietest thing in a rule file to get
+					# wrong: the field is captured, the value is right, and it
+					# arrives as a string where a consumer expected a number
+					if ( !$converted && __has_testable_convert( $rule, $compiled ) ) {
+						push( @warnings, $where . ' converts a field to a number but no test lists it as numeric' );
+					}
+
+					# a decompose entry's own tests say it works, not that the rule is
+					# wired to it. Rename a capture and the entry's tests still pass
+					# while the rule quietly stops splitting anything
+					if ( !$enriched && __has_testable_decompose( $rule, $compiled ) ) {
+						push( @warnings, $where . ' decomposes a captured field but no test says what it produces' );
+					}
 				}
 
 				# a rule may carry its own decompose entries
@@ -605,6 +729,13 @@ sub __lint_regexp_string {
 # engine does it, so a test also pins down which pattern is supposed to be
 # handling a given line.
 #
+# A case may also name a program, and then the rule's gate has to accept it
+# before the patterns are tried. This is what covers the gate itself. A gate is
+# not a detail of the pattern below it -- it is the reason the rule is consulted
+# at all, and getting it wrong means a daemon's whole log goes unmatched while
+# every pattern test still passes. Naming a program on at least one case is what
+# turns "these patterns work" into "this rule fires for this daemon".
+#
 # What is compared is the raw named captures and nothing else. Decompose, geoip
 # and convert do not run here, which is why a positive test's expected result
 # lists a port as the string '54321' even though a convert: turns it into a number
@@ -617,19 +748,23 @@ sub __lint_regexp_string {
 #         The per-test messages extend it, giving ".rules.3.tests.positive.0".
 #
 #     - $rule :: The raw rule hash ref, straight out of the rule file. Only its
-#         tests.positive is read here.
+#         tests.positive is read here. Each entry is
+#         { string, result => {}, program => optional }.
 #
 #     - $compiled :: The same rule after Log::Munger::LogProcessor->_compile_rule,
-#         which is where the qr// patterns to test against come from.
+#         which is where the qr// patterns and the compiled gates come from.
 #
 #     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+#     - $gated :: Scalar ref, set to 1 if any case named a program. The caller
+#         uses it to warn about a gated rule whose tests never exercise the gate.
 #
 # Returns nothing. Everything it finds goes onto $errors, which is left untouched
 # if all the positive tests pass.
 #
-#     __test_rule_positive( '.rules.0', $rule, $compiled, \@errors );
+#     __test_rule_positive( '.rules.0', $rule, $compiled, \@errors, \$gated );
 sub __test_rule_positive {
-	my ( $where, $rule, $compiled, $errors ) = @_;
+	my ( $where, $rule, $compiled, $errors, $gated, $converted, $enriched ) = @_;
 
 	my $positive = $rule->{'tests'}{'positive'};
 	if ( !defined($positive) ) {
@@ -660,6 +795,23 @@ sub __test_rule_positive {
 			next;
 		}
 
+		# a named program has to get past the rule's gate before the patterns
+		# are worth trying
+		if ( defined( $test->{'program'} ) ) {
+			if ( ref( $test->{'program'} ) ne '' ) {
+				push( @{$errors}, $twhere . '.program has a ref of "' . ref( $test->{'program'} ) . '" and not ""' );
+				$test_int++;
+				next;
+			}
+			${$gated} = 1;
+			my $refusal = __gate_refusal( $compiled, $test->{'program'} );
+			if ( defined($refusal) ) {
+				push( @{$errors}, $twhere . ' ' . $refusal );
+				$test_int++;
+				next;
+			}
+		} ## end if ( defined( $test->{'program'...}))
+
 		my $got;
 		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
 			if ( $test->{'string'} =~ $pattern ) {
@@ -676,6 +828,14 @@ sub __test_rule_positive {
 			if ( defined($diff) ) {
 				push( @{$errors}, $twhere . ' captures differ from expected: ' . $diff . ' string="' . $test->{'string'} . '"' );
 			}
+			if ( defined( $test->{'numeric'} ) ) {
+				${$converted} = 1;
+				__test_numeric( $twhere, $test->{'numeric'}, $compiled, $got, $errors );
+			}
+			if ( defined( $test->{'enriched'} ) ) {
+				${$enriched} = 1;
+				__test_enriched( $twhere, $test->{'enriched'}, $compiled, $got, $errors );
+			}
 		}
 
 		$test_int++;
@@ -684,13 +844,19 @@ sub __test_rule_positive {
 	return;
 } ## end sub __test_rule_positive
 
-# Runs a rule's negative tests. Each case is a bare string that has to match none
-# of the rule's patterns.
+# Runs a rule's negative tests. Each case is a string that has to match none of
+# the rule's patterns.
 #
 # This is what keeps a loose pattern honest. A pattern written as "a word, a
 # space, then anything" will happily match most of a log file, and its positive
 # tests will not notice. A good negative case is one that is genuinely outside
 # what the pattern was written for, not merely unrelated in subject matter.
+#
+# A case may instead be written as { string, program }, and then it passes if
+# either the gate refuses the program or no pattern matches. That is the shape
+# of a gate written too wide: the line is one this rule handles perfectly well,
+# and the whole point is that it arrived under a program this rule has no
+# business claiming.
 #
 # Args:
 #
@@ -698,19 +864,23 @@ sub __test_rule_positive {
 #         The per-test messages extend it, giving ".rules.3.tests.negative.0".
 #
 #     - $rule :: The raw rule hash ref, straight out of the rule file. Only its
-#         tests.negative is read here.
+#         tests.negative is read here. Each entry is either a plain string or a
+#         { string, program } hash ref.
 #
 #     - $compiled :: The same rule after Log::Munger::LogProcessor->_compile_rule,
-#         which is where the qr// patterns to test against come from.
+#         which is where the qr// patterns and the compiled gates come from.
 #
 #     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+#     - $gated :: Scalar ref, set to 1 if any case named a program. Shared with
+#         __test_rule_positive, since either kind of case exercises the gate.
 #
 # Returns nothing. Everything it finds goes onto $errors, which is left untouched
 # if all the negative tests pass.
 #
-#     __test_rule_negative( '.rules.0', $rule, $compiled, \@errors );
+#     __test_rule_negative( '.rules.0', $rule, $compiled, \@errors, \$gated );
 sub __test_rule_negative {
-	my ( $where, $rule, $compiled, $errors ) = @_;
+	my ( $where, $rule, $compiled, $errors, $gated, $converted ) = @_;
 
 	my $negative = $rule->{'tests'}{'negative'};
 	if ( !defined($negative) ) {
@@ -724,14 +894,45 @@ sub __test_rule_negative {
 	my $test_int = 0;
 	foreach my $test ( @{$negative} ) {
 		my $twhere = $where . '.tests.negative.' . $test_int;
-		if ( ref($test) ne '' ) {
-			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not ""' );
+
+		my $string  = $test;
+		my $program = undef;
+		if ( ref($test) eq 'HASH' ) {
+			$string  = $test->{'string'};
+			$program = $test->{'program'};
+			if ( !defined($string) || ref($string) ne '' ) {
+				push( @{$errors}, $twhere . '.string is undef or not a string' );
+				$test_int++;
+				next;
+			}
+			if ( !defined($program) || ref($program) ne '' ) {
+				push( @{$errors}, $twhere . '.program is undef or not a string' );
+				$test_int++;
+				next;
+			}
+			${$gated} = 1;
+		} elsif ( ref($test) ne '' ) {
+			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not "" or "HASH"' );
 			$test_int++;
 			next;
 		}
+
+		# a refused program is the whole answer; the patterns are never reached
+		if ( defined($program) && defined( __gate_refusal( $compiled, $program ) ) ) {
+			$test_int++;
+			next;
+		}
+
 		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
-			if ( $test =~ $pattern ) {
-				push( @{$errors}, $twhere . ' matched a pattern but should not have... string="' . $test . '"' );
+			if ( $string =~ $pattern ) {
+				push(
+					@{$errors},
+					$twhere
+						. ' matched a pattern but should not have'
+						. ( defined($program) ? ' (gate accepted "' . $program . '")' : '' )
+						. '... string="'
+						. $string . '"'
+				);
 				last;
 			}
 		}
@@ -740,6 +941,355 @@ sub __test_rule_negative {
 
 	return;
 } ## end sub __test_rule_negative
+
+# Reports whether perl is holding a scalar as a number rather than as the string
+# a capture produced.
+#
+# This is what a "numeric" test case is asking, and asking it any other way does
+# not work. Scalar::Util::looks_like_number answers "could this be read as a
+# number", which is true of the captured string before any conversion happens, so
+# a check built on it passes whether the convert ran or not.
+#
+# A capture is POK and nothing else. Once _convert has put an int() or a numeric
+# addition through it the scalar carries IOK or NOK as well, and that is the only
+# difference between "44444" fresh out of a pattern and 44444 after a convert:
+# the two compare equal both as strings and as numbers.
+#
+# The value is read through a reference and never used in numeric context here,
+# since doing so would set the very flag being looked for.
+#
+# Args:
+#
+#     - $value :: The scalar to inspect, normally a field out of a captures hash
+#         that decompose and convert have been run over. undef is allowed and
+#         reported as not converted.
+#
+# Returns 1 when the scalar carries a numeric slot, otherwise 0.
+#
+#     __holds_a_number( 44444 )   # 1
+#     __holds_a_number( '44444' ) # 0
+sub __holds_a_number {
+	my ($value) = @_;
+
+	if ( !defined($value) ) {
+		return 0;
+	}
+
+	my $sv = B::svref_2object( \$value );
+
+	return ( $sv->FLAGS & ( B::SVf_IOK() | B::SVf_NOK() ) ) ? 1 : 0;
+} ## end sub __holds_a_number
+
+# Runs a positive test case's captures through decompose and convert, the way the
+# engine does, and checks the fields the case listed as numeric.
+#
+# The captures are copied first. What .result compares is the raw capture set and
+# that does not change -- which is why a positive test's expected result still
+# lists a port as the string '54321'. This runs on a copy of the same captures so
+# a case can say what that string is supposed to become.
+#
+# Decompose runs first, as it does at runtime, so a field a decompose produced can
+# be listed too. That covers the case worth covering most: a kv blob split into
+# fields, one of which a convert then coerces.
+#
+# Args:
+#
+#     - $twhere :: Where this case lives, written as a path, such as
+#         ".rules.3.tests.positive.0". Used to prefix any error.
+#
+#     - $numeric :: The case's numeric list, as written in the rule file. An array
+#         ref of capture names, such as [ 'dnsmasq_max_queries' ].
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
+#         read for its decompose list and convert map.
+#
+#     - $captures :: Hash ref of the raw named captures the winning pattern
+#         produced. Copied rather than modified.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors.
+#
+#     __test_numeric( '.rules.0.tests.positive.1', ['ssh_src_port'], $compiled, \%got, \@errors );
+# Runs a copy of a case's captures through decompose and then convert, the way
+# the engine does, and hands back what a consumer would receive.
+#
+# Copied rather than modified, because .result compares the raw capture set and
+# that does not change. Everything a case says about the stage after -- what a
+# blob was split into, what a string was coerced to -- is asked of this copy.
+#
+# geoip is not run. It needs a database, and it adds a key rather than changing
+# one, so it is a runtime concern rather than a property of the rule file.
+#
+# Args:
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
+#         read for its decompose list and convert map.
+#
+#     - $captures :: Hash ref of the raw named captures the winning pattern
+#         produced. Left untouched.
+#
+# Returns a hash ref of the fields as they would reach a consumer.
+#
+#     my $fields = __enrich( $compiled, \%got );
+sub __enrich {
+	my ( $compiled, $captures ) = @_;
+
+	my %fields = %{$captures};
+	if ( @{ $compiled->{'decompose'} } ) {
+		Log::Munger::LogProcessor->_decompose( $compiled, \%fields );
+	}
+	if ( keys( %{ $compiled->{'convert'} } ) ) {
+		Log::Munger::LogProcessor->_convert( $compiled, \%fields );
+	}
+
+	return \%fields;
+} ## end sub __enrich
+
+# Runs a positive case's enriched expectation: the field set a consumer receives
+# once decompose and convert have run.
+#
+# This is what puts a decompose under test as the rule really uses it. An entry's
+# own tests feed it a hand-written input in isolation, which says the entry works
+# but not that it is wired to anything -- nothing there notices when a pattern's
+# capture is renamed out from under it, or when the field one entry produces
+# stops being the field the next one consumes.
+#
+# Compared exactly in both directions, as .result is, so a field that quietly
+# stops being produced is caught and so is one that turns up unasked for.
+#
+# Args:
+#
+#     - $twhere :: Where this case lives, written as a path, such as
+#         ".rules.3.tests.positive.0". Used to prefix any error.
+#
+#     - $expected :: The case's enriched map, as written in the rule file.
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule.
+#
+#     - $captures :: Hash ref of the raw named captures. Copied, not modified.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors.
+#
+#     __test_enriched( '.rules.0.tests.positive.1', $expected, $compiled, \%got, \@errors );
+sub __test_enriched {
+	my ( $twhere, $expected, $compiled, $captures, $errors ) = @_;
+
+	if ( ref($expected) ne 'HASH' ) {
+		push( @{$errors}, $twhere . '.enriched has a ref of "' . ref($expected) . '" and not "HASH"' );
+		return;
+	}
+
+	my $diff = __capture_diff( $expected, __enrich( $compiled, $captures ) );
+	if ( defined($diff) ) {
+		push( @{$errors}, $twhere . '.enriched differs from what decompose and convert produced: ' . $diff );
+	}
+
+	return;
+} ## end sub __test_enriched
+
+sub __test_numeric {
+	my ( $twhere, $numeric, $compiled, $captures, $errors ) = @_;
+
+	if ( ref($numeric) ne 'ARRAY' ) {
+		push( @{$errors}, $twhere . '.numeric has a ref of "' . ref($numeric) . '" and not "ARRAY"' );
+		return;
+	}
+
+	my %converted = %{ __enrich( $compiled, $captures ) };
+
+	foreach my $field ( @{$numeric} ) {
+		if ( ref($field) ne '' ) {
+			push( @{$errors}, $twhere . '.numeric entry has a ref of "' . ref($field) . '" and not ""' );
+			next;
+		}
+		if ( !exists( $converted{$field} ) ) {
+			push( @{$errors},
+					  $twhere
+					. '.numeric names "'
+					. $field
+					. '", which nothing produced; neither the pattern nor a decompose sets it' );
+			next;
+		}
+		if ( !__holds_a_number( $converted{$field} ) ) {
+			push( @{$errors},
+					  $twhere
+					. '.numeric names "'
+					. $field
+					. '", which came out as the string "'
+					. ( defined( $converted{$field} ) ? $converted{$field} : '' )
+					. '"; no convert turned it into a number' );
+		}
+	} ## end foreach my $field ( @{$numeric} )
+
+	return;
+} ## end sub __test_numeric
+
+# Reports whether a rule has a decompose its own tests could say something about.
+#
+# Not every rule that carries one does. A file level decompose is shared by every
+# rule in the file, and most of them capture none of the fields it names -- squid
+# has one rule feeding it and another that never touches it. Warning about the
+# second would be noise, and noise in a lint teaches people to skip the output.
+#
+# So the question asked is the narrow one: is there a positive test whose captures
+# the decompose actually changes. If there is, a case could say what it produces,
+# and one should.
+#
+# Args:
+#
+#     - $rule :: The raw rule hash ref, read for its positive test strings.
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule.
+#
+# Returns 1 when at least one positive test is changed by the decompose,
+# otherwise 0.
+#
+#     if ( __has_testable_decompose( $rule, $compiled ) ) { ... }
+sub __has_testable_decompose {
+	my ( $rule, $compiled ) = @_;
+
+	if ( !@{ $compiled->{'decompose'} } ) {
+		return 0;
+	}
+
+	foreach my $test ( @{ $rule->{'tests'}{'positive'} || [] } ) {
+		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
+
+		my %captures;
+		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+			if ( $test->{'string'} =~ $pattern ) {
+				%captures = %+;
+				last;
+			}
+		}
+		next if ( !keys(%captures) );
+
+		my %split = %captures;
+		Log::Munger::LogProcessor->_decompose( $compiled, \%split );
+		if ( scalar( keys(%split) ) != scalar( keys(%captures) ) ) {
+			return 1;
+		}
+		foreach my $field ( keys(%split) ) {
+			if ( !exists( $captures{$field} ) ) {
+				return 1;
+			}
+		}
+	} ## end foreach my $test ( @{ $rule->...})
+
+	return 0;
+} ## end sub __has_testable_decompose
+
+# Reports whether a rule has a numeric conversion its own tests could check.
+#
+# Not every convert can be: lc, uc and mac change a string into another string,
+# and a rule that inherits the file level map often produces none of the fields
+# in it -- squid's cache.log rule shares the access rule's convert and captures
+# none of the fields it names. Warning about either would be noise, and noise in
+# a lint is worse than silence because it teaches people to skip the output.
+#
+# So the question asked is the narrow one: is there a field this rule's own
+# positive tests really produce, that an int or float entry really covers. If
+# there is, a test could list it, and one should.
+#
+# Args:
+#
+#     - $rule :: The raw rule hash ref, read for its positive test strings.
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
+#         read for its patterns, decompose list and convert map.
+#
+# Returns 1 when at least one such field exists, otherwise 0.
+#
+#     if ( __has_testable_convert( $rule, $compiled ) ) { ... }
+sub __has_testable_convert {
+	my ( $rule, $compiled ) = @_;
+
+	my @numeric_fields
+		= grep { $compiled->{'convert'}{$_} eq 'int' || $compiled->{'convert'}{$_} eq 'float' }
+		keys( %{ $compiled->{'convert'} } );
+	if ( !@numeric_fields ) {
+		return 0;
+	}
+
+	foreach my $test ( @{ $rule->{'tests'}{'positive'} || [] } ) {
+		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
+
+		my %captures;
+		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+			if ( $test->{'string'} =~ $pattern ) {
+				%captures = %+;
+				last;
+			}
+		}
+		next if ( !keys(%captures) );
+
+		if ( @{ $compiled->{'decompose'} } ) {
+			Log::Munger::LogProcessor->_decompose( $compiled, \%captures );
+		}
+		foreach my $field (@numeric_fields) {
+			if ( exists( $captures{$field} ) ) {
+				return 1;
+			}
+		}
+	} ## end foreach my $test ( @{ $rule->...})
+
+	return 0;
+} ## end sub __has_testable_convert
+
+# Runs a compiled rule's gates against a program name, the way the engine does.
+#
+# The engine gates on a whole record, but every gate any rule file has ever
+# needed keys on PROGRAM, so a test names a program rather than building a
+# record. A gate gets a synthetic { PROGRAM => $program } to look at; one keyed
+# on some other field finds nothing there and refuses, which is the right answer
+# for a test that has not said what that field holds.
+#
+# Args:
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule.
+#         Only its gate list is read, each entry being
+#         { field, literals => {}, regexps => [] }.
+#
+#     - $program :: The program name to gate, as a plain string, such as
+#         "dnsmasq-dhcp" or "/usr/sbin/cron".
+#
+# Returns undef when every gate passes, otherwise a string naming the gate that
+# refused and what it wanted, ready to be dropped into an error message.
+#
+#     my $why = __gate_refusal( $compiled, 'cron' );
+#     # 'gate 0 on PROGRAM does not accept "cron"'
+sub __gate_refusal {
+	my ( $compiled, $program ) = @_;
+
+	my $item = { 'PROGRAM' => $program };
+
+	my $gate_int = 0;
+	foreach my $gate ( @{ $compiled->{'gate'} } ) {
+		my $value = $item->{ $gate->{'field'} };
+		my $hit   = 0;
+		if ( defined($value) && ref($value) eq '' ) {
+			if ( $gate->{'literals'}{$value} ) {
+				$hit = 1;
+			} else {
+				foreach my $re ( @{ $gate->{'regexps'} } ) {
+					if ( $value =~ $re ) {
+						$hit = 1;
+						last;
+					}
+				}
+			}
+		}
+		if ( !$hit ) {
+			return 'gate ' . $gate_int . ' on ' . $gate->{'field'} . ' does not accept "' . $program . '"';
+		}
+		$gate_int++;
+	} ## end foreach my $gate ( @{ $compiled...})
+
+	return undef;
+} ## end sub __gate_refusal
 
 # Compares two flat capture hashes and describes the first way they differ.
 #

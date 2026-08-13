@@ -288,6 +288,7 @@ rules:
             hostapd_iface: 'wlan0'
             hostapd_event: 'AP-ENABLED'
         - string: 'phy1-ap1: EAPOL-4WAY-HS-COMPLETED aa:bb:cc:dd:ee:ff'
+          program: 'hostapd'
           result:
             hostapd_iface: 'phy1-ap1'
             hostapd_event: 'EAPOL-4WAY-HS-COMPLETED'
@@ -325,3 +326,5 @@ rules:
             hostapd_message: "hostapd_free_hapd_data: Interface phy2-ap0 wasn't started"
       negative:
         - ''
+        - string: 'wlan0: AP-STA-CONNECTED aa:bb:cc:dd:ee:ff'
+          program: 'hostapd-extra'

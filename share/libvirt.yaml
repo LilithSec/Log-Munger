@@ -147,15 +147,20 @@ rules:
     tests:
       positive:
         - string: "Domain id=17 name='cuckoo70' uuid=4886ce36-05ed-4f35-bfbf-a6950de14804 is tainted: high-privileges"
+          numeric:
+            - libvirt_domain_id
+          program: 'virtlogd'
           result:
             libvirt_domain_id: '17'
             libvirt_domain: 'cuckoo70'
             libvirt_domain_uuid: '4886ce36-05ed-4f35-bfbf-a6950de14804'
             libvirt_taint: 'high-privileges'
         - string: 'libvirt version: 11.1.0'
+          program: 'virtqemud'
           result:
             libvirt_version: '11.1.0'
         - string: 'libvirt version: 9.0.0, package: 10.el9'
+          program: 'virtproxyd'
           result:
             libvirt_version: '9.0.0'
             libvirt_build: 'package: 10.el9'
@@ -166,6 +171,7 @@ rules:
           result:
             libvirt_security_driver: 'none'
         - string: "Cannot get interface flags on 'virbr0': No such device"
+          program: 'libvirtd'
           result:
             libvirt_error_kind: "Cannot get interface flags on 'virbr0'"
             libvirt_error: 'No such device'
@@ -174,5 +180,7 @@ rules:
             libvirt_message: 'no colon in this one'
       negative:
         - ''
+        - string: 'Domain id=17 name=''cuckoo70'' uuid=4886ce36-05ed-4f35-bfbf-a6950de14804 is tainted: high-privileges'
+          program: 'libvirt-extra'
 convert:
   libvirt_domain_id: int

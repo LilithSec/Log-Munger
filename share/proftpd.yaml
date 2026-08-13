@@ -124,6 +124,7 @@ rules:
     tests:
       positive:
         - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
+          program: 'proftpd'
           result:
             proftpd_server: '192.0.2.1'
             proftpd_client_host: 'client.example.net'
@@ -149,6 +150,8 @@ rules:
             proftpd_client_ip: '203.0.113.7'
             proftpd_violation: 'root login attempted.'
         - string: '192.0.2.1 (scanner[203.0.113.7]) - Maximum login attempts (3) exceeded'
+          numeric:
+            - proftpd_limit
           result:
             proftpd_server: '192.0.2.1'
             proftpd_client_host: 'scanner'
@@ -165,3 +168,5 @@ rules:
       negative:
         - 'this is not a proftpd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
+          program: 'proftpd-extra'

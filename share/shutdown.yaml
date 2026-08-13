@@ -63,18 +63,23 @@ rules:
     tests:
       positive:
         - string: 'power-down by neti: '
+          program: 'shutdown'
           result:
             shutdown_action: 'power-down'
             shutdown_user: 'neti'
             shutdown_message: ''
         - string: 'reboot by root: maintenance window'
+          program: 'halt'
           result:
             shutdown_action: 'reboot'
             shutdown_user: 'root'
             shutdown_message: 'maintenance window'
         - string: 'rebooted by root'
+          program: 'reboot'
           result:
             shutdown_action: 'rebooted'
             shutdown_user: 'root'
       negative:
         - 'this is not a shutdown line at all'
+        - string: 'power-down by neti: '
+          program: 'shutdown-extra'

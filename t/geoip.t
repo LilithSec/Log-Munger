@@ -50,4 +50,29 @@ my $rp = $mp->process_item( 'item' => { PROGRAM => 'postfix/smtpd', MESSAGE => '
 is( $rp->{'geoip'}{'postfix_client_ip'}{'country'}{'iso_code'},
 	'GB', 'postfix file-level geoip default enriches postfix_client_ip' );
 
+#
+# the rest of the shipped files that flag an address, including the ones where
+# the field geoip reads was produced by a decompose rather than by a pattern
+#
+my %flagged = (
+	'sshd'      => [ 'ssh_src_ip',    { PROGRAM => 'sshd',    MESSAGE => 'Failed password for root from 81.2.69.142 port 22 ssh2' } ],
+	'netfilter' => [ 'nf_SRC',        { PROGRAM => 'kernel',  MESSAGE => '[UFW BLOCK] IN=eth0 OUT= SRC=81.2.69.142 DST=192.0.2.1 PROTO=TCP SPT=1 DPT=22' } ],
+	'dovecot'   => [ 'dovecot_rip',   { PROGRAM => 'dovecot', MESSAGE => 'imap-login: Login: user=<x>, method=PLAIN, rip=81.2.69.142, lip=192.0.2.1, session=<s>' } ],
+	'named'     => [ 'dns_client_ip', { PROGRAM => 'named',   MESSAGE => 'client 81.2.69.142#5 (x): query: x IN A + (192.0.2.1)' } ],
+	'pam'       => [ 'pam_rhost',     { PROGRAM => 'sshd',    MESSAGE => 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=81.2.69.142 user=root' } ],
+	# json-flatten attr.remote, then split ip:port, then look the address up
+	'mongodb'   => [ 'mongo_attr_remote_ip', { PROGRAM => 'mongod', MESSAGE => '{"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"81.2.69.142:52111","connectionId":7}}' } ],
+);
+
+foreach my $rule_file ( sort keys(%flagged) ) {
+	my ( $field, $item ) = @{ $flagged{$rule_file} };
+	my $got = Log::Munger->new( 'rules' => [$rule_file], 'geoip' => $mmdb )->process_item( 'item' => $item );
+	is( $got->{'geoip'}{$field}{'country'}{'iso_code'}, 'GB', "$rule_file: geoip on $field" );
+}
+
+# squid is fed raw, having no syslog identity of its own
+my $squid = Log::Munger->new( 'rules' => ['squid'], 'geoip' => $mmdb )->process_item(
+	'item' => '1.0 1 81.2.69.142 TCP_MISS/200 1 GET http://x/ - DIRECT/1.2.3.4 text/html' );
+is( $squid->{'geoip'}{'squid_client_ip'}{'country'}{'iso_code'}, 'GB', 'squid: geoip on squid_client_ip' );
+
 done_testing();

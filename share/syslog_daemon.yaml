@@ -176,17 +176,29 @@ rules:
         # The structured-data blob is still whole here. Rule tests check raw
         # captures, before the decompose above splits it.
         - string: '[origin software="rsyslogd" swVersion="8.2302.0" x-pid="1234" x-info="https://www.rsyslog.com"] start'
+          enriched:
+            syslogd_event: 'start'
+            syslogd_software: 'rsyslogd'
+            syslogd_swVersion: '8.2302.0'
+            syslogd_x-info: 'https://www.rsyslog.com'
+            syslogd_x-pid: '1234'
+          program: 'rsyslogd'
           result:
             syslogd_kv: 'software="rsyslogd" swVersion="8.2302.0" x-pid="1234" x-info="https://www.rsyslog.com"'
             syslogd_event: 'start'
         - string: 'imuxsock: 1234 messages lost due to rate-limiting'
+          numeric:
+            - syslogd_lost
+          program: 'rsyslog'
           result:
             syslogd_module: 'imuxsock'
             syslogd_lost: '1234'
         - string: 'imuxsock: begin to drop messages due to rate-limiting'
+          program: 'syslogd'
           result:
             syslogd_module: 'imuxsock'
         - string: 'action ''action-3-builtin:omfwd'' resumed (module ''builtin:omfwd'')'
+          program: 'syslog-ng'
           result:
             syslogd_action: 'action-3-builtin:omfwd'
             syslogd_action_state: 'resumed'
@@ -195,6 +207,9 @@ rules:
           result:
             syslogd_stats: 'processed=''src.internal(s_local#0)=123'', stamp=''src.internal(s_local#0)=1626345600'''
         - string: 'syslog-ng starting up; version=''4.0.1'''
+          enriched:
+            syslogd_event: 'starting up'
+            syslogd_version: '4.0.1'
           result:
             syslogd_event: 'starting up'
             syslogd_kv: 'version=''4.0.1'''
@@ -203,6 +218,8 @@ rules:
             syslogd_message: 'rsyslogd''s groupid changed to 106'
       negative:
         - ''
+        - string: '[origin software="rsyslogd" swVersion="8.2302.0" x-pid="1234" x-info="https://www.rsyslog.com"] start'
+          program: 'syslog_daemon-extra'
   # Repeat suppression, which arrives under the repeating program's identity
   # rather than the syslog daemon's, so this rule is deliberately gateless.
   # It sits after the gated rule above so that a "message repeated ..." line
@@ -215,6 +232,8 @@ rules:
     tests:
       positive:
         - string: 'message repeated 11 times: [ failed to send packet: Operation not permitted]'
+          numeric:
+            - syslogd_repeated
           result:
             syslogd_repeated: '11'
             syslogd_repeated_message: 'failed to send packet: Operation not permitted'

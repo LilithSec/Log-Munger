@@ -107,6 +107,22 @@ rules:
     tests:
       positive:
         - string: '{"timestamp":"2026-07-15T10:00:00.123456+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22,"proto":"TCP","alert":{"signature_id":2001219,"signature":"ET SCAN Potential SSH Scan","severity":2}}'
+          enriched:
+            suricata_alert_severity: '2'
+            suricata_alert_signature: 'ET SCAN Potential SSH Scan'
+            suricata_alert_signature_id: '2001219'
+            suricata_dest_ip: '192.0.2.1'
+            suricata_dest_port: '22'
+            suricata_event_type: 'alert'
+            suricata_proto: 'TCP'
+            suricata_src_ip: '203.0.113.7'
+            suricata_src_port: '44444'
+            suricata_timestamp: '2026-07-15T10:00:00.123456+0000'
+          numeric:
+            - suricata_alert_severity
+            - suricata_alert_signature_id
+            - suricata_dest_port
+            - suricata_src_port
           result:
             suricata_json: '{"timestamp":"2026-07-15T10:00:00.123456+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22,"proto":"TCP","alert":{"signature_id":2001219,"signature":"ET SCAN Potential SSH Scan","severity":2}}'
       negative:
@@ -128,6 +144,14 @@ rules:
     tests:
       positive:
         - string: '[1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.7:44444 -> 192.0.2.1:22'
+          numeric:
+            - suricata_alert_gid
+            - suricata_alert_rev
+            - suricata_alert_severity
+            - suricata_alert_signature_id
+            - suricata_dest_port
+            - suricata_src_port
+          program: 'suricata'
           result:
             suricata_alert_gid: '1'
             suricata_alert_signature_id: '2001219'
@@ -145,3 +169,5 @@ rules:
             suricata_message: 'This is Suricata version 7.0.2 RELEASE running in SYSTEM mode'
       negative:
         - ''
+        - string: '[1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.7:44444 -> 192.0.2.1:22'
+          program: 'suricata-extra'

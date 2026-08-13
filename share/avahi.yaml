@@ -178,6 +178,7 @@ rules:
             avahi_protocol: 'IPv4'
         # The withdraw side names no protocol.
         - string: 'Withdrawing address record for fd00:aaaa::1 on veth-h.'
+          program: 'avahi-daemon'
           result:
             avahi_record_action: 'Withdrawing'
             avahi_address: 'fd00:aaaa::1'
@@ -194,3 +195,5 @@ rules:
             avahi_message: 'Server startup complete. Host name is host.local. Local service cookie is 1234567890.'
       negative:
         - ''
+        - string: 'Joining mDNS multicast group on interface virbr0.IPv4 with address 192.0.2.1.'
+          program: 'avahi-extra'

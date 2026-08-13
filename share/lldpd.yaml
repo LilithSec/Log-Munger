@@ -110,6 +110,7 @@ rules:
     tests:
       positive:
         - string: 'protocol LLDP enabled'
+          program: 'lldpcli'
           result:
             lldpd_protocol: 'LLDP'
             lldpd_protocol_state: 'enabled'
@@ -132,7 +133,10 @@ rules:
             lldpd_setting: 'transmit delay'
         # falls through to the catch-all
         - string: 'unable to get system name'
+          program: 'lldpd'
           result:
             lldpd_message: 'unable to get system name'
       negative:
         - ''
+        - string: 'protocol LLDP enabled'
+          program: 'lldpd-extra'

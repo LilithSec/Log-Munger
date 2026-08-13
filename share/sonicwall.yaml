@@ -265,6 +265,25 @@ rules:
     tests:
       positive:
         - string: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
+          enriched:
+            sw_c: '32'
+            sw_dst: '192.0.2.10:31337:X0'
+            sw_dst_iface: 'X0'
+            sw_dst_ip: '192.0.2.10'
+            sw_dst_port: '31337'
+            sw_fw: '203.0.113.1'
+            sw_id: 'firewall'
+            sw_m: '606'
+            sw_msg: 'Back Orifice attack dropped'
+            sw_n: '2'
+            sw_offender_ip: '203.0.113.66'
+            sw_pri: '1'
+            sw_sn: '0017C5C0A63C'
+            sw_src: '203.0.113.66:31337:X1'
+            sw_src_iface: 'X1'
+            sw_src_ip: '203.0.113.66'
+            sw_src_port: '31337'
+            sw_time: '2026-07-12 04:02:11 UTC'
           result:
             sw_kv: 'id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
       negative:

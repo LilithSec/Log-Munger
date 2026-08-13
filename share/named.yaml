@@ -547,6 +547,8 @@ rules:
     tests:
       positive:
         - string: 'client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): query: example.com IN A +E(0)K (192.0.2.1)'
+          numeric:
+            - dns_client_port
           result:
             dns_client_ip: '192.0.2.5'
             dns_client_port: '54321'
@@ -605,6 +607,8 @@ rules:
             dns_xfr_type: 'AXFR-style IXFR'
             dns_xfr_state: 'ended'
         - string: 'transfer of ''example.com/IN'' from 192.0.2.2#53: failed while receiving responses: end of file'
+          numeric:
+            - dns_src_port
           result:
             dns_zone_name: 'example.com'
             dns_query_class: 'IN'
@@ -612,6 +616,9 @@ rules:
             dns_src_port: '53'
             dns_xfr_result: 'failed while receiving responses: end of file'
         - string: 'zone example.com/IN: loaded serial 2024010101'
+          numeric:
+            - dns_zone_serial
+          program: 'named'
           result:
             dns_zone_name: 'example.com'
             dns_query_class: 'IN'
@@ -681,6 +688,8 @@ rules:
             dns_view: 'internal-view'
             dns_zone_status: 'not loaded due to errors.'
         - string: "/usr/local/etc/namedb/master/example.db:11: unknown RR type 'MS'"
+          numeric:
+            - dns_zone_file_line
           result:
             dns_zone_file: '/usr/local/etc/namedb/master/example.db'
             dns_zone_file_line: '11'
@@ -709,6 +718,8 @@ rules:
           result:
             dns_priming_result: 'failure'
         - string: 'command channel listening on 127.0.0.1#953'
+          numeric:
+            - dns_listen_port
           result:
             dns_channel: 'command'
             dns_channel_action: 'listening'
@@ -721,6 +732,8 @@ rules:
             dns_listen_ip: '127.0.0.1'
             dns_listen_port: '8053'
         - string: 'clients-per-query increased to 15'
+          numeric:
+            - dns_clients_per_query
           result:
             dns_cpq_direction: 'increased'
             dns_clients_per_query: '15'
@@ -812,3 +825,5 @@ rules:
             dns_message: 'linked to OpenSSL version: OpenSSL 3.0.16 11 Feb 2025'
       negative:
         - ''
+        - string: 'client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): query: example.com IN A +E(0)K (192.0.2.1)'
+          program: 'named-extra'

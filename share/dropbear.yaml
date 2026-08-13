@@ -160,6 +160,9 @@ rules:
     tests:
       positive:
         - string: "Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:AbCdEf0123456789 from 192.0.2.5:48719"
+          numeric:
+            - dropbear_src_port
+          program: 'dropbear'
           result:
             dropbear_method: 'Pubkey'
             dropbear_user: 'root'
@@ -207,3 +210,5 @@ rules:
             dropbear_message: 'Not backgrounding'
       negative:
         - ''
+        - string: 'Pubkey auth succeeded for ''root'' with ssh-ed25519 key SHA256:AbCdEf0123456789 from 192.0.2.5:48719'
+          program: 'dropbear-extra'

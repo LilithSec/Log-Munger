@@ -172,6 +172,7 @@ rules:
     tests:
       positive:
         - string: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb FATAL:  password authentication failed for user "neti"'
+          program: 'postgresql'
           result:
             pgsql_prefix: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb '
             pgsql_level: 'FATAL'
@@ -179,6 +180,7 @@ rules:
             pgsql_user: 'neti'
             pgsql_auth_detail: ''
         - string: 'FATAL:  no pg_hba.conf entry for host "203.0.113.7", user "admin", database "postgres", SSL off'
+          program: 'postgres'
           result:
             pgsql_prefix: ''
             pgsql_level: 'FATAL'
@@ -186,6 +188,8 @@ rules:
             pgsql_src_host: '203.0.113.7'
             pgsql_auth_detail: ', user "admin", database "postgres", SSL off'
         - string: 'LOG:  connection received: host=192.0.2.5 port=49152'
+          numeric:
+            - pgsql_src_port
           result:
             pgsql_prefix: ''
             pgsql_level: 'LOG'
@@ -210,6 +214,9 @@ rules:
             pgsql_message: 'relation "nope" does not exist at character 15'
         # the wrapped lines of a multi-line message
         - string: "[5-3] \tautomatic vacuum of table \"covering.public.syslog\""
+          numeric:
+            - pgsql_chunk_group
+            - pgsql_chunk_index
           result:
             pgsql_chunk_group: '5'
             pgsql_chunk_index: '3'
@@ -228,3 +235,5 @@ rules:
       negative:
         - 'this is not a postgres line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
+        - string: '2026-07-15 10:00:00.123 UTC [1234] neti@mydb FATAL:  password authentication failed for user "neti"'
+          program: 'postgresql-extra'

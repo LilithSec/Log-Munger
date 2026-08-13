@@ -245,6 +245,20 @@ rules:
         # auth-failure lines -- decompose does NOT run in rule-tests, so the
         # result is the raw pattern captures (header + whole pam_kv blob).
         - string: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+          enriched:
+            pam_euid: '0'
+            pam_logname: ''
+            pam_module: 'unix'
+            pam_rhost: '203.0.113.7'
+            pam_ruser: ''
+            pam_service: 'sshd'
+            pam_tty: 'ssh'
+            pam_type: 'auth'
+            pam_uid: '0'
+            pam_user: 'root'
+          numeric:
+            - pam_euid
+            - pam_uid
           result:
             pam_module: 'unix'
             pam_service: 'sshd'
@@ -258,6 +272,8 @@ rules:
             pam_kv: 'logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
         # session lines
         - string: 'pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)'
+          numeric:
+            - pam_by_uid
           result:
             pam_module: 'unix'
             pam_service: 'su'
@@ -315,6 +331,8 @@ rules:
             pam_user: 'root'
         # tally2 lock after N failures
         - string: 'pam_tally2(sshd:auth): user root (1000) has 5 login failures; the account is locked'
+          numeric:
+            - pam_failures
           result:
             pam_module: 'tally2'
             pam_service: 'sshd'

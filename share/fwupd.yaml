@@ -160,12 +160,14 @@ rules:
     tests:
       positive:
         - string: '00:40:52.210 FuMain               fwupd 1.9.34 ready for requests (locale en_US.UTF-8)'
+          program: 'fwupd'
           result:
             fwupd_time: '00:40:52.210'
             fwupd_domain: 'FuMain'
             fwupd_version: '1.9.34'
             fwupd_locale: 'en_US.UTF-8'
         - string: '11:21:52.150 FuEngine             failed to add device /sys/devices/pci0000:00/block/sr0: failed to open /dev/sr0: No medium found'
+          program: 'fwupdtool'
           result:
             fwupd_time: '11:21:52.150'
             fwupd_domain: 'FuEngine'
@@ -173,9 +175,13 @@ rules:
             fwupd_error: 'failed to open /dev/sr0: No medium found'
         # The client form, with no prefix.
         - string: 'Updating lvfs'
+          program: 'fwupdmgr'
           result:
             fwupd_remote: 'lvfs'
         - string: 'Successfully downloaded new metadata: 0 local devices supported'
+          numeric:
+            - fwupd_supported_devices
+          program: 'fwupd-refresh'
           result:
             fwupd_supported_devices: '0'
         - string: 'Updating the firmware on device 0123'
@@ -183,3 +189,5 @@ rules:
             fwupd_message: 'Updating the firmware on device 0123'
       negative:
         - ''
+        - string: '00:40:52.210 FuMain               fwupd 1.9.34 ready for requests (locale en_US.UTF-8)'
+          program: 'fwupd-extra'

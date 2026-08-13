@@ -133,6 +133,11 @@ rules:
     tests:
       positive:
         - string: '[15-Jul-2026 10:00:00] WARNING: [pool www] child 1234 exited on signal 11 (SIGSEGV) after 100.123456 seconds from start'
+          numeric:
+            - php_pid
+            - php_signal
+            - php_uptime
+          program: 'php-fpm'
           result:
             php_timestamp: '15-Jul-2026 10:00:00'
             php_level: 'WARNING'
@@ -142,6 +147,7 @@ rules:
             php_signal_name: 'SIGSEGV'
             php_uptime: '100.123456'
         - string: '[15-Jul-2026 10:00:00] WARNING: [pool www] child 1234 said into stderr: "PHP Fatal error:  Uncaught Error"'
+          program: 'php8.2-fpm'
           result:
             php_timestamp: '15-Jul-2026 10:00:00'
             php_level: 'WARNING'
@@ -156,6 +162,8 @@ rules:
             php_pool: 'www'
             php_pool_advice: '(you may need to increase pm.start_servers), spawning 8 children'
         - string: '[15-Jul-2026 10:00:00] WARNING: [pool www] script ''/srv/www/index.php'' (request: "GET /index.php") executing too slow (5.123456 sec), logging'
+          numeric:
+            - php_duration
           result:
             php_timestamp: '15-Jul-2026 10:00:00'
             php_level: 'WARNING'
@@ -176,7 +184,10 @@ rules:
             php_level: 'NOTICE'
             php_message: 'fpm is running, pid 1'
         - string: 'ready to handle connections'
+          program: 'php-fpm8.2'
           result:
             php_message: 'ready to handle connections'
       negative:
         - ''
+        - string: '[15-Jul-2026 10:00:00] WARNING: [pool www] child 1234 exited on signal 11 (SIGSEGV) after 100.123456 seconds from start'
+          program: 'php_fpm-extra'

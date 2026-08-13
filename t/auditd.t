@@ -6,9 +6,8 @@ use Test::More;
 use Scalar::Util qw(looks_like_number);
 
 BEGIN {
-	use_ok('Log::Munger')              || print "Bail out!\n";
+	use_ok('Log::Munger')               || print "Bail out!\n";
 	use_ok('Log::Munger::LogProcessor') || print "Bail out!\n";
-	use_ok('Log::Munger::RulesTest')    || print "Bail out!\n";
 }
 
 # ---- the quote-aware kv mechanism in isolation (both quote styles, spaces) ----
@@ -25,13 +24,13 @@ is( $caps{'k_e'}, 'x',             'quoted kv: single-quoted short value' );
 is( $caps{'k_f'}, '203.0.113.7',   'quoted kv: bareword ip' );
 ok( !exists( $caps{'blob'} ), 'quoted kv: source removed' );
 
-# ---- the shipped auditd file ----
-my $res = Log::Munger::RulesTest->test( 'file' => 'auditd' );
-is( $res->{'fatal'}, undef, 'auditd: no fatal' );
-is( scalar( @{ $res->{'errors'} } ), 0, 'auditd: no errors' )
-	or diag( join( "\n", @{ $res->{'errors'} } ) );
-is( scalar( grep {/lacks any tests/} @{ $res->{'warnings'} } ), 0, 'auditd: full coverage' );
-
+# ---- the shipped auditd file, from the outside ----
+#
+# That auditd.yaml tests clean is asserted in t/all_rules_clean.t along with
+# every other shipped file. Everything below goes through the engine, which is
+# what the in-YAML tests cannot do: auditd's records are almost entirely kv
+# blobs, so what matters here is the decompose output and the coercions.
+#
 my $m = Log::Munger->new( 'rules' => ['auditd'] );
 
 # SYSCALL: outer quoted kv (incl. key="watch exec" with a space) + convert

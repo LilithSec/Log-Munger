@@ -183,6 +183,8 @@ rules:
         # apache vhost_combined, which Debian and Ubuntu point
         # other_vhosts_access.log at out of the box.
         - string: 'example.com:80 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"'
+          numeric:
+            - http_port
           result:
             http_vhost: 'example.com'
             http_port: '80'

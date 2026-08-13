@@ -386,6 +386,16 @@ rules:
     tests:
       positive:
         - string: 'Jul 12 08:15:50 sw01 %%01SSH/4/LOGIN_FAIL_PWD_ERR(l): The user failed to log in because of a wrong password. (UserName=admin, IPAddress=203.0.113.7, Times=3)'
+          enriched:
+            hw_IPAddress: '203.0.113.7'
+            hw_Times: '3'
+            hw_UserName: 'admin'
+            hw_flag: 'l'
+            hw_mnemonic: 'LOGIN_FAIL_PWD_ERR'
+            hw_module: 'SSH'
+            hw_offender_ip: '203.0.113.7'
+            hw_severity: '4'
+            hw_text: 'The user failed to log in because of a wrong password.'
           result:
             hw_module: 'SSH'
             hw_severity: '4'
@@ -394,6 +404,19 @@ rules:
             hw_text: 'The user failed to log in because of a wrong password.'
             hw_kv: 'UserName=admin, IPAddress=203.0.113.7, Times=3'
         - string: 'Jul 12 08:15:50 sw01 %%01SSH/5/SSH_FAIL(l)[42]: The SSH user failed to log in. (ServiceType=STELNET, FailedReason=Authentication failed, UserName=root, IPAddress=2001:db8::15, VPNInstanceName=)'
+          enriched:
+            hw_FailedReason: 'Authentication failed'
+            hw_IPAddress: '2001:db8::15'
+            hw_ServiceType: 'STELNET'
+            hw_UserName: 'root'
+            hw_VPNInstanceName: ''
+            hw_flag: 'l'
+            hw_mnemonic: 'SSH_FAIL'
+            hw_module: 'SSH'
+            hw_offender_ip: '2001:db8::15'
+            hw_seq: '42'
+            hw_severity: '5'
+            hw_text: 'The SSH user failed to log in.'
           result:
             hw_module: 'SSH'
             hw_severity: '5'
@@ -412,6 +435,17 @@ rules:
             hw_text: '203.0.113.31 is added to blacklist, reason: manual configuration, age: 30 minutes.'
         # The address in the sentence, with a pair list beside it that has none.
         - string: 'Jul 12 08:15:50 sw01 %%01VRRP/3/LogAuthFailed(l): Received a VRRP packet that failed authentication from 192.168.1.3 on interface Vlanif100. (VRID=10)'
+          enriched:
+            hw_VRID: '10'
+            hw_flag: 'l'
+            hw_iface: 'Vlanif100'
+            hw_mnemonic: 'LogAuthFailed'
+            hw_module: 'VRRP'
+            hw_offender_ip: '192.168.1.3'
+            hw_severity: '3'
+            hw_text: 'Received a VRRP packet that failed authentication from 192.168.1.3 on interface Vlanif100.'
+            hw_text_iface: 'Vlanif100'
+            hw_text_ip: '192.168.1.3'
           result:
             hw_module: 'VRRP'
             hw_severity: '3'

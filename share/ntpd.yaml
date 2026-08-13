@@ -243,11 +243,15 @@ rules:
           result:
             ntpd_signal: '15'
         - string: 'Listen normally on 3 eth0 192.0.2.1:123'
+          numeric:
+            - ntpd_listen_port
           result:
             ntpd_listen_iface: '3 eth0'
             ntpd_listen_ip: '192.0.2.1'
             ntpd_listen_port: '123'
         - string: 'synchronized to 192.0.2.2, stratum 2'
+          numeric:
+            - ntpd_stratum
           result:
             ntpd_peer_ip: '192.0.2.2'
             ntpd_stratum: '2'
@@ -256,6 +260,8 @@ rules:
             ntpd_peer_name: 'LOCAL(0)'
             ntpd_stratum: '10'
         - string: 'time reset +0.123456 s'
+          numeric:
+            - ntpd_offset
           result:
             ntpd_offset: '+0.123456'
         - string: 'time reset -1.500000 s'
@@ -274,6 +280,7 @@ rules:
             ntpd_freq_error: '1024'
             ntpd_freq_tolerance: '500'
         - string: 'ntpd 4.2.8p18-a (1): Starting'
+          program: 'ntpd'
           result:
             ntpd_version: '4.2.8p18-a'
         - string: "leapsecond file ('/var/db/ntpd.leap-seconds.list'): good hash signature"
@@ -284,6 +291,8 @@ rules:
           result:
             ntpd_command_line: '/usr/sbin/ntpd -p /var/db/ntp/ntpd.pid -c /etc/ntp.conf'
         - string: 'local_clock: usr/src/contrib/ntp/ntpd/ntp_loopfilter.c line 814: ntp_adjtime: Operation not permitted'
+          numeric:
+            - ntpd_source_line
           result:
             ntpd_function: 'local_clock'
             ntpd_source_file: 'usr/src/contrib/ntp/ntpd/ntp_loopfilter.c'
@@ -300,3 +309,5 @@ rules:
             ntpd_message: 'ntp-4 is maintained by Network Time Foundation,'
       negative:
         - ''
+        - string: 'ntpd 4.2.8p15@1.3728-o starting'
+          program: 'ntpd-extra'

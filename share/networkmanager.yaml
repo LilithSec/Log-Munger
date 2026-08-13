@@ -127,6 +127,7 @@ rules:
     tests:
       positive:
         - string: '<info>  [1626345600.1234] device (wlan0): state change: config -> ip-config (reason ''none'', sys-iface-state: ''managed'')'
+          program: 'NetworkManager'
           result:
             nm_level: 'info'
             nm_timestamp: '1626345600.1234'
@@ -161,6 +162,8 @@ rules:
             nm_activation_result: 'successful'
             nm_activation_detail: 'device activated.'
         - string: '<info>  [1626345600.1234] dhcp4 (eth0): state changed new lease, address=192.0.2.50'
+          numeric:
+            - nm_dhcp_family
           result:
             nm_level: 'info'
             nm_timestamp: '1626345600.1234'
@@ -178,3 +181,5 @@ rules:
             nm_message: 'NetworkManager (version 1.42.4) is starting... (boot:abc)'
       negative:
         - ''
+        - string: '<info>  [1626345600.1234] device (wlan0): state change: config -> ip-config (reason ''none'', sys-iface-state: ''managed'')'
+          program: 'networkmanager-extra'

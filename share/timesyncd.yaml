@@ -96,6 +96,9 @@ rules:
     tests:
       positive:
         - string: 'Synchronized to time server 192.0.2.1:123 (ntp.example.com).'
+          numeric:
+            - timesyncd_server_port
+          program: 'systemd-timesyncd'
           result:
             timesyncd_server_ip: '192.0.2.1'
             timesyncd_server_port: '123'
@@ -120,3 +123,5 @@ rules:
             timesyncd_message: 'System clock time unset or jumped backwards, restoring from recorded timestamp: Wed 2026-07-15 10:00:00 UTC'
       negative:
         - ''
+        - string: 'Synchronized to time server 192.0.2.1:123 (ntp.example.com).'
+          program: 'timesyncd-extra'

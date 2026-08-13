@@ -100,6 +100,7 @@ rules:
     tests:
       positive:
         - string: 'E [15/Jul/2026:10:00:00 +0000] [Job 123] The printer is not responding.'
+          program: 'cups'
           result:
             cups_level: 'E'
             cups_timestamp: '15/Jul/2026:10:00:00 +0000'
@@ -111,6 +112,8 @@ rules:
             cups_timestamp: '15/Jul/2026:10:00:00 +0000'
             cups_message: 'Listening to /run/cups/cups.sock:0'
         - string: 'localhost - neti [15/Jul/2026:10:00:00 +0000] "POST /printers/laser HTTP/1.1" 200 1234 Print-Job successful-ok'
+          numeric:
+            - cups_status
           result:
             cups_client: 'localhost'
             cups_ident: '-'
@@ -124,7 +127,10 @@ rules:
             cups_operation: 'Print-Job'
             cups_ipp_status: 'successful-ok'
         - string: 'Scheduler shutting down normally.'
+          program: 'cupsd'
           result:
             cups_message: 'Scheduler shutting down normally.'
       negative:
         - ''
+        - string: 'E [15/Jul/2026:10:00:00 +0000] [Job 123] The printer is not responding.'
+          program: 'cups-extra'

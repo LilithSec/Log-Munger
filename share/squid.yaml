@@ -147,6 +147,10 @@ rules:
     tests:
       positive:
         - string: '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://example.com/ - DIRECT/93.184.216.34 text/html'
+          numeric:
+            - squid_bytes
+            - squid_elapsed
+            - squid_status
           result:
             squid_timestamp: '1626345600.123'
             squid_elapsed: '234'
@@ -223,10 +227,12 @@ rules:
     tests:
       positive:
         - string: 'WARNING: Cannot write log file: /var/log/squid/access.log'
+          program: '(squid)'
           result:
             squid_level: 'WARNING'
             squid_message: 'Cannot write log file: /var/log/squid/access.log'
         - string: 'kid1| ERROR: Unsupported method in request'
+          program: '(squid-8)'
           result:
             squid_kid: 'kid1'
             squid_level: 'ERROR'
@@ -237,6 +243,7 @@ rules:
             squid_message: 'Host header forgery detected'
         # no severity, so the catch-all keeps the text rather than dropping it
         - string: 'Ready to serve requests.'
+          program: 'squid'
           result:
             squid_message: 'Ready to serve requests.'
         - string: 'kid1| Starting Squid Cache version 6.6 for x86_64-pc-linux-gnu'
@@ -247,3 +254,5 @@ rules:
         # the catch-all takes anything with text in it, so the empty string is
         # the only thing this rule can refuse
         - ''
+        - string: 'WARNING: Cannot write log file: /var/log/squid/access.log'
+          program: 'squid-extra'

@@ -118,7 +118,25 @@ rules:
       # the flatten-into-mongo_* behavior is validated by the decompose tests above
       positive:
         - string: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.168.14.15:52111","connectionId":7}}'
+          enriched:
+            mongo_attr_connectionId: '7'
+            mongo_attr_remote: '192.168.14.15:52111'
+            mongo_attr_remote_ip: '192.168.14.15'
+            mongo_attr_remote_port: '52111'
+            mongo_c: 'NETWORK'
+            mongo_ctx: 'listener'
+            mongo_id: '22943'
+            mongo_msg: 'Connection accepted'
+            mongo_s: 'I'
+            mongo_t: '2026-07-27T02:49:30.131+00:00'
+          numeric:
+            - mongo_attr_connectionId
+            - mongo_attr_remote_port
+            - mongo_id
+          program: 'mongodb'
           result:
             mongo_json: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.168.14.15:52111","connectionId":7}}'
       negative:
         - 'this is not a mongodb json log line'
+        - string: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.168.14.15:52111","connectionId":7}}'
+          program: 'mongodb-extra'

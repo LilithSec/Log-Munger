@@ -79,10 +79,12 @@ rules:
     tests:
       positive:
         - string: 'Starting cron.'
+          program: 'kernel'
           result:
             rc_action: 'Starting'
             rc_service: 'cron'
         - string: 'Stopping named.'
+          program: 'root'
           result:
             rc_action: 'Stopping'
             rc_service: 'named'
@@ -98,3 +100,5 @@ rules:
         - 'this is not an rc line at all'
         - 'Starting file system checks:'
         - 'Starting... cat'
+        - string: 'Starting cron.'
+          program: 'rc-extra'

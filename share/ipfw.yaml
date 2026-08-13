@@ -83,6 +83,11 @@ rules:
       positive:
         # TCP/UDP verdict.
         - string: 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'
+          numeric:
+            - ipfw_dst_port
+            - ipfw_rule
+            - ipfw_src_port
+          program: 'kernel'
           result:
             ipfw_rule: '1000'
             ipfw_action: 'Deny'
@@ -164,6 +169,9 @@ rules:
             ipfw_iface: 'em0'
         # Limit reached.
         - string: 'ipfw: limit 100 reached on entry 5000'
+          numeric:
+            - ipfw_limit
+            - ipfw_limit_entry
           result:
             ipfw_limit: '100'
             ipfw_limit_entry: '5000'
@@ -172,3 +180,5 @@ rules:
         - '[UFW BLOCK] IN=eth0 OUT= SRC=203.0.113.7 DST=192.0.2.1 PROTO=TCP SPT=44444 DPT=22'
         # Unrelated free text.
         - 'arp: 203.0.113.7 moved from 00:11:22:33:44:55 to aa:bb:cc:dd:ee:ff on em0'
+        - string: 'ipfw: 1000 Deny TCP 203.0.113.7:44321 192.0.2.1:22 in via em0'
+          program: 'ipfw-extra'

@@ -96,7 +96,11 @@ rules:
       - NFS_MESSAGE
     tests:
       positive:
+        # the mount lines are mountd's, which answers to both spellings
         - string: 'authenticated mount request from 192.0.2.5:1023 for /export (/export)'
+          numeric:
+            - nfs_src_port
+          program: 'rpc.mountd'
           result:
             nfs_request_kind: 'mount'
             nfs_src_ip: '192.0.2.5'
@@ -105,6 +109,7 @@ rules:
             nfs_export: '/export'
         # "illegal port" means the client did not use a reserved source port
         - string: 'refused mount request from 203.0.113.7 for /export (/export): illegal port'
+          program: 'mountd'
           result:
             nfs_request_kind: 'mount'
             nfs_src_ip: '203.0.113.7'
@@ -115,12 +120,31 @@ rules:
           result:
             nfs_request_kind: 'export'
             nfs_src_ip: '192.0.2.5'
+        # the gate covers the whole NFS server side, not just mountd. Neither of
+        # these has a pattern of its own, so both land on the catch-all -- which
+        # is the point: gated as they are, their lines are kept rather than
+        # dropped, and only a test naming the program says so.
+        - string: 'nfssvc: Function not implemented'
+          program: 'nfsd'
+          result:
+            nfs_message: 'nfssvc: Function not implemented'
+        - string: 'Received SM_UNMON_ALL request from client.example.net while not monitoring any hosts'
+          program: 'rpc.statd'
+          result:
+            nfs_message: 'Received SM_UNMON_ALL request from client.example.net while not monitoring any hosts'
+        - string: 'Failed to initialize RPCSEC_GSS service'
+          program: 'rpc.svcgssd'
+          result:
+            nfs_message: 'Failed to initialize RPCSEC_GSS service'
         - string: 'Cannot export /export, possibly unsupported filesystem or fsid= required'
           result:
             nfs_path: '/export'
             nfs_export_error: 'possibly unsupported filesystem or fsid= required'
         - string: 'Version 1.3.4 starting'
+          program: 'rpc.mountd'
           result:
             nfs_message: 'Version 1.3.4 starting'
       negative:
         - ''
+        - string: 'authenticated mount request from 192.0.2.5:1023 for /export (/export)'
+          program: 'nfs-extra'

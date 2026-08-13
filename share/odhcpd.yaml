@@ -92,6 +92,8 @@ rules:
     tests:
       positive:
         - string: 'No default route present, overriding ra_lifetime to 0!'
+          numeric:
+            - odhcpd_ra_lifetime
           result:
             odhcpd_action: 'overriding'
             odhcpd_ra_lifetime: '0'
@@ -102,7 +104,10 @@ rules:
             odhcpd_message: 'piofile updated'
         # falls through to the catch-all
         - string: 'Raising SIGUSR1 due to reload'
+          program: 'odhcpd'
           result:
             odhcpd_message: 'Raising SIGUSR1 due to reload'
       negative:
         - ''
+        - string: 'No default route present, overriding ra_lifetime to 0!'
+          program: 'odhcpd-extra'

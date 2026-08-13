@@ -116,7 +116,10 @@ rules:
             resolved_server_ip: '192.0.2.1'
             resolved_iface: 'eth0'
         - string: 'Positive Trust Anchors:'
+          program: 'systemd-resolved'
           result:
             resolved_message: 'Positive Trust Anchors:'
       negative:
         - ''
+        - string: 'Using degraded feature set UDP instead of TCP for DNS server 192.0.2.1.'
+          program: 'resolved-extra'

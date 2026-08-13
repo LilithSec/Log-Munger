@@ -115,6 +115,10 @@ rules:
     tests:
       positive:
         - string: '<a1b2c3>; proxy; rspamd_task_write_log: id: <a1b2c3>, qid: <1rABCD>, ip: 192.0.2.5, from: <sender@example.com>, (default: F (add header): [8.50/15.00] [BAYES_SPAM(4.50),MIME_HTML_ONLY(0.20)]), len: 1234, time: 50.123ms, dns req: 12'
+          numeric:
+            - rspamd_len
+            - rspamd_required_score
+            - rspamd_score
           result:
             rspamd_id: 'a1b2c3'
             rspamd_module: 'proxy'
@@ -153,7 +157,10 @@ rules:
             rspamd_function: 'rspamd_proxy_handle_mirror'
             rspamd_message: 'cannot connect to 100.64.0.1:11333: Connection refused'
         - string: 'rspamd 3.7.5 is loading configuration'
+          program: 'rspamd'
           result:
             rspamd_message: 'rspamd 3.7.5 is loading configuration'
       negative:
         - ''
+        - string: '<a1b2c3>; proxy; rspamd_task_write_log: id: <a1b2c3>, qid: <1rABCD>, ip: 192.0.2.5, from: <sender@example.com>, (default: F (add header): [8.50/15.00] [BAYES_SPAM(4.50),MIME_HTML_ONLY(0.20)]), len: 1234, time: 50.123ms, dns req: 12'
+          program: 'rspamd-extra'

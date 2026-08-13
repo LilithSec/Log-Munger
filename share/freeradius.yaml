@@ -124,6 +124,7 @@ rules:
     tests:
       positive:
         - string: 'Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
+          program: 'freeradius'
           result:
             radius_result: 'OK'
             radius_user: 'neti'
@@ -141,6 +142,9 @@ rules:
             radius_nas_port: '0'
             radius_calling_station: 'aa-bb-cc-dd-ee-ff'
         - string: '(12) Login OK: [neti] (from client localhost port 0)'
+          numeric:
+            - radius_nas_port
+            - radius_request
           result:
             radius_request: '12'
             radius_result: 'OK'
@@ -155,12 +159,17 @@ rules:
             radius_client: 'wifi'
             radius_nas_port: '0'
         - string: 'Ignoring request to auth address 192.0.2.1 port 1812 bound to server default from unknown client 203.0.113.7 port 45678 proto udp'
+          numeric:
+            - radius_src_port
           result:
             radius_socket: 'auth address 192.0.2.1 port 1812 bound to server default'
             radius_src_ip: '203.0.113.7'
             radius_src_port: '45678'
         - string: 'Ready to process requests'
+          program: 'radiusd'
           result:
             radius_message: 'Ready to process requests'
       negative:
         - ''
+        - string: 'Login OK: [neti/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)'
+          program: 'freeradius-extra'
