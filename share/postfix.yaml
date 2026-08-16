@@ -28,7 +28,11 @@ vars:
     (CONNECT|HELO|EHLO|STARTTLS|AUTH|MAIL( FROM)?|RCPT( TO)?|(end of )?DATA|BDAT|RSET|NOOP|QUIT|HELP|ETRN|EXPN|XCLIENT|XFORWARD|UNKNOWN|END-OF-MESSAGE|VRFY|\.)
   POSTFIX_STATUS_CODE: "\\d{3}\n"
   POSTFIX_STATUS_CODE_ENHANCED: "\\d\\.\\d\\.\\d\n"
-  POSTFIX_WARNING_LEVEL: "(warning|fatal|info)\n"
+  # Every severity postfix prefixes a message with. "error" is a lookup or a
+  # delivery step that failed, "panic" is postfix reporting its own corrupt
+  # state and is the one nobody wants to see. The name is historical... it
+  # gates POSTFIX_WARNING, which reads all five and not only the warnings.
+  POSTFIX_WARNING_LEVEL: "(warning|error|fatal|panic|info)\n"
 vars_templated:
   POSTFIX_ANVIL: |
     [% POSTFIX_ANVIL_CONN_RATE %]|[% POSTFIX_ANVIL_CONN_CACHE %]|[% POSTFIX_ANVIL_CONN_COUNT %]|[% POSTFIX_WARNING %]
@@ -558,6 +562,19 @@ rules:
             postfix_milter_message: 'END-OF-MESSAGE'
             postfix_milter_result: 'reject'
             postfix_queueid: '3F8B2A9C1D5E'
+        # a table postfix could not read, at the error level
+        - string: 'error: unable to look up table hash:/etc/postfix/canonical: No such file or directory'
+          program: 'postfix/cleanup'
+          result:
+            postfix_message: 'unable to look up table hash:/etc/postfix/canonical: No such file or directory'
+            postfix_message_level: 'error'
+        # and the same level carrying a queue id
+        - string: '3F8B2A9C1D5E: error: too many hops'
+          program: 'postfix/cleanup'
+          result:
+            postfix_message: 'too many hops'
+            postfix_message_level: 'error'
+            postfix_queueid: '3F8B2A9C1D5E'
       negative:
         - 'this is not a valid cleanup line at all'
         - string: '3F8B2A9C1D5E: message-id=<20260715.deadbeef@x.com>'
@@ -759,6 +776,12 @@ rules:
           result:
             postfix_message: 'process /usr/lib/postfix/smtpd pid 1234 exit status 1'
             postfix_message_level: 'warning'
+        # postfix reporting its own corrupt state... the message keeps the
+        # function that noticed, the optional client-info group not eating it
+        - string: 'panic: myfree: corrupt or unallocated memory block'
+          result:
+            postfix_message: 'myfree: corrupt or unallocated memory block'
+            postfix_message_level: 'panic'
       negative:
         - 'this is not a valid master line at all'
         - string: 'daemon started -- version 3.5.6, configuration /etc/postfix'
@@ -1407,8 +1430,12 @@ vars_tests:
     positive:
       - string: 'a c=warning d'
         result: 'warning'
+      - string: 'a c=error d'
+        result: 'error'
       - string: 'a c=fatal d'
         result: 'fatal'
+      - string: 'a c=panic d'
+        result: 'panic'
       - string: 'a c=info d'
         result: 'info'
     negative:
