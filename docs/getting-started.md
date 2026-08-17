@@ -25,6 +25,9 @@ Optional: [`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MM
 only for [GeoIP enrichment](geoip.md) and loaded only when you actually pass a database
 path. If you never use geoip you never need it installed.
 
+On FreeBSD and Debian the dependencies are all packaged; the install section of the
+README has the `pkg` / `apt-get` lines.
+
 ## The log-record model
 
 Log-Munger works on a **log record**: a hash of named fields. This mirrors what you get

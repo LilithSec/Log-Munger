@@ -131,6 +131,7 @@ t/decompose.t
 t/degrok.t
 t/geoip.t
 t/http_logs.t
+t/include_precedence.t
 t/load_rules.t
 t/manifest.t
 t/mmdb/GeoLite2-Country-Test.mmdb

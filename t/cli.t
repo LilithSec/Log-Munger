@@ -4,8 +4,13 @@ use strict;
 use warnings;
 use Test::More;
 use File::Temp ();
+use FindBin    ();
 
 BEGIN { use_ok('Log::Munger') || print "Bail out!\n"; }
+
+# resolve names against the working tree's rule files, not an installed copy;
+# the CLI subprocesses below inherit this through the environment
+$ENV{'LOG_MUNGER_RULES_DIR'} = $FindBin::Bin . '/../share' if ( -d $FindBin::Bin . '/../share' );
 
 # ---- explain_item (the shared matcher used by the explain command) ----
 my $m   = Log::Munger->new( 'rules' => [ 'base', 'postfix' ] );

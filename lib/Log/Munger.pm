@@ -60,7 +60,7 @@ matches later on.
     my $munger = Log::Munger->new( 'rules' => [ 'base', 'postfix' ] );
     my $munger = Log::Munger->new( 'rules' => ['postfix'], 'geoip' => '/path/to/GeoLite2-City.mmdb' );
 
-    - rules :: Rule files to load. The taken value is an array.
+    - rules :: Rule files to load. The taken value is an array ref.
         Default :: undef
 
     - geoip :: Path to a MaxMind .mmdb database. When set, rules that flag
@@ -157,7 +157,9 @@ have been loaded).
     );
 
 Returns a hash ref of the winning rule's named captures, or undef if nothing
-matched. Never dies, so a single unusual log line cannot take down a stream.
+matched. Never dies: an exception during matching comes back as undef rather
+than taking down the stream. That bounds failures, not runtime -- a pattern
+prone to catastrophic backtracking can still burn CPU on a hostile line.
 
 =cut
 

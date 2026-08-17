@@ -11,11 +11,16 @@ A rule file is a YAML document. There are two kinds:
 
 > **Rule of thumb:** `base.yaml` is primitives-only; consumer files carry `rules:`.
 
+> **Only load rule files you trust.** A rule file is closer to code than to data: its
+> patterns run against your logs and its `vars_templated` entries are processed with
+> Template Toolkit. Read a third-party rule file the way you would read a third-party
+> script before dropping it into the search path.
+
 ## Top-level keys
 
 | Key | In | Purpose |
 |-----|----|---------|
-| `includes` | both | List of other rule files to merge in first (right-precedence: the current file wins on conflict). |
+| `includes` | both | List of other rule files to merge in first. The current file wins on a conflict, and an earlier include wins over a later one. |
 | `vars` | both | Plain named regexps — no templating. |
 | `vars_templated` | both | Named regexps that use `[% VAR %]` Template Toolkit references, resolved in dependency order. |
 | `vars_tests` | both | Positive/negative tests for individual `vars` / `vars_templated`. |
@@ -145,7 +150,8 @@ not compile is a load error (this is where an illegal capture name is caught).
 
 After a pattern matches, three optional steps run against the captured fields, always in
 this order: **decompose → geoip → convert**. Each may be set per-rule or once at file
-level as a default. None of them ever clobber an existing capture.
+level as a default. A new field never clobbers an existing capture; only `convert`
+changes an existing value, and only for the fields it names.
 
 ### `decompose` — break captured fields down further
 
@@ -161,7 +167,7 @@ Three `type`s:
 | `value_split` | `'='` | Separator between key and value. |
 | `prefix` | `''` | Prepended to each produced key name. |
 | `trim` | *(none)* | Characters stripped from each end of a value. |
-| `quoted` | `false` | Quote-aware mode: a value may be `"double"` or `'single'` quoted (quotes stripped, the separator allowed inside them); pairs are whitespace-separated. |
+| `quoted` | `false` | Quote-aware mode: a value may be `"double"` or `'single'` quoted (quotes stripped, the separator allowed inside them); pairs are found by scanning for `key=value` shapes rather than by splitting on `field_split`. |
 | `remove` | `false` | Delete the source field afterwards. |
 
 ```yaml
@@ -211,7 +217,8 @@ for it.
 Some values are normalized on the way through. A MongoDB extended-JSON wrapper — a
 single-key object such as `{"$date":…}`, `{"$oid":…}`, or `{"$numberLong":…}` — collapses
 to the scalar inside it. Booleans become `1` and `0`. JSON null is skipped rather than
-stored. A field whose value is not valid JSON is left exactly as it was.
+stored. A field whose value is not valid JSON — or is JSON for a bare scalar rather than
+an object or array — is left exactly as it was.
 
 ```yaml
 decompose:
@@ -302,8 +309,10 @@ vars_tests:
 Rule `tests` validate a rule's **patterns**: each `positive` string must match one of the
 rule's patterns and its raw named captures must equal `result`; each `negative` string must
 match none of them. The captures are compared *before* enrichment — `decompose`, `geoip`,
-and `convert` are **not** applied here (they are validated separately: `decompose` by each
-entry's own `tests`, `convert`/`geoip` at runtime). So a rule test's `result` lists the
+and `convert` are **not** applied here. Those are covered separately: each `decompose`
+entry carries its own `tests`, and the `numeric` and `enriched` keys described below put
+`convert` and `decompose` under test as the rule uses them; `geoip` needs a database and
+stays a runtime concern. So a rule test's `result` lists the
 `(?<...>)` captures only, and numbers appear as strings (e.g. `ssh_src_port: '54321'`) even
 when a `convert:` coerces them at runtime. See the bundled `sshd.yaml` / `netfilter.yaml`
 for full worked examples — their rule tests expect the raw port string and the still-whole
@@ -334,7 +343,7 @@ tests:
       program: 'dhcpd'
 ```
 
-Worth the line it costs. A wrong pattern loses one message type; a wrong gate loses the
+Naming a program is worth the line it costs. A wrong pattern loses one message type; a wrong gate loses the
 whole daemon, and every pattern test still passes while it does. A gated rule no case names
 a program for is reported as a warning. Gates are checked against a record holding nothing
 but `PROGRAM`, which is what every gate in every bundled file keys on — see the bundled

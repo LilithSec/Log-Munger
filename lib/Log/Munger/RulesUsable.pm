@@ -39,8 +39,8 @@ patterns compile or whether the tests pass, is L<Log::Munger::RulesTest>'s job.
 The split exists because the two are used at different times. Something starting
 up wants a cheap look at a file it is about to load, not the full test suite.
 
-    - rules :: The rules hash ref to check.
-        default :: undef
+    - rules :: The rules hash ref to check. Required.
+        Default :: undef
 
 Returns 1 if the hash is usable. Otherwise dies with a message naming the specific
 thing that was wrong, so the caller has something worth printing.

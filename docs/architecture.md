@@ -36,8 +36,9 @@ name ──WhichRuleFile──► path ──read_file──► YAML text ──
 
 Key points:
 
-- Includes are merged first :: With right precedence, so the current file wins on a
-  conflict and a consumer can override a base primitive. Includes are de-duplicated.
+- Includes are merged first :: The current file wins on a conflict, so a consumer can
+  override a base primitive, and an earlier include wins over a later one. Includes are
+  de-duplicated.
 - Templating order matters :: `vars_templated` entries reference each other, so
   `RulesTemplateOrder` works out a dependency order via `Algorithm::Dependency::Ordered`
   and a var is resolved only once everything it references already is. See the order with
@@ -70,8 +71,10 @@ Key points:
    enrich in order: **decompose → geoip → convert**. Return the match and stop —
    first-rule-wins across the whole set.
 
-The whole match runs inside an `eval`, so any exception yields "no match" and a single bad
-log line can never take down a stream.
+The whole match runs inside an `eval`, so any exception yields "no match" rather than
+taking down a stream. That bounds failures, not runtime: a pattern prone to catastrophic
+backtracking can still burn CPU on a hostile line, which is one of the reasons to keep
+patterns anchored and tested.
 
 ### Why the enrichment order is fixed
 

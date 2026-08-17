@@ -37,11 +37,13 @@ Start here:
 
 ## Rule-file search path
 
-A rule file name is looked for in three places, in this order:
+A rule file name is looked for in these places, in this order:
 
-1. `/etc/log_munger/rules/`
-2. `/usr/local/etc/log_munger/rules/`
-3. the distribution share directory (`File::ShareDir::dist_dir('Log-Munger')`)
+1. the directory named by the `LOG_MUNGER_RULES_DIR` environment variable, when set
+   (handy for pointing a checkout at its own `share/`)
+2. `/etc/log_munger/rules/`
+3. `/usr/local/etc/log_munger/rules/`
+4. the distribution share directory (`File::ShareDir::dist_dir('Log-Munger')`)
 
 The first hit wins, so a local file shadows one shipped with the distribution. A name with
 no `.yaml` also tries `name.yaml`, and a path starting with `/`, `./`, or `../` is used

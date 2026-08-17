@@ -119,9 +119,9 @@ are `int`, the case folds `lc` and `uc`, and `mac`; see
 
 A rule's `tests` assert the **raw pattern captures**: what the winning pattern's
 `(?<...>)` groups produce, *before* `decompose`, `geoip` or `convert` run. Those steps are
-validated separately — `decompose` by its own entry-level `tests` from step 5, and
-`convert` and `geoip` at runtime. So the expected `result` here is `app_status` and the
-still-whole `app_kv`:
+validated separately — `decompose` by its entry-level `tests` from step 5 and the
+`enriched` map below, `convert` by the `numeric` list below, and `geoip` at runtime. So
+the expected `result` here is `app_status` and the still-whole `app_kv`:
 
 ```yaml
 rules:

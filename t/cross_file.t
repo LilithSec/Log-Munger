@@ -4,10 +4,15 @@ use strict;
 use warnings;
 use Test::More;
 use File::ShareDir ();
+use FindBin        ();
 
 BEGIN {
 	use_ok('Log::Munger') || print "Bail out!\n";
 }
+
+# test the working tree's rule files rather than whatever copy happens to be
+# installed; without this a stale installed share dir shadows the tree
+$ENV{'LOG_MUNGER_RULES_DIR'} = $FindBin::Bin . '/../share' if ( -d $FindBin::Bin . '/../share' );
 
 #
 # What only exists when more than one rule file is loaded.
@@ -34,7 +39,10 @@ BEGIN {
 #
 # the whole set at once: every daemon's line still goes to the file that owns it
 #
-my $share = File::ShareDir::dist_dir('Log-Munger');
+my $share = $ENV{'LOG_MUNGER_RULES_DIR'};
+if ( !defined($share) || !-d $share ) {
+	$share = File::ShareDir::dist_dir('Log-Munger');
+}
 my @all = map { m{([^/]+)\.yaml\z} } sort glob("$share/*.yaml");
 cmp_ok( scalar(@all), '>=', 40, 'found the full set of shipped rule files' );
 

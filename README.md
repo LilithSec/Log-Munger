@@ -41,6 +41,8 @@ Log-Munger takes the idea and makes it:
 
 ## Install
 
+### From source
+
 From a checkout:
 
 ```sh
@@ -54,8 +56,28 @@ Core dependencies, pulled in by `Makefile.PL`: `YAML::XS`, `JSON`, `File::ShareD
 `File::Slurp`, `Template`, `Hash::Merge`, `App::Cmd`,
 `Algorithm::Dependency::Source::HoA`, and `Algorithm::Dependency::Ordered`.
 
+### FreeBSD
+
+```sh
+pkg install p5-App-cpanminus p5-YAML-LibYAML p5-JSON p5-File-ShareDir p5-File-Slurp \
+    p5-Template-Toolkit p5-Hash-Merge p5-App-Cmd p5-Algorithm-Dependency
+cpanm Log::Munger
+```
+
+### Debian
+
+```sh
+apt-get install cpanminus libyaml-libyaml-perl libjson-perl libfile-sharedir-perl \
+    libfile-slurp-perl libtemplate-perl libhash-merge-perl libapp-cmd-perl \
+    libalgorithm-dependency-perl
+cpanm Log::Munger
+```
+
+### GeoIP
+
 GeoIP enrichment additionally needs
-[`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB). It is only
+[`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB)
+(`p5-IP-Geolocation-MMDB` on FreeBSD; via `cpanm` on Debian). It is only
 recommended rather than required, and is loaded only when you actually pass a database.
 
 ## Quick start
@@ -113,7 +135,11 @@ The distribution ships a primitive library plus ready-to-use rule files
 | Rule file | Matches |
 |-----------|---------|
 | `sshd` | OpenSSH auth events, plus the scan traffic that never reaches auth |
+| `dropbear` | Dropbear SSH server auth events |
 | `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication |
+| `nslcd` | The LDAP name-service daemon behind `libnss_ldap` / `pam_ldap` |
+| `luci` | LuCI (the OpenWrt web interface) authentication |
+| `xscreensaver` | XScreenSaver lock-screen unlock attempts |
 | `polkit` | polkit authorization decisions — the third way to gain privilege |
 | `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
 | `slapd` | OpenLDAP binds, searches, and result codes |
@@ -135,6 +161,8 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `spamd` | SpamAssassin scan results |
 | `clamav` | ClamAV detections and signature-database freshness |
 | `opendkim` / `opendmarc` | DKIM and DMARC results, joined to the MTA by queue id |
+| `ssmtp` | sSMTP, the send-only MTA |
+| `sympa` | The Sympa mailing list manager's daemons |
 
 **Web, proxy, and network services**
 
@@ -157,6 +185,12 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `chrony` / `ntpd` / `timesyncd` | Time synchronization daemons |
 | `xinetd` | Superserver dispatch: who reached which service, and refusals |
 | `snmpd` | Net-SNMP connections — who is querying the agent |
+| `asterisk` | Asterisk PBX |
+| `avahi` | Avahi mDNS/DNS-SD responder |
+| `lldpd` | lldpd/lldpcli link-layer neighbor discovery |
+| `netifd` / `odhcpd` | OpenWrt's network interface and DHCPv6/router-advertisement daemons |
+| `huawei` | Huawei VRP devices — S-series switches, AR routers, USG firewalls |
+| `tor` | Tor daemon |
 
 **Firewalls**
 
@@ -168,7 +202,11 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `fortinet` | FortiGate/FortiOS key=value logs |
 | `sonicwall` | SonicWall/SonicOS key=value logs |
 | `fail2ban` | fail2ban ban/unban actions |
+| `galla` / `kur` / `ereshkigal` / `baphomet` | The Ereshkigal ban suite: Galla log-watchers, Kur ban daemons, and the supervisors of each |
 | `suricata` | Suricata IDS — `eve.json` and `fast.log` |
+| `daemonlogger` | daemonlogger's rolling packet capture |
+| `virani` | Virani, which carves per-request pcaps out of daemonlogger's capture set |
+| `suricata_extract_submit` / `mojo_cape_submit` | Shipping Suricata-carved files to CAPEv2, and the submission endpoint receiving them |
 
 **Databases, storage, and the host itself**
 
@@ -181,9 +219,22 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `smartd` | Disk health: failing attributes, bad sectors, temperature |
 | `zed` | ZFS Event Daemon — checksum errors, vdev states, resilvers |
 | `docker` | Docker/containerd logfmt output |
+| `libvirt` | libvirt daemons, monolithic and modular |
 | `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
+| `dbus` | D-Bus message bus (`dbus-daemon` and `dbus-broker`) |
 | `cron` / `atd` | Scheduled job execution |
+| `shutdown` | `shutdown` / `reboot` / `halt` |
+| `fwupd` | fwupd firmware updates, daemon and clients |
+| `pkg` | FreeBSD `pkg(8)` package changes |
+| `rc` | FreeBSD `rc(8)` service-script warnings |
 | `syslog_daemon` | rsyslog and syslog-ng internals — rate limiting and stalled outputs |
+
+## Trusting rule files
+
+A rule file is closer to code than to data: its patterns run against your logs and its
+templated vars are processed with Template Toolkit. Only load rule files you trust, and
+read a third-party one the way you would read a third-party script before dropping it
+into `/etc/log_munger/rules/`.
 
 ## Documentation
 

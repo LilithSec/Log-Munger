@@ -41,6 +41,9 @@ sub validate { return 1 }
 #     foreach my $dir ( _search_dirs() ) { ... }
 sub _search_dirs {
 	my @dirs = ( '/etc/log_munger/rules', '/usr/local/etc/log_munger/rules' );
+	if ( defined( $ENV{'LOG_MUNGER_RULES_DIR'} ) && length( $ENV{'LOG_MUNGER_RULES_DIR'} ) ) {
+		unshift( @dirs, $ENV{'LOG_MUNGER_RULES_DIR'} );
+	}
 	my $share;
 	eval { $share = File::ShareDir::dist_dir('Log-Munger'); };
 	push( @dirs, $share ) if ( defined($share) );

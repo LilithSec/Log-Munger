@@ -40,8 +40,9 @@ merged dispatch list. A rule file with no C<rules:> section (a pure primitive
 library such as C<base>) is accepted and skipped for dispatch.
 
 A rule dispatches when B<all> of its gates pass B<and> one of its patterns matches
-the target field. Gates and patterns are both first-match-wins, and rules are
-tried in load order (files in the order given, rules in file order).
+the target field. A gate passes when its field matches any of the gate's values,
+patterns are first-match-wins, and rules are tried in load order (files in the
+order given, rules in file order).
 
 =head1 METHODS
 
@@ -49,15 +50,15 @@ tried in load order (files in the order given, rules in file order).
 
 Loads and compiles the named rule files.
 
-    - rules :: Rule files to load. The taken value is an array.
-        default :: undef (required)
+    - rules :: Rule files to load. The taken value is an array ref.
+        Default :: undef (required)
 
     - geoip :: Path to a MaxMind .mmdb database. When given, rules may flag
         captured fields (via a rule-level or file-level C<geoip:> list) whose
         values are looked up and stored under C<< $result->{geoip}{$field} >>.
         Requires IP::Geolocation::MMDB (a soft dependency, only loaded when this
         option is used).
-        default :: undef (geoip disabled)
+        Default :: undef (geoip disabled)
 
 =cut
 
@@ -102,8 +103,9 @@ sub new {
 		my $name = $opts{'rules'}[$rules_int];
 
 		# RuleFileParser->load resolves the name (or path) itself via
-		# WhichRuleFile, so do not pre-resolve here -- a pre-resolved
-		# dist-share path would fail the parser's own re-resolution
+		# WhichRuleFile, so hand it over untouched; resolving here too would
+		# repeat the same work and turn error messages into resolved paths
+		# rather than the name the caller actually passed
 		my $rules;
 		eval { $rules = $parser->load( 'file' => $name ); };
 		if ($@) {
@@ -176,27 +178,29 @@ itself.
         so callers feeding whole log lines (e.g. apache/nginx access logs) need
         not wrap them. If given, C<item> takes precedence and the C<message> /
         C<program> / C<priority> / C<facility> args below are ignored.
-        default :: undef
+        Default :: undef
 
     - message :: The raw log message; assembled into C<< { MESSAGE => ... } >>.
-        default :: undef
+        Default :: undef
 
     - program :: Adds a C<PROGRAM> field (the usual gate for daemon rule files).
-        default :: undef
+        Default :: undef
 
     - priority :: Adds a C<PRIORITY> field.
-        default :: undef
+        Default :: undef
 
     - facility :: Adds a C<FACILITY> field.
-        default :: undef
+        Default :: undef
 
     my $fields = $processor->process_item( 'item' => $decoded_hashref );
     my $fields = $processor->process_item( 'message' => $line, 'program' => 'sshd' );
 
 Returns a hash ref of the winning pattern's named captures on a match (which may
 be an empty hash ref if the pattern had no named captures), or C<undef> if no rule
-matched. This method never dies: a bad item or a pathological pattern yields
-C<undef> so a single log line can never cost the caller.
+matched. This method never dies: an exception during matching is caught and comes
+back as C<undef>. That bounds failures, not runtime -- a pattern prone to
+catastrophic backtracking can still burn CPU on a hostile line, so keep patterns
+anchored and tested.
 
 =cut
 
@@ -228,18 +232,19 @@ sub explain_item {
 	return $self->_run( $self->_item_from_opts(%opts) );
 } ## end sub explain_item
 
-=head2 _item_from_opts
-
-Internal. Resolves the item to run from the caller's arguments. An explicit
-C<item> (hash ref or bare string) is returned as-is for backward compatibility.
-Otherwise, when C<message> is given, a record hash is assembled from it plus any
-of the optional C<program> / C<priority> / C<facility> fields (mapped to the
-syslog-ng-style upper-case keys C<PROGRAM> / C<PRIORITY> / C<FACILITY> that rule
-gates match on). Returns C<undef> when neither C<item> nor C<message> is given
-(which C<_run> treats as a non-match).
-
-=cut
-
+# Resolves the item to run from the caller's arguments. An explicit item (hash
+# ref or bare string) is returned as-is for backward compatibility. Otherwise,
+# when message is given, a record hash is assembled from it plus any of the
+# optional program / priority / facility fields, mapped to the syslog-ng-style
+# upper-case keys PROGRAM / PRIORITY / FACILITY that rule gates match on.
+#
+# Takes the same %opts as process_item and explain_item.
+#
+# Returns the item to hand to _run: the item as given, an assembled hash ref,
+# or undef when neither item nor message was given (which _run treats as a
+# non-match).
+#
+#     my $item = $self->_item_from_opts(%opts);
 sub _item_from_opts {
 	my ( $self, %opts ) = @_;
 
@@ -257,15 +262,18 @@ sub _item_from_opts {
 	return $item;
 } ## end sub _item_from_opts
 
-=head2 _run
-
-Internal. The shared matcher for L</process_item> and L</explain_item>. Coerces a
-bare-string item to C<< { MESSAGE => $string } >>, walks the rules, and on the
-first gate-passing pattern match runs decompose -> geoip -> convert. Returns the
-match-metadata hash (see L</explain_item>). Never dies.
-
-=cut
-
+# The shared matcher for process_item and explain_item. Coerces a bare-string
+# item to { MESSAGE => $string }, walks the rules, and on the first
+# gate-passing pattern match runs decompose -> geoip -> convert.
+#
+# Args:
+#
+#     - $item :: The record to match. A hash ref, a bare string, or undef.
+#
+# Returns the match-metadata hash explain_item documents: { matched => 0 } on
+# no match, else { matched => 1, rule, pattern, field, fields }. Never dies.
+#
+#     my $match = $self->_run($item);
 sub _run {
 	my ( $self, $item ) = @_;
 
@@ -350,15 +358,20 @@ sub _run {
 	return $result;
 } ## end sub _run
 
-=head2 _geoip_enrich
-
-Internal. For each of the rule's flagged geoip fields that was captured, looks
-the value up in the geoip database and stores the record under
-C<< $captures->{geoip}{$field} >>. A field that is undef, empty, not an address,
-or absent from the database is simply skipped; a lookup never dies.
-
-=cut
-
+# For each of the rule's flagged geoip fields that was captured, looks the
+# value up in the geoip database and stores the record under
+# $captures->{geoip}{$field}.
+#
+# Args:
+#
+#     - $rule :: The compiled rule, read for its geoip field list.
+#
+#     - $captures :: Hash ref of the captured fields. Modified in place.
+#
+# Returns nothing. A field that is undef, empty, not an address, or absent from
+# the database is simply skipped; a lookup never dies.
+#
+#     $self->_geoip_enrich( $rule, \%captures );
 sub _geoip_enrich {
 	my ( $self, $rule, $captures ) = @_;
 
@@ -376,46 +389,56 @@ sub _geoip_enrich {
 		$geo{$field} = $record;
 	}
 
-	if (%geo) {
+	# never clobber a capture that happens to be named geoip; no enrichment
+	# step overwrites an existing capture
+	if ( %geo && !exists( $captures->{'geoip'} ) ) {
 		$captures->{'geoip'} = \%geo;
 	}
 
 	return;
 } ## end sub _geoip_enrich
 
-=head2 _compile_decompose
-
-Internal. Compiles a C<decompose:> list (an array of C<{field, type, ...}>
-entries) into runtime structures. Three types are supported:
-
-    - kv      :: split a "k=v k=v" blob into fields. Options: field_split
-                 (default " "), value_split (default "="), prefix (default ""),
-                 trim (chars stripped from each end of a value), remove. With
-                 quoted => true it is quote-aware instead: a value may be
-                 "double" or 'single' quoted (quotes stripped, the separator
-                 allowed inside them), and pairs are whitespace-separated.
-    - pattern :: re-match the field against a named var (or inline regexp),
-                 anchored, and merge its named captures. Options: pattern, remove.
-    - json    :: JSON-decode the field (for logs that embed a JSON document in a
-                 sub-field, e.g. MongoDB). By default the decoded structure is
-                 flattened into keys of C<< prefix + path >> joined by C<separator>
-                 (default "_"); MongoDB extended-JSON wrappers ({"$date":...},
-                 {"$oid":...}, {"$numberLong":...}) collapse to their scalar,
-                 booleans normalize to 1/0, and JSON null is skipped. Arrays are
-                 keyed by index. Options: prefix (default ""), separator
-                 (default "_"), remove, and nested => true (store the decoded
-                 structure whole under a single key instead of flattening). A
-                 field whose value is not valid JSON is left untouched.
-
-Every entry may set C<< remove: true >> to drop the source field afterwards.
-
-An entry may also carry a C<< tests: [ { input, result }, ... ] >> list:
-L<Log::Munger::RulesTest> applies the entry on its own to C<< { field => input } >>
-and checks that the resulting captures equal C<result> (which reflects the
-entry's C<remove:> setting). The C<tests> key is ignored at runtime.
-
-=cut
-
+# Compiles a decompose: list (an array of {field, type, ...} entries) into
+# runtime structures. Three types are supported:
+#
+#     - kv      :: split a "k=v k=v" blob into fields. Options: field_split
+#                  (default " "), value_split (default "="), prefix (default ""),
+#                  trim (chars stripped from each end of a value), remove. With
+#                  quoted => true it is quote-aware instead: a value may be
+#                  "double" or 'single' quoted (quotes stripped, the separator
+#                  allowed inside them), and pairs are found by scanning for
+#                  key=value shapes rather than by splitting on field_split.
+#     - pattern :: re-match the field against a named var (or inline regexp),
+#                  anchored, and merge its named captures. Options: pattern,
+#                  remove.
+#     - json    :: JSON-decode the field (for logs that embed a JSON document in
+#                  a sub-field, e.g. MongoDB). By default the decoded structure
+#                  is flattened into keys of prefix + path joined by separator
+#                  (default "_"); MongoDB extended-JSON wrappers ({"$date":...},
+#                  {"$oid":...}, {"$numberLong":...}) collapse to their scalar,
+#                  booleans normalize to 1/0, and JSON null is skipped. Arrays
+#                  are keyed by index. Options: prefix (default ""), separator
+#                  (default "_"), remove, and nested => true (store the decoded
+#                  structure whole under a single key instead of flattening). A
+#                  field whose value is not valid JSON, or is JSON for a bare
+#                  scalar, is left untouched.
+#
+# Every entry may set remove: true to drop the source field afterwards. An
+# entry may also carry a tests: [ { input, result }, ... ] list, which
+# Log::Munger::RulesTest runs in isolation; the tests key is ignored here.
+#
+# Args:
+#
+#     - $decompose :: The decompose list as written in the rule file. An array
+#         ref of { field, type, ... } hash refs.
+#
+#     - $vars :: The compiled vars hash ref a "type: pattern" entry resolves
+#         its pattern name against.
+#
+# Returns an array ref of compiled entries. Dies on a malformed entry, an
+# unknown type, un-degrokked grok, or a pattern that will not compile.
+#
+#     my $compiled = $self->_compile_decompose( $rules->{'decompose'}, $vars );
 sub _compile_decompose {
 	my ( $self, $decompose, $vars ) = @_;
 
@@ -486,14 +509,19 @@ sub _compile_decompose {
 	return \@compiled;
 } ## end sub _compile_decompose
 
-=head2 _decompose
-
-Internal. Applies a rule's compiled decompose entries to the captures hash, in
-order, so a later entry can break down a field produced by an earlier one. New
-fields never clobber an existing capture. Never dies.
-
-=cut
-
+# Applies a rule's compiled decompose entries to the captures hash, in order,
+# so a later entry can break down a field produced by an earlier one.
+#
+# Args:
+#
+#     - $rule :: The compiled rule, read for its decompose list.
+#
+#     - $captures :: Hash ref of the captured fields. Modified in place. New
+#         fields never clobber an existing capture.
+#
+# Returns nothing. Never dies.
+#
+#     $self->_decompose( $rule, \%captures );
 sub _decompose {
 	my ( $self, $rule, $captures ) = @_;
 
@@ -505,7 +533,8 @@ sub _decompose {
 			if ( $d->{'quoted'} ) {
 				# quote-aware: a value may be "double" or 'single' quoted (quotes
 				# stripped, the field separator allowed inside), else a bareword.
-				# pairs are whitespace-separated; the value_split joins key/value.
+				# pairs are found by scanning for key=value shapes (value_split
+				# joining key and value) rather than by splitting on field_split.
 				my $vs = quotemeta( $d->{'value_split'} );
 				while ( $value =~ /([\w.\-]+)$vs(?:"([^"]*)"|'([^']*)'|(\S*))/g ) {
 					my $key = $1;
@@ -572,17 +601,29 @@ sub _decompose {
 	return;
 } ## end sub _decompose
 
-=head2 _json_flatten
-
-Internal. Recursively flattens a decoded-JSON structure into the captures hash.
-Each leaf becomes C<< prefix + path >> where path is the sequence of object keys
-and array indices joined by C<separator>. MongoDB extended-JSON wrappers (a hash
-with a single C<$>-prefixed key such as C<$date> / C<$oid> / C<$numberLong>)
-collapse transparently to their inner value; booleans normalize to 1/0; JSON
-null is skipped; an already-present capture is never clobbered. Never dies.
-
-=cut
-
+# Recursively flattens a decoded-JSON structure into the captures hash. Each
+# leaf becomes prefix + path, where path is the sequence of object keys and
+# array indices joined by the separator. MongoDB extended-JSON wrappers (a hash
+# with a single $-prefixed key such as $date / $oid / $numberLong) collapse
+# transparently to their inner value; booleans normalize to 1/0; JSON null is
+# skipped.
+#
+# Args:
+#
+#     - $data :: The decoded structure (or, on recursion, a piece of it).
+#
+#     - $path :: The path down to $data so far, "" at the top.
+#
+#     - $sep :: The separator joining path segments.
+#
+#     - $prefix :: Prepended to every produced key.
+#
+#     - $captures :: Hash ref the produced fields land in. Modified in place;
+#         an already-present capture is never clobbered.
+#
+# Returns nothing. Never dies.
+#
+#     $self->_json_flatten( $decoded, '', '_', 'mongo_', \%captures );
 sub _json_flatten {
 	my ( $self, $data, $path, $sep, $prefix, $captures ) = @_;
 
@@ -624,28 +665,23 @@ sub _json_flatten {
 	return;
 } ## end sub _json_flatten
 
-=head2 _compile_convert
-
-Internal. Validates a C<convert:> map (field => type) and returns a normalized
-copy (type is one of C<int>, C<float>, C<lc>, C<uc>, or C<mac>; C<integer> is
-accepted as an alias for C<int>, C<num>/C<number> for C<float>,
-C<lower>/C<lowercase>/C<upper>/C<uppercase> for the two case folds, and
-C<macaddr>/C<mac_address> for C<mac>). Dies on an unknown type.
-
-C<lc>/C<uc> exist so a rule file can normalize a captured token whose case varies
-between the log sources that produce it -- SELinux writes C<avc: denied> while
-AppArmor writes C<apparmor="DENIED"> for the same verdict, and a consumer should
-not have to care which one it is looking at.
-
-C<mac> is there for the same reason one step further out: a MAC address is
-written four different ways depending on who is printing it -- colon-separated
-by most of userland, hyphen-separated by Windows, dotted quads by Cisco, and
-space-separated hex bytes by the kernel's link-layer header dump -- and a
-consumer correlating one field against another should not have to reconcile
-them.
-
-=cut
-
+# Validates a convert: map (field => type) and returns a normalized copy.
+#
+# lc/uc exist so a rule file can normalize a captured token whose case varies
+# between the log sources that produce it; mac normalizes the several spellings
+# a MAC address arrives in (see _normalize_mac). The full rationale lives in
+# docs/rule-files.md.
+#
+# Args:
+#
+#     - $convert :: The convert map as written in the rule file. A hash ref of
+#         field => type, where type is one of int, float, lc, uc, or mac.
+#         Aliases: integer for int; num/number for float; lower/lowercase and
+#         upper/uppercase for the case folds; macaddr/mac_address for mac.
+#
+# Returns a hash ref of field => canonical type. Dies on an unknown type.
+#
+#     my $normalized = $self->_compile_convert( $rules->{'convert'} );
 sub _compile_convert {
 	my ( $self, $convert ) = @_;
 
@@ -677,17 +713,22 @@ sub _compile_convert {
 	return \%normalized;
 } ## end sub _compile_convert
 
-=head2 _convert
-
-Internal. Coerces the rule's convert fields in the captures hash: C<int>/C<float>
-to numbers so they serialize as JSON numbers rather than strings, C<lc>/C<uc> to
-a case-folded string, C<mac> to lowercase colon-separated hex. A value that is
-not present is left untouched, as is a numeric conversion of something that does
-not look like a number and a C<mac> conversion of something that is not twelve
-hex digits. Never dies.
-
-=cut
-
+# Coerces the rule's convert fields in the captures hash: int/float to numbers
+# so they serialize as JSON numbers rather than strings, lc/uc to a case-folded
+# string, mac to lowercase colon-separated hex.
+#
+# Args:
+#
+#     - $rule :: The compiled rule, read for its convert map.
+#
+#     - $captures :: Hash ref of the captured fields. Modified in place. A
+#         field that is not present is left untouched, as is a numeric
+#         conversion of something that does not look like a number and a mac
+#         conversion of something that is not twelve hex digits.
+#
+# Returns nothing. Never dies.
+#
+#     $self->_convert( $rule, \%captures );
 sub _convert {
 	my ( $self, $rule, $captures ) = @_;
 
@@ -723,39 +764,34 @@ sub _convert {
 	return;
 } ## end sub _convert
 
-=head2 _normalize_mac
-
-Internal. Rewrites a MAC address into the one spelling everything else in the
-distribution uses: twelve lowercase hex digits in six colon-separated pairs.
-
-Takes one argument.
-
-    - value :: The captured string to rewrite. Any of the four spellings a log
-               line might carry are understood -- colon-separated
-               ("C4:D8:D5:3B:8C:4B"), hyphen-separated as Windows writes it
-               ("C4-D8-D5-3B-8C-4B"), dotted quads as Cisco writes them
-               ("c4d8.d53b.8c4b"), space-separated bytes as the kernel's link
-               layer header dump writes them ("c4 d8 d5 3b 8c 4b"), and bare
-               ("c4d8d53b8c4b").
-
-Returns the normalized address as a string. If the value does not reduce to
-exactly twelve hex digits once the separators are removed it is returned
-unchanged, so a field that turns out not to hold a MAC after all is passed
-through rather than mangled -- this runs against whatever the pattern captured,
-and a pattern can be looser than its author intended.
-
-    # all five of these return 'c4:d8:d5:3b:8c:4b'
-    $processor->_normalize_mac('C4:D8:D5:3B:8C:4B');
-    $processor->_normalize_mac('C4-D8-D5-3B-8C-4B');
-    $processor->_normalize_mac('c4d8.d53b.8c4b');
-    $processor->_normalize_mac('c4 d8 d5 3b 8c 4b');
-    $processor->_normalize_mac('c4d8d53b8c4b');
-
-    # not twelve hex digits, so returned as-is
-    $processor->_normalize_mac('unknown');
-
-=cut
-
+# Rewrites a MAC address into the one spelling everything else in the
+# distribution uses: twelve lowercase hex digits in six colon-separated pairs.
+#
+# Args:
+#
+#     - $value :: The captured string to rewrite. Any of the spellings a log
+#         line might carry are understood -- colon-separated
+#         ("C4:D8:D5:3B:8C:4B"), hyphen-separated as Windows writes it
+#         ("C4-D8-D5-3B-8C-4B"), dotted quads as Cisco writes them
+#         ("c4d8.d53b.8c4b"), space-separated bytes as the kernel's link layer
+#         header dump writes them ("c4 d8 d5 3b 8c 4b"), and bare
+#         ("c4d8d53b8c4b").
+#
+# Returns the normalized address as a string. If the value does not reduce to
+# exactly twelve hex digits once the separators are removed it is returned
+# unchanged, so a field that turns out not to hold a MAC after all is passed
+# through rather than mangled -- this runs against whatever the pattern
+# captured, and a pattern can be looser than its author intended.
+#
+#     # all five of these return 'c4:d8:d5:3b:8c:4b'
+#     $processor->_normalize_mac('C4:D8:D5:3B:8C:4B');
+#     $processor->_normalize_mac('C4-D8-D5-3B-8C-4B');
+#     $processor->_normalize_mac('c4d8.d53b.8c4b');
+#     $processor->_normalize_mac('c4 d8 d5 3b 8c 4b');
+#     $processor->_normalize_mac('c4d8d53b8c4b');
+#
+#     # not twelve hex digits, so returned as-is
+#     $processor->_normalize_mac('unknown');
 sub _normalize_mac {
 	my ( $self, $value ) = @_;
 
@@ -767,47 +803,48 @@ sub _normalize_mac {
 	return join( ':', lc($digits) =~ /([0-9a-f]{2})/g );
 }
 
-=head2 _compile_rule
-
-Internal. Compiles a single C<rules:> entry into the runtime structure:
-
-    {
-        name      => ...,          # optional, diagnostics only
-        field     => 'MESSAGE',    # target field, defaults to MESSAGE
-        gate      => [ { field => ..., literals => {...}, regexps => [ qr//, ... ] }, ... ],
-        patterns  => [ qr//, ... ],
-        geoip     => [ 'field_name', ... ],
-        decompose => [ ... ],      # see _compile_decompose
-        convert   => { field_name => 'int'|'float'|'lc'|'uc'|'mac', ... },
-    }
-
-    - rule :: The raw rule hash ref.
-    - vars :: The compiled vars hash ref (pattern names resolve against this).
-    - default_geoip :: The file-level geoip list, used when the rule has none.
-    - default_decompose :: The file-level decompose list, used when the rule has none.
-    - default_convert :: The file-level convert map, used when the rule has none.
-
-A rule may set C<< anchored: true >>, in which case each pattern is wrapped as
-C<< \A(?:...)\z >> so it must match the whole target field (the equivalent of a
-logstash C<< ^...$ >> grok) rather than any substring.
-
-A rule, or a file-level default, may carry a C<decompose:> list to break captured
-fields down further at match time (see L</_compile_decompose>) and a C<convert:>
-map of field => C<int>|C<float>|C<lc>|C<uc>|C<mac> to coerce captured fields to numbers
-or to a case-folded string.
-
-C<geoip:>, C<decompose:>, and C<convert:> may each be given per-rule or once at
-the top of the file as a default for every rule. A rule-level one replaces the
-file-level default rather than merging with it. They run in the order
-decompose -> geoip -> convert, so geoip can look up a field a decompose step
-produced, and convert only coerces once geoip has seen the string addresses.
-
-Dies on a malformed rule, an un-degrokked C<%{...}> remnant, or a pattern that
-will not compile (which is where an illegal named capture such as a C<-> in the
-name is caught, at load time rather than at match time).
-
-=cut
-
+# Compiles a single rules: entry into the runtime structure:
+#
+#     {
+#         name      => ...,          # optional, diagnostics only
+#         field     => 'MESSAGE',    # target field, defaults to MESSAGE
+#         gate      => [ { field => ..., literals => {...}, regexps => [ qr//, ... ] }, ... ],
+#         patterns  => [ qr//, ... ],
+#         geoip     => [ 'field_name', ... ],
+#         decompose => [ ... ],      # see _compile_decompose
+#         convert   => { field_name => 'int'|'float'|'lc'|'uc'|'mac', ... },
+#     }
+#
+# A rule may set anchored: true, in which case each pattern is wrapped as
+# \A(?:...)\z so it must match the whole target field (the equivalent of a
+# logstash "^...$" grok) rather than any substring.
+#
+# geoip:, decompose:, and convert: may each be given per-rule or once at the
+# top of the file as a default for every rule. A rule-level one replaces the
+# file-level default rather than merging with it. They run in the order
+# decompose -> geoip -> convert, so geoip can look up a field a decompose step
+# produced, and convert only coerces once geoip has seen the string addresses.
+#
+# Args:
+#
+#     - rule :: The raw rule hash ref.
+#
+#     - vars :: The compiled vars hash ref (pattern names resolve against this).
+#
+#     - default_geoip :: The file-level geoip list, used when the rule has none.
+#
+#     - default_decompose :: The file-level decompose list, used when the rule
+#         has none.
+#
+#     - default_convert :: The file-level convert map, used when the rule has
+#         none.
+#
+# Returns the compiled rule hash ref. Dies on a malformed rule, an un-degrokked
+# %{...} remnant, or a pattern that will not compile (which is where an illegal
+# named capture such as a "-" in the name is caught, at load time rather than
+# at match time).
+#
+#     my $compiled = $self->_compile_rule( 'rule' => $rule, 'vars' => $vars );
 sub _compile_rule {
 	my ( $self, %opts ) = @_;
 

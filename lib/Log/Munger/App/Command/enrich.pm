@@ -58,8 +58,12 @@ sub execute {
 		} else {
 			eval { $record = $json->decode($line); };
 			if ( $@ || ref($record) ne 'HASH' ) {
-				# not decodable JSON: never drop data -- pass the line through
-				warn( "skipping undecodable line: $line\n" );
+				# not decodable JSON: never drop data -- pass the line through.
+				# The warned copy has control characters stripped so a hostile
+				# line cannot drive escape sequences into a watching terminal
+				my $shown = $line;
+				$shown =~ s/[\x00-\x1f\x7f]/./g;
+				warn("skipping undecodable line: $shown\n");
 				print "$line\n";
 				next;
 			}
@@ -69,7 +73,7 @@ sub execute {
 		my $fields = $munger->process_item( 'item' => $item );
 
 		if ( !defined($fields) ) {
-			next if ( $opts->{'drop-unmatched'} || $opts->{'drop_unmatched'} );
+			next if ( $opts->{'drop_unmatched'} );
 			print $json->encode($record) . "\n";
 			next;
 		}

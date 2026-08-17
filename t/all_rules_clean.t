@@ -4,10 +4,15 @@ use strict;
 use warnings;
 use Test::More;
 use File::ShareDir ();
+use FindBin        ();
 
 BEGIN {
 	use_ok('Log::Munger::RulesTest') || print "Bail out!\n";
 }
+
+# test the working tree's rule files rather than whatever copy happens to be
+# installed; without this a stale installed share dir shadows the tree
+$ENV{'LOG_MUNGER_RULES_DIR'} = $FindBin::Bin . '/../share' if ( -d $FindBin::Bin . '/../share' );
 
 #
 # Discover every shipped rule file and assert each one tests clean: no fatal,
@@ -25,10 +30,12 @@ BEGIN {
 # only missing when the distribution has not been built, which is a broken
 # test environment rather than a condition to tolerate.
 #
-my $share;
-eval { $share = File::ShareDir::dist_dir('Log-Munger'); };
+my $share = $ENV{'LOG_MUNGER_RULES_DIR'};
 if ( !defined($share) || !-d $share ) {
-	BAIL_OUT('dist share dir not found; run make before testing');
+	eval { $share = File::ShareDir::dist_dir('Log-Munger'); };
+}
+if ( !defined($share) || !-d $share ) {
+	BAIL_OUT('neither the tree share dir nor the dist share dir was found');
 }
 
 my @files = sort glob("$share/*.yaml");

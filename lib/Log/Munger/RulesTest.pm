@@ -516,7 +516,7 @@ sub test {
 		foreach my $var ( sort keys( %{ $rules->{'vars'} } ) ) {
 			my $value = $rules->{'vars'}{$var};
 			next if ( ref($value) ne '' );    # ref problems already reported above
-			push( @errors, __lint_regexp_string( '.vars.' . $var, $value ) );
+			push( @errors, _lint_regexp_string( '.vars.' . $var, $value ) );
 		}
 	}
 
@@ -593,8 +593,8 @@ sub test {
 					my $gated     = 0;
 					my $converted = 0;
 					my $enriched  = 0;
-					__test_rule_positive( $where, $rule, $compiled, \@errors, \$gated, \$converted, \$enriched );
-					__test_rule_negative( $where, $rule, $compiled, \@errors, \$gated );
+					_test_rule_positive( $where, $rule, $compiled, \@errors, \$gated, \$converted, \$enriched );
+					_test_rule_negative( $where, $rule, $compiled, \@errors, \$gated );
 
 					# a gate nothing ever names is a gate nothing has checked,
 					# and a wrong one costs the whole daemon rather than one
@@ -607,7 +607,7 @@ sub test {
 					# checked. It is the quietest thing in a rule file to get
 					# wrong: the field is captured, the value is right, and it
 					# arrives as a string where a consumer expected a number
-					my @unchecked = __unchecked_converts( $rule, $compiled );
+					my @unchecked = _unchecked_converts( $rule, $compiled );
 					if (@unchecked) {
 						push( @warnings,
 							$where . ' converts to a number but no test lists as numeric: ' . join( ', ', @unchecked ) );
@@ -616,7 +616,7 @@ sub test {
 					# a decompose entry's own tests say it works, not that the rule is
 					# wired to it. Rename a capture and the entry's tests still pass
 					# while the rule quietly stops splitting anything
-					my @unwired = __unchecked_decomposes( $rule, $compiled );
+					my @unwired = _unchecked_decomposes( $rule, $compiled );
 					if (@unwired) {
 						push( @warnings,
 							$where . ' decomposes into fields no test says it produces: ' . join( ', ', @unwired ) );
@@ -625,7 +625,7 @@ sub test {
 
 				# a rule may carry its own decompose entries
 				if ( defined( $rule->{'decompose'} ) ) {
-					__test_decompose( $rule->{'decompose'}, $vars, \@errors, \@warnings, $where . '.decompose' );
+					_test_decompose( $rule->{'decompose'}, $vars, \@errors, \@warnings, $where . '.decompose' );
 				}
 
 				$rule_int++;
@@ -638,7 +638,7 @@ sub test {
 	##
 	if ( defined( $rules->{'decompose'} ) ) {
 		my $vars = ( ref( $rules->{'vars'} ) eq 'HASH' ) ? $rules->{'vars'} : {};
-		__test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
+		_test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
 	}
 
 	##
@@ -688,9 +688,9 @@ sub test {
 # list means the string is clean. Nothing is ever pushed to warnings from here;
 # everything it looks for would produce wrong output.
 #
-#     my @errors = __lint_regexp_string( '.vars.SSH_FAILED', $rules->{'vars'}{'SSH_FAILED'} );
+#     my @errors = _lint_regexp_string( '.vars.SSH_FAILED', $rules->{'vars'}{'SSH_FAILED'} );
 #     # ( '.vars.SSH_FAILED has an illegal named-capture "src-ip" (must match [A-Za-z_]\w*)' )
-sub __lint_regexp_string {
+sub _lint_regexp_string {
 	my ( $where, $value ) = @_;
 
 	my @errors;
@@ -724,7 +724,7 @@ sub __lint_regexp_string {
 	}
 
 	return @errors;
-} ## end sub __lint_regexp_string
+} ## end sub _lint_regexp_string
 
 # Runs a rule's positive tests. Each case names a string that has to match one of
 # the rule's patterns, along with the captures that match is expected to produce.
@@ -763,11 +763,18 @@ sub __lint_regexp_string {
 #     - $gated :: Scalar ref, set to 1 if any case named a program. The caller
 #         uses it to warn about a gated rule whose tests never exercise the gate.
 #
+#     - $converted :: Scalar ref, set to 1 if any case carried a numeric list.
+#         The caller uses it the same way for a rule whose converts go untested.
+#
+#     - $enriched :: Scalar ref, set to 1 if any case carried an enriched map.
+#         The caller uses it the same way for a rule whose decompose goes
+#         untested.
+#
 # Returns nothing. Everything it finds goes onto $errors, which is left untouched
 # if all the positive tests pass.
 #
-#     __test_rule_positive( '.rules.0', $rule, $compiled, \@errors, \$gated );
-sub __test_rule_positive {
+#     _test_rule_positive( '.rules.0', $rule, $compiled, \@errors, \$gated, \$converted, \$enriched );
+sub _test_rule_positive {
 	my ( $where, $rule, $compiled, $errors, $gated, $converted, $enriched ) = @_;
 
 	my $positive = $rule->{'tests'}{'positive'};
@@ -808,7 +815,7 @@ sub __test_rule_positive {
 				next;
 			}
 			${$gated} = 1;
-			my $refusal = __gate_refusal( $compiled, $test->{'program'} );
+			my $refusal = _gate_refusal( $compiled, $test->{'program'} );
 			if ( defined($refusal) ) {
 				push( @{$errors}, $twhere . ' ' . $refusal );
 				$test_int++;
@@ -828,17 +835,17 @@ sub __test_rule_positive {
 		if ( !defined($got) ) {
 			push( @{$errors}, $twhere . ' did not match any pattern... string="' . $test->{'string'} . '"' );
 		} else {
-			my $diff = __capture_diff( $expected, $got );
+			my $diff = _capture_diff( $expected, $got );
 			if ( defined($diff) ) {
 				push( @{$errors}, $twhere . ' captures differ from expected: ' . $diff . ' string="' . $test->{'string'} . '"' );
 			}
 			if ( defined( $test->{'numeric'} ) ) {
 				${$converted} = 1;
-				__test_numeric( $twhere, $test->{'numeric'}, $compiled, $got, $errors );
+				_test_numeric( $twhere, $test->{'numeric'}, $compiled, $got, $errors );
 			}
 			if ( defined( $test->{'enriched'} ) ) {
 				${$enriched} = 1;
-				__test_enriched( $twhere, $test->{'enriched'}, $compiled, $got, $errors );
+				_test_enriched( $twhere, $test->{'enriched'}, $compiled, $got, $errors );
 			}
 		}
 
@@ -846,7 +853,7 @@ sub __test_rule_positive {
 	} ## end foreach my $test ( @{$positive} )
 
 	return;
-} ## end sub __test_rule_positive
+} ## end sub _test_rule_positive
 
 # Runs a rule's negative tests. Each case is a string that has to match none of
 # the rule's patterns.
@@ -877,14 +884,14 @@ sub __test_rule_positive {
 #     - $errors :: Array ref to push error strings onto. Appended to in place.
 #
 #     - $gated :: Scalar ref, set to 1 if any case named a program. Shared with
-#         __test_rule_positive, since either kind of case exercises the gate.
+#         _test_rule_positive, since either kind of case exercises the gate.
 #
 # Returns nothing. Everything it finds goes onto $errors, which is left untouched
 # if all the negative tests pass.
 #
-#     __test_rule_negative( '.rules.0', $rule, $compiled, \@errors, \$gated );
-sub __test_rule_negative {
-	my ( $where, $rule, $compiled, $errors, $gated, $converted ) = @_;
+#     _test_rule_negative( '.rules.0', $rule, $compiled, \@errors, \$gated );
+sub _test_rule_negative {
+	my ( $where, $rule, $compiled, $errors, $gated ) = @_;
 
 	my $negative = $rule->{'tests'}{'negative'};
 	if ( !defined($negative) ) {
@@ -922,7 +929,7 @@ sub __test_rule_negative {
 		}
 
 		# a refused program is the whole answer; the patterns are never reached
-		if ( defined($program) && defined( __gate_refusal( $compiled, $program ) ) ) {
+		if ( defined($program) && defined( _gate_refusal( $compiled, $program ) ) ) {
 			$test_int++;
 			next;
 		}
@@ -944,7 +951,7 @@ sub __test_rule_negative {
 	} ## end foreach my $test ( @{$negative} )
 
 	return;
-} ## end sub __test_rule_negative
+} ## end sub _test_rule_negative
 
 # Reports whether perl is holding a scalar as a number rather than as the string
 # a capture produced.
@@ -970,9 +977,9 @@ sub __test_rule_negative {
 #
 # Returns 1 when the scalar carries a numeric slot, otherwise 0.
 #
-#     __holds_a_number( 44444 )   # 1
-#     __holds_a_number( '44444' ) # 0
-sub __holds_a_number {
+#     _holds_a_number( 44444 )   # 1
+#     _holds_a_number( '44444' ) # 0
+sub _holds_a_number {
 	my ($value) = @_;
 
 	if ( !defined($value) ) {
@@ -982,39 +989,8 @@ sub __holds_a_number {
 	my $sv = B::svref_2object( \$value );
 
 	return ( $sv->FLAGS & ( B::SVf_IOK() | B::SVf_NOK() ) ) ? 1 : 0;
-} ## end sub __holds_a_number
+} ## end sub _holds_a_number
 
-# Runs a positive test case's captures through decompose and convert, the way the
-# engine does, and checks the fields the case listed as numeric.
-#
-# The captures are copied first. What .result compares is the raw capture set and
-# that does not change -- which is why a positive test's expected result still
-# lists a port as the string '54321'. This runs on a copy of the same captures so
-# a case can say what that string is supposed to become.
-#
-# Decompose runs first, as it does at runtime, so a field a decompose produced can
-# be listed too. That covers the case worth covering most: a kv blob split into
-# fields, one of which a convert then coerces.
-#
-# Args:
-#
-#     - $twhere :: Where this case lives, written as a path, such as
-#         ".rules.3.tests.positive.0". Used to prefix any error.
-#
-#     - $numeric :: The case's numeric list, as written in the rule file. An array
-#         ref of capture names, such as [ 'dnsmasq_max_queries' ].
-#
-#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
-#         read for its decompose list and convert map.
-#
-#     - $captures :: Hash ref of the raw named captures the winning pattern
-#         produced. Copied rather than modified.
-#
-#     - $errors :: Array ref to push error strings onto. Appended to in place.
-#
-# Returns nothing. Everything it finds goes onto $errors.
-#
-#     __test_numeric( '.rules.0.tests.positive.1', ['ssh_src_port'], $compiled, \%got, \@errors );
 # Runs a copy of a case's captures through decompose and then convert, the way
 # the engine does, and hands back what a consumer would receive.
 #
@@ -1035,8 +1011,8 @@ sub __holds_a_number {
 #
 # Returns a hash ref of the fields as they would reach a consumer.
 #
-#     my $fields = __enrich( $compiled, \%got );
-sub __enrich {
+#     my $fields = _enrich( $compiled, \%got );
+sub _enrich {
 	my ( $compiled, $captures ) = @_;
 
 	my %fields = %{$captures};
@@ -1048,7 +1024,7 @@ sub __enrich {
 	}
 
 	return \%fields;
-} ## end sub __enrich
+} ## end sub _enrich
 
 # Runs a positive case's enriched expectation: the field set a consumer receives
 # once decompose and convert have run.
@@ -1077,8 +1053,8 @@ sub __enrich {
 #
 # Returns nothing. Everything it finds goes onto $errors.
 #
-#     __test_enriched( '.rules.0.tests.positive.1', $expected, $compiled, \%got, \@errors );
-sub __test_enriched {
+#     _test_enriched( '.rules.0.tests.positive.1', $expected, $compiled, \%got, \@errors );
+sub _test_enriched {
 	my ( $twhere, $expected, $compiled, $captures, $errors ) = @_;
 
 	if ( ref($expected) ne 'HASH' ) {
@@ -1086,15 +1062,46 @@ sub __test_enriched {
 		return;
 	}
 
-	my $diff = __capture_diff( $expected, __enrich( $compiled, $captures ) );
+	my $diff = _capture_diff( $expected, _enrich( $compiled, $captures ) );
 	if ( defined($diff) ) {
 		push( @{$errors}, $twhere . '.enriched differs from what decompose and convert produced: ' . $diff );
 	}
 
 	return;
-} ## end sub __test_enriched
+} ## end sub _test_enriched
 
-sub __test_numeric {
+# Runs a positive test case's captures through decompose and convert, the way the
+# engine does (via _enrich), and checks the fields the case listed as numeric.
+#
+# The captures are copied first. What .result compares is the raw capture set and
+# that does not change -- which is why a positive test's expected result still
+# lists a port as the string '54321'. This runs on a copy of the same captures so
+# a case can say what that string is supposed to become.
+#
+# Decompose runs first, as it does at runtime, so a field a decompose produced can
+# be listed too. That covers the case worth covering most: a kv blob split into
+# fields, one of which a convert then coerces.
+#
+# Args:
+#
+#     - $twhere :: Where this case lives, written as a path, such as
+#         ".rules.3.tests.positive.0". Used to prefix any error.
+#
+#     - $numeric :: The case's numeric list, as written in the rule file. An array
+#         ref of capture names, such as [ 'dnsmasq_max_queries' ].
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
+#         read for its decompose list and convert map.
+#
+#     - $captures :: Hash ref of the raw named captures the winning pattern
+#         produced. Copied rather than modified.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors.
+#
+#     _test_numeric( '.rules.0.tests.positive.1', ['ssh_src_port'], $compiled, \%got, \@errors );
+sub _test_numeric {
 	my ( $twhere, $numeric, $compiled, $captures, $errors ) = @_;
 
 	if ( ref($numeric) ne 'ARRAY' ) {
@@ -1102,7 +1109,7 @@ sub __test_numeric {
 		return;
 	}
 
-	my %converted = %{ __enrich( $compiled, $captures ) };
+	my %converted = %{ _enrich( $compiled, $captures ) };
 
 	foreach my $field ( @{$numeric} ) {
 		if ( ref($field) ne '' ) {
@@ -1117,7 +1124,7 @@ sub __test_numeric {
 					. '", which nothing produced; neither the pattern nor a decompose sets it' );
 			next;
 		}
-		if ( !__holds_a_number( $converted{$field} ) ) {
+		if ( !_holds_a_number( $converted{$field} ) ) {
 			push( @{$errors},
 					  $twhere
 					. '.numeric names "'
@@ -1129,7 +1136,7 @@ sub __test_numeric {
 	} ## end foreach my $field ( @{$numeric} )
 
 	return;
-} ## end sub __test_numeric
+} ## end sub _test_numeric
 
 # Lists the numeric conversions a rule's own tests do not check.
 #
@@ -1154,8 +1161,8 @@ sub __test_numeric {
 # Returns a sorted list of field names, empty when everything convertible is
 # already listed.
 #
-#     my @unchecked = __unchecked_converts( $rule, $compiled );
-sub __unchecked_converts {
+#     my @unchecked = _unchecked_converts( $rule, $compiled );
+sub _unchecked_converts {
 	my ( $rule, $compiled ) = @_;
 
 	my %numeric_type = map { $_ => 1 }
@@ -1189,7 +1196,7 @@ sub __unchecked_converts {
 	} ## end foreach my $test
 
 	return sort grep { !$listed{$_} } keys(%produced);
-} ## end sub __unchecked_converts
+} ## end sub _unchecked_converts
 
 # Lists the fields a rule's decompose produces that no enriched map names.
 #
@@ -1210,8 +1217,8 @@ sub __unchecked_converts {
 #
 # Returns a sorted list of field names, empty when nothing is missing.
 #
-#     my @unwired = __unchecked_decomposes( $rule, $compiled );
-sub __unchecked_decomposes {
+#     my @unwired = _unchecked_decomposes( $rule, $compiled );
+sub _unchecked_decomposes {
 	my ( $rule, $compiled ) = @_;
 
 	if ( !@{ $compiled->{'decompose'} } ) {
@@ -1241,7 +1248,7 @@ sub __unchecked_decomposes {
 	} ## end foreach my $test
 
 	return sort grep { !$named{$_} } keys(%produced);
-} ## end sub __unchecked_decomposes
+} ## end sub _unchecked_decomposes
 
 # Runs a compiled rule's gates against a program name, the way the engine does.
 #
@@ -1263,9 +1270,9 @@ sub __unchecked_decomposes {
 # Returns undef when every gate passes, otherwise a string naming the gate that
 # refused and what it wanted, ready to be dropped into an error message.
 #
-#     my $why = __gate_refusal( $compiled, 'cron' );
+#     my $why = _gate_refusal( $compiled, 'cron' );
 #     # 'gate 0 on PROGRAM does not accept "cron"'
-sub __gate_refusal {
+sub _gate_refusal {
 	my ( $compiled, $program ) = @_;
 
 	my $item = { 'PROGRAM' => $program };
@@ -1293,7 +1300,7 @@ sub __gate_refusal {
 	} ## end foreach my $gate ( @{ $compiled...})
 
 	return undef;
-} ## end sub __gate_refusal
+} ## end sub _gate_refusal
 
 # Compares two flat capture hashes and describes the first way they differ.
 #
@@ -1319,9 +1326,9 @@ sub __gate_refusal {
 # reported, since a single wrong pattern usually throws off several keys at once
 # and listing them all says no more than listing one.
 #
-#     my $diff = __capture_diff( { ssh_user => 'alice' }, { ssh_user => 'bob' } );
+#     my $diff = _capture_diff( { ssh_user => 'alice' }, { ssh_user => 'bob' } );
 #     # 'key "ssh_user" expected "alice" but got "bob"'
-sub __capture_diff {
+sub _capture_diff {
 	my ( $expected, $got ) = @_;
 
 	foreach my $key ( sort keys( %{$expected} ) ) {
@@ -1339,7 +1346,7 @@ sub __capture_diff {
 	}
 
 	return undef;
-} ## end sub __capture_diff
+} ## end sub _capture_diff
 
 # Tests a decompose list, either a rule's own or the file level default.
 #
@@ -1378,8 +1385,8 @@ sub __capture_diff {
 #
 # Returns nothing. Everything it finds goes onto $errors or $warnings.
 #
-#     __test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
-sub __test_decompose {
+#     _test_decompose( $rules->{'decompose'}, $vars, \@errors, \@warnings, '.decompose' );
+sub _test_decompose {
 	my ( $list, $vars, $errors, $warnings, $where ) = @_;
 
 	if ( ref($list) ne 'ARRAY' ) {
@@ -1434,7 +1441,7 @@ sub __test_decompose {
 			my %captures = ( $entry->{'field'} => $test->{'input'} );
 			Log::Munger::LogProcessor->_decompose( $rule, \%captures );
 
-			my $diff = __capture_diff( $expected, \%captures );
+			my $diff = _capture_diff( $expected, \%captures );
 			if ( defined($diff) ) {
 				push( @{$errors},
 					$twhere . ' decompose output differs: ' . $diff . ' input="' . $test->{'input'} . '"' );
@@ -1447,4 +1454,6 @@ sub __test_decompose {
 	} ## end foreach my $entry ( @{$list} )
 
 	return;
-} ## end sub __test_decompose
+} ## end sub _test_decompose
+
+1;    # End of Log::Munger::RulesTest

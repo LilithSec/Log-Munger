@@ -4,8 +4,12 @@ use 5.006;
 use strict;
 use warnings;
 use YAML::XS                   qw(Load);
+
+# a rule file is data; never bless objects out of YAML tags. Old YAML::XS
+# versions default LoadBlessed on, which is an object-injection risk when
+# loading a third-party rule file
+$YAML::XS::LoadBlessed = 0;
 use Log::Munger::WhichRuleFile ();
-use File::ShareDir             ();
 use File::Slurp                qw(read_file);
 use Template;
 use Hash::Merge ();
@@ -34,9 +38,9 @@ our $VERSION = '0.0.1';
 
 Loading a rule file is four steps. The name is resolved to a path via
 L<Log::Munger::WhichRuleFile>, the YAML is read in, anything under C<includes> is
-merged in with right precedence so the file itself wins on a conflict, and finally
-everything under C<vars_templated> is run through L<Template> and folded into
-C<vars>.
+merged in with the file itself winning on a conflict (and an earlier include
+winning over a later one), and finally everything under C<vars_templated> is run
+through L<Template> and folded into C<vars>.
 
 That last step is why order matters: a templated var may reference another
 templated var, so L<Log::Munger::RulesTemplateOrder> sorts them by dependency
@@ -59,12 +63,7 @@ Creates a parser. Takes no arguments.
 sub new {
 	my ( $blank, %opts ) = @_;
 
-	my $self = {
-		'order'      => [],
-		'mungers'    => {},
-		'share_dir'  => File::ShareDir::dist_dir('Log-Munger'),
-		'rules_dirs' => [ '/etc/log_munger/rules/', '/usr/local/etc/log_munger/rules/', ],
-	};
+	my $self = {};
 	bless $self;
 
 	return $self;
@@ -83,8 +82,8 @@ C<vars_templated> is only of interest for seeing how a var was written.
         Default :: undef
 
 Returns the rules hash ref. Dies if the file cannot be found, is not valid YAML,
-does not parse to a hash, names an include that cannot be found, or holds a var
-that will not template.
+does not parse to a hash, names an include that cannot be found, references a var
+that is not defined anywhere, or holds a var that will not template.
 
     my $rules = $parser->load( 'file' => 'sshd' );
 
@@ -146,7 +145,7 @@ sub load {
 			# newline mid-pattern would keep it from matching single-line logs
 			$results =~ s/[\r\n]+\z//;
 			$rules->{'vars'}{$item} = $results;
-		} ## end foreach my $item ( keys( %{ $rules->{$template_hash...}}))
+		} ## end foreach my $item ( @{$template_order} )
 	} ## end if ( defined( $rules->{$template_hash} ) )
 
 	return $rules;
@@ -215,7 +214,12 @@ sub load_no_templating {
 					. '" and not "ARRAY"' );
 		}
 		if ( defined( $rules->{'includes'}[0] ) ) {
-			my $merger = Hash::Merge->new('RIGHT_PRECEDENT');
+			# LEFT_PRECEDENT with the file on the left: the file wins a conflict
+			# with an include, and an earlier include wins over a later one.
+			# Arrays merge by appending the include's entries, which is also what
+			# lets the loop below pick up an include's own includes as they are
+			# merged in
+			my $merger = Hash::Merge->new('LEFT_PRECEDENT');
 			my %included;
 			my $include_int = 0;
 			while ( defined( $rules->{'includes'}[$include_int] ) ) {
@@ -300,3 +304,5 @@ sub load_no_templating {
 
 	return $rules;
 } ## end sub load_no_templating
+
+1;    # End of Log::Munger::RuleFileParser

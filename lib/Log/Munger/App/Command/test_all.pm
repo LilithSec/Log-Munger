@@ -43,6 +43,9 @@ sub validate { return 1 }
 #     my @names = _names();
 sub _names {
 	my @dirs = ( '/etc/log_munger/rules', '/usr/local/etc/log_munger/rules' );
+	if ( defined( $ENV{'LOG_MUNGER_RULES_DIR'} ) && length( $ENV{'LOG_MUNGER_RULES_DIR'} ) ) {
+		unshift( @dirs, $ENV{'LOG_MUNGER_RULES_DIR'} );
+	}
 	my $share;
 	eval { $share = File::ShareDir::dist_dir('Log-Munger'); };
 	push( @dirs, $share ) if ( defined($share) );

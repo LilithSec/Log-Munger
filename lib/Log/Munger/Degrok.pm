@@ -54,7 +54,7 @@ Every C<%{...}> reference is rewritten, however many there are, and anything tha
 is not one is left exactly as it was.
 
     - string :: The string to convert. Required.
-        default :: undef
+        Default :: undef
 
 Returns the rewritten string. Dies only if C<string> is undef.
 
@@ -106,7 +106,7 @@ patterns file comes back as the same file with Log::Munger templating in it. To
 turn one into an actual rule file, use L</grok2rules> instead.
 
     - file :: The file to convert. Required.
-        default :: undef
+        Default :: undef
 
 Returns the whole rewritten file as a single string, line endings and all. Dies if
 C<file> is undef or the file cannot be read.
@@ -162,20 +162,20 @@ section, no gates, no tests and no enrichment, because none of that exists in a
 grok patterns file to convert. Writing those is the part still left to do.
 
     - file :: The grok patterns file to convert. Required.
-        default :: undef
+        Default :: undef
 
     - includes :: Rule files to treat as includes. Their vars are loaded so
         names already provided by one can be recognised, and they are written
-        into the skeleton's own includes list. The taken value is an array.
-        default :: []
+        into the skeleton's own includes list. The taken value is an array ref.
+        Default :: []
 
     - overwrite :: What to do about a name an include already defines.
-        values :: ...
+        Accepted values are:
             - yes :: Take the grok file's version.
             - no_silent :: Keep the include's version, saying nothing.
             - no_warn :: Keep the include's version and warn about it.
             - no_die :: Die on the first one.
-        default :: no_warn
+        Default :: no_warn
 
 Returns the skeleton as a YAML string, ready to write to a file. Dies if C<file>
 is undef or unreadable, if C<overwrite> is not one of the four values above, if an
@@ -229,7 +229,10 @@ sub grok2rules {
 		if ( defined( $opts{'includes'}[0] ) ) {
 			$rules->{'includes'} = [];
 
-			my $merger = Hash::Merge->new('RIGHT_PRECEDENT');
+			# LEFT_PRECEDENT so an earlier include wins over a later one, the
+			# same way RuleFileParser merges. Only existence is checked below,
+			# so this is consistency rather than behavior
+			my $merger = Hash::Merge->new('LEFT_PRECEDENT');
 			my $parser = Log::Munger::RuleFileParser->new;
 
 			# use a while loop instead of foreach for basically simplifying display of errors
@@ -256,10 +259,16 @@ sub grok2rules {
 	} ## end else [ if ( defined( $opts{'includes'} ) && ( ref...))]
 
 	my @lines;
-	eval { @lines = grep( !/(^#|^\w*$)/, read_file( $opts{'file'} ) ); };
+	eval { @lines = read_file( $opts{'file'} ); };
 	if ($@) {
 		die( 'Failed to read "' . $opts{'file'} . '"... ' . $@ );
 	}
+	# chomp before anything else so the regexp half of a line never carries its
+	# newline into the emitted YAML
+	chomp(@lines);
+	# drop comments and blank lines. A name with no regexp after it is kept so
+	# it hits the die below rather than vanishing silently
+	@lines = grep( !/^#/ && !/^\s*$/, @lines );
 
 	foreach my $line (@lines) {
 		my ( $var, $regexp ) = split( /[\ \t]+/, $line, 2 );

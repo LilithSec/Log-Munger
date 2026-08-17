@@ -28,7 +28,7 @@ our $VERSION = '0.0.1';
         print 'File Location: ' . $file_location . "\n";
     }
 
-Rule files are looked for in three places, and whichever is found first wins. That
+Rule files are looked for in a handful of places, and whichever is found first wins. That
 ordering is what lets a local file shadow one shipped with the distribution: drop
 your own C<sshd.yaml> in F</etc/log_munger/rules/> and every reference to C<sshd>
 picks it up instead, with nothing else needing to change.
@@ -47,11 +47,15 @@ given. Anything else is searched for, in order, in:
 
 =over 4
 
-=item 1. F</etc/log_munger/rules/>
+=item 1. the directory named by the C<LOG_MUNGER_RULES_DIR> environment
+variable, when set
 
-=item 2. F</usr/local/etc/log_munger/rules/>
+=item 2. F</etc/log_munger/rules/>
 
-=item 3. the distribution share directory, C<< File::ShareDir::dist_dir('Log-Munger') >>
+=item 3. F</usr/local/etc/log_munger/rules/>
+
+=item 4. the distribution share directory, C<< File::ShareDir::dist_dir('Log-Munger') >>
+(skipped when the distribution is not installed, e.g. running out of a checkout)
 
 =back
 
@@ -86,6 +90,12 @@ sub rule_file_location {
 	}
 
 	my @rules_dirs = ( '/etc/log_munger/rules/', '/usr/local/etc/log_munger/rules/' );
+	# LOG_MUNGER_RULES_DIR jumps the queue, which is what lets a checkout (or
+	# a test run) resolve names against its own share dir instead of whatever
+	# happens to be installed
+	if ( defined( $ENV{'LOG_MUNGER_RULES_DIR'} ) && length( $ENV{'LOG_MUNGER_RULES_DIR'} ) ) {
+		unshift( @rules_dirs, $ENV{'LOG_MUNGER_RULES_DIR'} );
+	}
 	foreach my $rules_dir (@rules_dirs) {
 		if ( -d $rules_dir ) {
 			if ( -f $rules_dir . '/' . $opts{'file'} ) {
@@ -97,11 +107,16 @@ sub rule_file_location {
 		}
 	} ## end foreach my $rules_dir (@rules_dirs)
 
-	my $share_dir = File::ShareDir::dist_dir('Log-Munger');
-	if ( -f $share_dir . '/' . $opts{'file'} ) {
-		return $share_dir . '/' . $opts{'file'};
-	} elsif ( -f $share_dir . '/' . $opts{'file'} . '.yaml' ) {
-		return $share_dir . '/' . $opts{'file'} . '.yaml';
+	# dist_dir dies when the distribution is not installed, which is normal
+	# when running out of a checkout; treat that as one fewer place to look
+	my $share_dir;
+	eval { $share_dir = File::ShareDir::dist_dir('Log-Munger'); };
+	if ( defined($share_dir) ) {
+		if ( -f $share_dir . '/' . $opts{'file'} ) {
+			return $share_dir . '/' . $opts{'file'};
+		} elsif ( -f $share_dir . '/' . $opts{'file'} . '.yaml' ) {
+			return $share_dir . '/' . $opts{'file'} . '.yaml';
+		}
 	}
 
 	return undef;

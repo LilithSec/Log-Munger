@@ -129,7 +129,8 @@ Exit codes:
 Statically analyzes a rule file and lists what its patterns can emit: the named-capture
 fields, the pattern-decompose fields, the dynamic kv-decompose prefixes (with the source
 field), and the geoip fields. Output is grouped into `fields:`, `kv-decompose (dynamic
-keys):`, and `geoip:` sections.
+keys):`, and `geoip:` sections. Fields produced by a `json` decompose are not listed,
+since those keys depend entirely on the payload.
 
 | Option | Meaning |
 |--------|---------|

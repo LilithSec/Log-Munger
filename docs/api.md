@@ -70,7 +70,9 @@ my $fields = $munger->process_item(
 Only `message` is needed; the other three are added when given. The keys are the
 upper-case syslog-ng-style names that rule gates match on.
 
-Never dies: a bad item or a pathological pattern yields `undef`.
+Never dies: an exception during matching comes back as `undef`. That bounds failures, not
+runtime — a pattern prone to catastrophic backtracking can still burn CPU on a hostile
+line.
 
 ### `explain_item`
 
@@ -109,7 +111,7 @@ match it runs **decompose → geoip → convert** and returns the captures. `pro
 
 Loads and parses a single rule file into a hash: resolves the name via
 [`WhichRuleFile`](#logmungerwhichrulefile), reads the YAML, merges `includes`
-(right-precedence via `Hash::Merge`), normalizes `vars`, and expands `vars_templated` with
+(via `Hash::Merge`; the including file wins on a conflict), normalizes `vars`, and expands `vars_templated` with
 Template Toolkit in dependency order.
 
 - `load( file => $name )` :: Full parse, including templating. Returns the rules hashref.
@@ -127,9 +129,11 @@ Resolves a rule-file name to a path.
 - `rule_file_location( file => $name )` :: Returns the resolved path, or `undef` if the
   name turned up nothing. Search order, first match wins:
   1. an explicit path (starts with `/`, `./`, `../`) — the file, then `name.yaml`;
-  2. `/etc/log_munger/rules/` — `name`, then `name.yaml`;
-  3. `/usr/local/etc/log_munger/rules/` — `name`, then `name.yaml`;
-  4. the dist share dir (`File::ShareDir::dist_dir('Log-Munger')`) — `name`, then `name.yaml`.
+  2. `$ENV{LOG_MUNGER_RULES_DIR}`, when set — `name`, then `name.yaml`;
+  3. `/etc/log_munger/rules/` — `name`, then `name.yaml`;
+  4. `/usr/local/etc/log_munger/rules/` — `name`, then `name.yaml`;
+  5. the dist share dir (`File::ShareDir::dist_dir('Log-Munger')`) — `name`, then `name.yaml`
+     (skipped when the distribution is not installed).
 
 That ordering is what lets a local file shadow one shipped with the distribution: drop
 your own `sshd.yaml` into `/etc/log_munger/rules/` and every reference to `sshd` picks it

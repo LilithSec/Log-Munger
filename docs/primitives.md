@@ -98,9 +98,10 @@ resolved in dependency order.
 | `DATESTAMP_EVENTLOG` | Compact `YYYYMMDDHHMMSS`. |
 
 Every primitive has positive and negative cases under `vars_tests` in `base.yaml`. Run
-`log_munger test_all -v` to exercise them. A few edge cases are knowingly imperfect and
-carry a comment in the file saying so — `HOUR`, for instance, will match the leading digit
-of `25`.
+`log_munger test_all -v` to exercise them. A few edge cases are knowingly imperfect —
+`HOUR`, for instance, will match the leading digit of `25` — and the vars with known
+problems (`WINPATH`, `UNIXPATH`, `URIPARAM`) carry a TODO comment in the file saying what
+they get wrong.
 
 ## Adding your own primitives
 
