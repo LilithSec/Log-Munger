@@ -3,7 +3,7 @@ package Log::Munger::LogProcessor;
 use 5.006;
 use strict;
 use warnings;
-use Scalar::Util qw(looks_like_number);
+use Scalar::Util                qw(looks_like_number);
 use JSON                        ();
 use Log::Munger::RuleFileParser ();
 use Log::Munger::RulesUsable    ();
@@ -94,7 +94,7 @@ sub new {
 		if ($@) {
 			die( 'Failed to open the geoip database "' . $opts{'geoip'} . '"... ' . $@ );
 		}
-	}
+	} ## end if ( defined( $opts{'geoip'} ) )
 
 	my $parser = Log::Munger::RuleFileParser->new;
 
@@ -157,7 +157,7 @@ sub new {
 
 		push( @{ $self->{'rule_files'} }, $name );
 		$rules_int++;
-	} ## end while ( defined( $opts{'rules'}[$rules_int...]))
+	} ## end while ( defined( $opts{'rules'}[$rules_int] ))
 
 	return $self;
 } ## end sub new
@@ -209,7 +209,7 @@ sub process_item {
 
 	my $match = $self->_run( $self->_item_from_opts(%opts) );
 	return $match->{'matched'} ? $match->{'fields'} : undef;
-} ## end sub process_item
+}
 
 =head2 explain_item
 
@@ -230,7 +230,7 @@ sub explain_item {
 	my ( $self, %opts ) = @_;
 
 	return $self->_run( $self->_item_from_opts(%opts) );
-} ## end sub explain_item
+}
 
 # Resolves the item to run from the caller's arguments. An explicit item (hash
 # ref or bare string) is returned as-is for backward compatibility. Otherwise,
@@ -289,30 +289,14 @@ sub _run {
 
 	my $result = { 'matched' => 0 };
 	eval {
-		RULE: foreach my $rule ( @{ $self->{'rules'} } ) {
+	RULE: foreach my $rule ( @{ $self->{'rules'} } ) {
 
 			# gates: every gate must pass (ANDed)
 			foreach my $gate ( @{ $rule->{'gate'} } ) {
-				my $value = $item->{ $gate->{'field'} };
-				# an absent, undef, or non-scalar gate field fails the gate
-				if ( !defined($value) || ref($value) ne '' ) {
+				if ( !$self->_gate_passes( $gate, $item->{ $gate->{'field'} } ) ) {
 					next RULE;
 				}
-				my $gate_hit = 0;
-				if ( $gate->{'literals'}{$value} ) {
-					$gate_hit = 1;
-				} else {
-					foreach my $re ( @{ $gate->{'regexps'} } ) {
-						if ( $value =~ $re ) {
-							$gate_hit = 1;
-							last;
-						}
-					}
-				}
-				if ( !$gate_hit ) {
-					next RULE;
-				}
-			} ## end foreach my $gate ( @{ $rule->{'gate'} } )
+			}
 
 			# target field to munge
 			my $target = $item->{ $rule->{'field'} };
@@ -346,10 +330,10 @@ sub _run {
 						'fields'  => \%captures,
 					};
 					last RULE;
-				} ## end if ( $target =~ $pattern)
+				} ## end if ( $target =~ $pattern )
 				$pattern_int++;
-			} ## end foreach my $pattern ( @{ $rule...})
-		} ## end RULE: foreach my $rule ( @{ $self->{'rules'...}})
+			} ## end foreach my $pattern ( @{ $rule->{'patterns'} } )
+		} ## end RULE: foreach my $rule ( @{ $self->{'rules'} } )
 	};
 	if ($@) {
 		return { 'matched' => 0 };
@@ -357,6 +341,45 @@ sub _run {
 
 	return $result;
 } ## end sub _run
+
+# Checks a single compiled gate against the value of its field.
+#
+# A gate passes when the value is a defined plain scalar and either sits in the
+# gate's literals set or matches one of its //regexp// values. An absent,
+# undef, or non-scalar value fails the gate. This is the one place gate
+# semantics live; Log::Munger::RulesTest calls it too, so a test's gate check
+# is the engine's rather than a parallel copy.
+#
+# Args:
+#
+#     - $gate :: A compiled gate entry, as _compile_rule builds them:
+#         { field, literals => {}, regexps => [ qr//, ... ] }.
+#
+#     - $value :: The value of the gate's field out of the record being
+#         matched. May be undef.
+#
+# Returns 1 when the gate passes, otherwise 0.
+#
+#     if ( !$self->_gate_passes( $gate, $item->{ $gate->{'field'} } ) ) {
+#         next RULE;
+#     }
+sub _gate_passes {
+	my ( $self, $gate, $value ) = @_;
+
+	if ( !defined($value) || ref($value) ne '' ) {
+		return 0;
+	}
+	if ( $gate->{'literals'}{$value} ) {
+		return 1;
+	}
+	foreach my $re ( @{ $gate->{'regexps'} } ) {
+		if ( $value =~ $re ) {
+			return 1;
+		}
+	}
+
+	return 0;
+} ## end sub _gate_passes
 
 # For each of the rule's flagged geoip fields that was captured, looks the
 # value up in the geoip database and stores the record under
@@ -387,7 +410,7 @@ sub _geoip_enrich {
 		next if ( $@ || !defined($record) );
 
 		$geo{$field} = $record;
-	}
+	} ## end foreach my $field ( @{ $rule->{'geoip'} } )
 
 	# never clobber a capture that happens to be named geoip; no enrichment
 	# step overwrites an existing capture
@@ -419,9 +442,11 @@ sub _geoip_enrich {
 #                  booleans normalize to 1/0, and JSON null is skipped. Arrays
 #                  are keyed by index. Options: prefix (default ""), separator
 #                  (default "_"), remove, and nested => true (store the decoded
-#                  structure whole under a single key instead of flattening). A
-#                  field whose value is not valid JSON, or is JSON for a bare
-#                  scalar, is left untouched.
+#                  structure whole under a single key -- the prefix minus a
+#                  trailing separator, or with no prefix the source field itself,
+#                  replacing the raw string -- instead of flattening). A field
+#                  whose value is not valid JSON, or is JSON for a bare scalar,
+#                  is left untouched.
 #
 # Every entry may set remove: true to drop the source field afterwards. An
 # entry may also carry a tests: [ { input, result }, ... ] list, which
@@ -456,15 +481,15 @@ sub _compile_decompose {
 			die( '.decompose[' . $int . '].field is undef or not a string' );
 		}
 		my $type = defined( $d->{'type'} ) ? $d->{'type'} : 'kv';
-		my $c = {
+		my $c    = {
 			'field'  => $d->{'field'},
 			'type'   => $type,
 			'remove' => ( $d->{'remove'} ? 1 : 0 ),
 		};
 
 		if ( $type eq 'kv' ) {
-			$c->{'prefix'}      = defined( $d->{'prefix'} )      ? $d->{'prefix'}      : '';
-			$c->{'trim'}        = $d->{'trim'};                                            # may be undef
+			$c->{'prefix'}      = defined( $d->{'prefix'} ) ? $d->{'prefix'} : '';
+			$c->{'trim'}        = $d->{'trim'};                                      # may be undef
 			$c->{'field_split'} = defined( $d->{'field_split'} ) ? $d->{'field_split'} : ' ';
 			$c->{'value_split'} = defined( $d->{'value_split'} ) ? $d->{'value_split'} : '=';
 			$c->{'quoted'}      = ( $d->{'quoted'} ? 1 : 0 );
@@ -517,7 +542,9 @@ sub _compile_decompose {
 #     - $rule :: The compiled rule, read for its decompose list.
 #
 #     - $captures :: Hash ref of the captured fields. Modified in place. New
-#         fields never clobber an existing capture.
+#         fields never clobber an existing capture; the one overwrite is a
+#         nested json decompose with no prefix, which replaces its own source
+#         field with the decoded structure.
 #
 # Returns nothing. Never dies.
 #
@@ -539,14 +566,7 @@ sub _decompose {
 				while ( $value =~ /([\w.\-]+)$vs(?:"([^"]*)"|'([^']*)'|(\S*))/g ) {
 					my $key = $1;
 					my $val = defined($2) ? $2 : ( defined($3) ? $3 : $4 );
-					if ( defined( $d->{'trim'} ) && length( $d->{'trim'} ) ) {
-						my $tc = $d->{'trim'};
-						$val =~ s/\A[\Q$tc\E]+//;
-						$val =~ s/[\Q$tc\E]+\z//;
-					}
-					$key = $d->{'prefix'} . $key;
-					next if ( exists( $captures->{$key} ) );    # do not clobber a real capture
-					$captures->{$key} = $val;
+					$self->_store_kv_pair( $d, $captures, $key, $val );
 				}
 			} else {
 				my $fs = quotemeta( $d->{'field_split'} );
@@ -554,18 +574,11 @@ sub _decompose {
 					next if ( $token eq '' );
 					my $idx = index( $token, $d->{'value_split'} );
 					next if ( $idx < 1 );    # need at least a one-char key before the split
-					my $key   = substr( $token, 0, $idx );
-					my $val   = substr( $token, $idx + length( $d->{'value_split'} ) );
-					if ( defined( $d->{'trim'} ) && length( $d->{'trim'} ) ) {
-						my $tc = $d->{'trim'};
-						$val =~ s/\A[\Q$tc\E]+//;
-						$val =~ s/[\Q$tc\E]+\z//;
-					}
-					$key = $d->{'prefix'} . $key;
-					next if ( exists( $captures->{$key} ) );    # do not clobber a real capture
-					$captures->{$key} = $val;
+					my $key = substr( $token, 0, $idx );
+					my $val = substr( $token, $idx + length( $d->{'value_split'} ) );
+					$self->_store_kv_pair( $d, $captures, $key, $val );
 				}
-			}
+			} ## end else [ if ( $d->{'quoted'} ) ]
 		} elsif ( $d->{'type'} eq 'pattern' ) {
 			if ( $value =~ $d->{'regexp'} ) {
 				my %sub = %+;
@@ -587,19 +600,60 @@ sub _decompose {
 				} else {
 					$key = $d->{'field'};
 				}
+				if ( $key eq $d->{'field'} ) {
+					# landing on the source field itself replaces the raw JSON
+					# string; remove: would delete what was just stored, so skip it
+					$captures->{$key} = $decoded;
+					next;
+				}
 				$captures->{$key} = $decoded if ( !exists( $captures->{$key} ) );
 			} else {
 				$self->_json_flatten( $decoded, '', $d->{'separator'}, $d->{'prefix'}, $captures );
 			}
-		}
+		} ## end elsif ( $d->{'type'} eq 'json' )
 
 		if ( $d->{'remove'} ) {
 			delete $captures->{ $d->{'field'} };
 		}
-	} ## end foreach my $d ( @{ $rule->{'decompose'...}})
+	} ## end foreach my $d ( @{ $rule->{'decompose'} } )
 
 	return;
 } ## end sub _decompose
+
+# Stores one key/value pair a kv decompose produced: trims the entry's trim
+# characters off each end of the value, prepends the entry's prefix to the key,
+# and stores the pair -- unless the key already exists, since no decompose ever
+# clobbers a real capture.
+#
+# Args:
+#
+#     - $d :: The compiled kv decompose entry, read for its trim and prefix.
+#
+#     - $captures :: Hash ref of the captured fields. Modified in place.
+#
+#     - $key :: The key as parsed out of the blob, before the prefix.
+#
+#     - $value :: The value as parsed out of the blob, before the trim.
+#
+# Returns nothing.
+#
+#     $self->_store_kv_pair( $d, $captures, $key, $val );
+sub _store_kv_pair {
+	my ( $self, $d, $captures, $key, $value ) = @_;
+
+	if ( defined( $d->{'trim'} ) && length( $d->{'trim'} ) ) {
+		my $tc = $d->{'trim'};
+		$value =~ s/\A[\Q$tc\E]+//;
+		$value =~ s/[\Q$tc\E]+\z//;
+	}
+
+	$key = $d->{'prefix'} . $key;
+	if ( !exists( $captures->{$key} ) ) {    # do not clobber a real capture
+		$captures->{$key} = $value;
+	}
+
+	return;
+} ## end sub _store_kv_pair
 
 # Recursively flattens a decoded-JSON structure into the captures hash. Each
 # leaf becomes prefix + path, where path is the sequence of object keys and
@@ -638,7 +692,7 @@ sub _json_flatten {
 			$self->_json_flatten( $data->{$key}, $child, $sep, $prefix, $captures );
 		}
 		return;
-	}
+	} ## end if ( ref($data) eq 'HASH' )
 	if ( ref($data) eq 'ARRAY' ) {
 		my $index = 0;
 		foreach my $element ( @{$data} ) {
@@ -708,7 +762,7 @@ sub _compile_convert {
 		} else {
 			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, uc, or mac)' );
 		}
-	}
+	} ## end foreach my $field ( keys( %{$convert} ) )
 
 	return \%normalized;
 } ## end sub _compile_convert
@@ -759,7 +813,7 @@ sub _convert {
 		} else {
 			$captures->{$field} = $value + 0;
 		}
-	} ## end foreach my $field ( keys( %{ $rule->{'convert'...}}))
+	} ## end foreach my $field ( keys( %{ $rule->{'convert'}...}))
 
 	return;
 } ## end sub _convert
@@ -801,7 +855,7 @@ sub _normalize_mac {
 	return $value if ( $digits !~ /\A[0-9A-Fa-f]{12}\z/ );
 
 	return join( ':', lc($digits) =~ /([0-9a-f]{2})/g );
-}
+} ## end sub _normalize_mac
 
 # Compiles a single rules: entry into the runtime structure:
 #
@@ -858,13 +912,13 @@ sub _compile_rule {
 	}
 
 	my $compiled = {
-		'name'       => $rule->{'name'},
-		'field'      => ( defined( $rule->{'field'} ) ? $rule->{'field'} : 'MESSAGE' ),
-		'gate'       => [],
-		'patterns'   => [],
-		'geoip'      => [],
-		'decompose'  => [],
-		'convert'    => {},
+		'name'      => $rule->{'name'},
+		'field'     => ( defined( $rule->{'field'} ) ? $rule->{'field'} : 'MESSAGE' ),
+		'gate'      => [],
+		'patterns'  => [],
+		'geoip'     => [],
+		'decompose' => [],
+		'convert'   => {},
 	};
 	if ( ref( $compiled->{'field'} ) ne '' ) {
 		die( '.field has a ref of "' . ref( $compiled->{'field'} ) . '" and not ""' );
@@ -888,7 +942,7 @@ sub _compile_rule {
 			}
 			push( @{ $compiled->{'geoip'} }, $field );
 		}
-	}
+	} ## end if ( defined($geoip) )
 
 	# captured fields to break down further (rule-level, else the file default)
 	my $decompose = defined( $rule->{'decompose'} ) ? $rule->{'decompose'} : $opts{'default_decompose'};
@@ -925,7 +979,13 @@ sub _compile_rule {
 			my $value_int = 0;
 			foreach my $value ( @{ $gate->{'values'} } ) {
 				if ( ref($value) ne '' ) {
-					die( '.gate[' . $gate_int . '].values[' . $value_int . '] has a ref of "' . ref($value) . '" and not ""' );
+					die(      '.gate['
+							. $gate_int
+							. '].values['
+							. $value_int
+							. '] has a ref of "'
+							. ref($value)
+							. '" and not ""' );
 				}
 				# //regexp// is the gate-value regexp marker; the outer slashes
 				# are stripped strictly so an interior // (e.g. http://) survives
@@ -942,7 +1002,7 @@ sub _compile_rule {
 								. $value
 								. '" does not compile... '
 								. $@ );
-					}
+					} ## end if ($@)
 					push( @{ $compiled_gate->{'regexps'} }, $compiled_re );
 				} else {
 					$compiled_gate->{'literals'}{$value} = 1;

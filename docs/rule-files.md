@@ -150,8 +150,9 @@ not compile is a load error (this is where an illegal capture name is caught).
 
 After a pattern matches, three optional steps run against the captured fields, always in
 this order: **decompose → geoip → convert**. Each may be set per-rule or once at file
-level as a default. A new field never clobbers an existing capture; only `convert`
-changes an existing value, and only for the fields it names.
+level as a default. A new field never clobbers an existing capture; the values that do
+change in place are the fields a `convert` names and the source field of a `nested: true`
+json decompose with no prefix.
 
 ### `decompose` — break captured fields down further
 
@@ -231,7 +232,8 @@ decompose:
 ```
 
 With `nested: true` the decoded structure is stored whole instead, under `prefix` (minus
-a trailing separator) or, if there is no prefix, under the source field's own name.
+a trailing separator) or, if there is no prefix, under the source field's own name —
+replacing the raw string, in which case `remove:` is ignored.
 
 Each decompose entry may carry its own `tests: [ { input, result }, … ]` list, applied in
 isolation by `test_all` (the `result` reflects the entry's `remove:` setting). `tests` is

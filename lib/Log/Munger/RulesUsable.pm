@@ -52,15 +52,15 @@ thing that was wrong, so the caller has something worth printing.
 sub usable {
 	my ( $blank, %opts ) = @_;
 
-	if (!defined($opts{'rules'})){
+	if ( !defined( $opts{'rules'} ) ) {
 		die('$opts{rules} is undef');
-	}elsif(ref($opts{'rules'}) ne 'HASH'){
-		die('$opts{rules} has a ref of "'.ref($opts{'rules'}).'" and not "HASH"');
-	}elsif(!defined($opts{'rules'}{'rules'})){
+	} elsif ( ref( $opts{'rules'} ) ne 'HASH' ) {
+		die( '$opts{rules} has a ref of "' . ref( $opts{'rules'} ) . '" and not "HASH"' );
+	} elsif ( !defined( $opts{'rules'}{'rules'} ) ) {
 		die('$opts{rules}{rules} is undef meaning the rules hash contains no rules');
-	}elsif(ref($opts{'rules'}{'rules'}) ne 'ARRAY'){
-		die('$opts{rules}{rules} has a ref of "'.ref($opts{'rules'}{'rules'}).'" and not "ARRAY"');
-	}elsif(!defined($opts{'rules'}{'rules'}[0])){
+	} elsif ( ref( $opts{'rules'}{'rules'} ) ne 'ARRAY' ) {
+		die( '$opts{rules}{rules} has a ref of "' . ref( $opts{'rules'}{'rules'} ) . '" and not "ARRAY"' );
+	} elsif ( !defined( $opts{'rules'}{'rules'}[0] ) ) {
 		die('$opts{rules}{rules}[0] is undef meaning the rules hash contains no rules');
 	}
 

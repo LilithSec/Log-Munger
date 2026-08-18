@@ -4,10 +4,10 @@ The `log_munger` command is an [App::Cmd](https://metacpan.org/pod/App::Cmd)
 application. Run `log_munger commands` to list subcommands and
 `log_munger help <command>` for a command's usage.
 
-Global options accepted by every subcommand:
+Global options:
 
-- `--help`, `-h` :: Usage screen.
-- `--version`, `-v` :: Version.
+- `--help`, `-h` :: Usage screen. Accepted by every subcommand.
+- `--version`, `-v` :: Version. Only acts as the first argument (`log_munger --version`).
 
 Options common to the processing commands (`munge`, `explain`, `enrich`):
 
@@ -96,9 +96,10 @@ cat /var/log/apache2/access.log | log_munger enrich -r http_access_logs --raw --
 
 > List the rule files discoverable across the search path.
 
-Lists rule files across `/etc/log_munger/rules`, `/usr/local/etc/log_munger/rules`, and
-the dist share dir (in that precedence order — an earlier one shadows a later one; the
-first occurrence of a name wins).
+Lists rule files across the directory named by `LOG_MUNGER_RULES_DIR` (when set),
+`/etc/log_munger/rules`, `/usr/local/etc/log_munger/rules`, and the dist share dir (in
+that precedence order — an earlier one shadows a later one; the first occurrence of a
+name wins).
 
 | Option | Meaning |
 |--------|---------|
@@ -147,7 +148,7 @@ var's resolved value, which is how to see the regexp a primitive actually compil
 | Option | Meaning |
 |--------|---------|
 | `-f <name>` | Rule file to read. |
-| `--var <name>` | Dump only the resolved value of this one var, not the whole file. (Use the long form: the `-v` short alias is shadowed by the global `--version`.) |
+| `--var`, `-v <name>` | Dump only the resolved value of this one var, not the whole file. |
 
 ```sh
 log_munger dump_rule_file -f base --var TIMESTAMP_ISO8601

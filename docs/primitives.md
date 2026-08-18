@@ -19,9 +19,7 @@ These are literal regexps (no templating).
 |------|---------|
 | `IPv4` | An IPv4 address. |
 | `IPv6` | An IPv6 address (including embedded-IPv4 and `::` forms). |
-| `IP` | Either `IPv6` or `IPv4`. |
 | `HOSTNAME` | A DNS hostname (RFC-ish, up to 255 chars). |
-| `HOSTNAMEorIP` | A hostname or an IP. |
 | `INT` | `[0-9]+` (unsigned integer). |
 | `FLOAT` | `[0-9]+[.][0-9]+`. |
 | `INTorFLOAT` | An integer or a float. |
@@ -33,7 +31,7 @@ These are literal regexps (no templating).
 | `WORD` | `\b\w+\b`. |
 | `NOTSPACE` | `\S+`. |
 | `SPACE` | `\s*`. |
-| `DATA` | `(.*)?` (non-greedy-ish catch-all). |
+| `DATA` | `(.*)?` (greedy catch-all — unlike grok's lazy `.*?`). |
 | `GREEDYDATA` | `.*`. |
 | `GREEDYDATA_NO_COLON` | `[^:]*`. |
 | `GREEDYDATA_NO_SEMICOLON` | `[^;]*`. |
@@ -77,21 +75,23 @@ resolved in dependency order.
 | `NUMBER` | Alias of `INTorFLOAT`. |
 | `USER` | Alias of `USERNAME`. |
 | `MAC` | `CISCOMAC` \| `WINDOWSMAC` \| `COMMONMAC`. |
+| `IP` | `IPv6` \| `IPv4`. |
+| `HOSTNAMEorIP` | `IPv6` \| `IPv4` \| `HOSTNAME`. |
 | `HOSTandPORT` | `HOSTNAMEorIP:POSINT`. |
 | `HOSTmaybePORT` | `HOSTNAMEorIP` with an optional `:port`. |
 | `PATH` | `UNIXPATH` \| `WINPATH`. |
 | `URIPATHPARAM` | `URIPATH` with an optional `URIPARAM`. |
 | `URI` | A full URI (scheme, optional userinfo, host, path/params). |
 | `TIME` | `HOUR:MINUTE:SECOND`. |
-| `DATE_US` | `MONTHNUM/MONTHDAY/YEAR`. |
-| `DATE_EU` | `MONTHDAY.MONTHNUM.YEAR`. |
+| `DATE_US` | `MONTHNUM/MONTHDAY/YEAR` (separator `/` or `-`). |
+| `DATE_EU` | `MONTHDAY.MONTHNUM.YEAR` (separator `.`, `/`, or `-`). |
 | `DATE` | `DATE_US` \| `DATE_EU`. |
-| `ISO8601_TIMEZONE` | `Z` or `±HH:MM`. |
+| `ISO8601_TIMEZONE` | `Z` or `±HH:MM` (colon optional, so `±HHMM` too). |
 | `ISO8601_SECOND` | `SECOND` or `60`. |
 | `TIMESTAMP_ISO8601` | A full ISO-8601 timestamp. |
 | `SYSLOGTIMESTAMP` | `MONTH MONTHDAY TIME` (classic syslog). |
 | `HTTPDATE` | The Apache access-log timestamp. |
-| `DATESTAMP` | `DATE`-`TIME`. |
+| `DATESTAMP` | `DATE` and `TIME` joined by `-` or a space. |
 | `DATESTAMP_RFC822` | RFC-822 style date-time. |
 | `DATESTAMP_RFC2822` | RFC-2822 style date-time. |
 | `DATESTAMP_OTHER` | `DAY MONTH MONTHDAY TIME TZ YEAR`. |

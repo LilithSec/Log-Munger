@@ -67,9 +67,9 @@ sub execute {
 	my $rules = Log::Munger::RuleFileParser->new->load( 'file' => $opts->{'f'} );
 	my $vars  = ( ref( $rules->{'vars'} ) eq 'HASH' ) ? $rules->{'vars'} : {};
 
-	my %fields;     # static capture names
-	my %kv;         # prefix => source field (dynamic)
-	my %geoip;      # field => 1
+	my %fields;    # static capture names
+	my %kv;        # prefix => source field (dynamic)
+	my %geoip;     # field => 1
 
 	my @rulelist = ( ref( $rules->{'rules'} ) eq 'ARRAY' ) ? @{ $rules->{'rules'} } : ();
 	foreach my $rule (@rulelist) {
@@ -95,8 +95,8 @@ sub execute {
 					my $string = exists( $vars->{ $d->{'pattern'} } ) ? $vars->{ $d->{'pattern'} } : $d->{'pattern'};
 					_captures( $string, \%fields ) if ( defined($string) );
 				}
-			}
-		} ## end if ( ref($decompose) eq...)
+			} ## end foreach my $d ( @{$decompose} )
+		} ## end if ( ref($decompose) eq 'ARRAY' )
 
 		# geoip (rule-level, else file-level default)
 		my $g = defined( $rule->{'geoip'} ) ? $rule->{'geoip'} : $rules->{'geoip'};

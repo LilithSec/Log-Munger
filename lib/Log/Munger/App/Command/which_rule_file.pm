@@ -12,7 +12,8 @@ sub opt_spec {
 sub abstract { "Print the path a rule file name resolves to" }
 
 sub description {
-	"Prints the path a rule file name resolves to, searching /etc/log_munger/rules, then
+	"Prints the path a rule file name resolves to, searching the directory named by the
+LOG_MUNGER_RULES_DIR environment variable (when set), then /etc/log_munger/rules, then
 /usr/local/etc/log_munger/rules, then the dist share dir. A name beginning with /, ./, or ../ is
 used as a path instead of being searched for.
 
@@ -21,7 +22,7 @@ Exit codes:
 - 1 :: not found
 - 255 :: error
 ";
-}
+} ## end sub description
 
 sub validate { return 1 }
 

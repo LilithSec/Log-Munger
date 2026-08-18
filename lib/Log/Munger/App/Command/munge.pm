@@ -27,7 +27,7 @@ null.
 match a raw line. Feed those a JSON record that includes the gate field. --raw is for gateless
 whole-line rules such as http_access_logs.
 ";
-}
+} ## end sub description
 
 sub validate { return 1 }
 

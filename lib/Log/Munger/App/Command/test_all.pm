@@ -3,8 +3,8 @@ package Log::Munger::App::Command::test_all;
 use strict;
 use warnings;
 use Log::Munger::App -command;
-use Log::Munger::RulesTest ();
-use File::ShareDir         ();
+use Log::Munger::RulesTest     ();
+use Log::Munger::WhichRuleFile ();
 
 sub opt_spec {
 	return ( [ 'verbose|v', 'Print each error and warning, not just counts.' ], );
@@ -23,49 +23,12 @@ CI.
 
 sub validate { return 1 }
 
-# Every rule file name discoverable across the search path.
-#
-# The same directories Log::Munger::WhichRuleFile searches are walked for .yaml
-# files and the names are collected into a set. Only the name is kept, not the
-# path, since the point is to hand each one to Log::Munger::RulesTest, which
-# resolves names itself. A name defined in more than one directory is therefore
-# tested once, as whichever copy would actually be used.
-#
-# The share dir lookup is wrapped in an eval because File::ShareDir::dist_dir dies
-# when the distribution is not installed, which is normal when running out of a
-# checkout.
-#
-# Takes no args.
-#
-# Returns a sorted list of rule file names, with the .yaml suffix stripped, such
-# as ( 'auditd', 'base', 'cron', ... ). Empty if nothing was found anywhere.
-#
-#     my @names = _names();
-sub _names {
-	my @dirs = ( '/etc/log_munger/rules', '/usr/local/etc/log_munger/rules' );
-	if ( defined( $ENV{'LOG_MUNGER_RULES_DIR'} ) && length( $ENV{'LOG_MUNGER_RULES_DIR'} ) ) {
-		unshift( @dirs, $ENV{'LOG_MUNGER_RULES_DIR'} );
-	}
-	my $share;
-	eval { $share = File::ShareDir::dist_dir('Log-Munger'); };
-	push( @dirs, $share ) if ( defined($share) );
-
-	my %seen;
-	foreach my $dir (@dirs) {
-		next if ( !-d $dir );
-		foreach my $file ( sort glob("$dir/*.yaml") ) {
-			my ($name) = $file =~ m{([^/]+)\.yaml\z};
-			$seen{$name} = 1 if ( defined($name) );
-		}
-	}
-	my @names = sort keys %seen;
-	return @names;
-} ## end sub _names
-
 sub execute {
 	my ( $self, $opts, $args ) = @_;
 
-	my @names = _names();
+	# only the names are wanted, since each one is handed to
+	# Log::Munger::RulesTest, which resolves names itself
+	my @names = sort( keys( %{ Log::Munger::WhichRuleFile->available_rule_files } ) );
 	if ( !@names ) {
 		print "no rule files found\n";
 		return;
@@ -87,8 +50,8 @@ sub execute {
 		printf( "%-5s %-24s %d error(s), %d warning(s)\n", ( $errors ? 'FAIL' : 'ok' ), $name, $errors, $warnings );
 
 		if ( $opts->{'verbose'} ) {
-			print "        ERROR: $_\n"   for ( @{ $res->{'errors'} } );
-			print "        warn:  $_\n"   for ( @{ $res->{'warnings'} } );
+			print "        ERROR: $_\n" for ( @{ $res->{'errors'} } );
+			print "        warn:  $_\n" for ( @{ $res->{'warnings'} } );
 		}
 	} ## end foreach my $name (@names)
 

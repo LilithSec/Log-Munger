@@ -3,10 +3,10 @@ package Log::Munger::Degrok;
 use 5.006;
 use strict;
 use warnings;
-use Scalar::Util qw(looks_like_number);
-use File::Slurp  qw(read_file);
-use Hash::Merge  ();
-use YAML::XS qw(Dump);
+use Scalar::Util                qw(looks_like_number);
+use File::Slurp                 qw(read_file);
+use Hash::Merge                 ();
+use YAML::XS                    qw(Dump);
 use Log::Munger::RuleFileParser ();
 
 =head1 NAME
@@ -77,22 +77,11 @@ sub string {
 	}
 	my $string = $opts{'string'};
 
-	my $loop_continue = 1;
-	while ($loop_continue) {
-		if ( $string =~ /(?<GROK>\%\{(?<VAR>[A-Za-z0-9\_]+)(\:(?<CAPTURE>[A-Za-z0-9\_]+))?\})/ ) {
-			my %found_items = %+;
-			my $replacement_string;
-			if ( defined( $found_items{'CAPTURE'} ) ) {
-				$replacement_string = '(?<' . $found_items{'CAPTURE'} . '>[% ' . $found_items{'VAR'} . ' %])';
-			} else {
-				$replacement_string = '[% ' . $found_items{'VAR'} . ' %]';
-			}
-			my $replacement_regexp = quotemeta( $found_items{'GROK'} );
-			$string =~ s/$replacement_regexp/$replacement_string/g;
-		} else {
-			$loop_continue = 0;
-		}
-	} ## end while ($loop_continue)
+	# one pass: %{NAME} becomes [% NAME %] and %{NAME:capture} becomes
+	# (?<capture>[% NAME %]). s///g resumes after each replacement, so the
+	# replacement text itself is never re-matched
+	$string =~ s/\%\{([A-Za-z0-9_]+)(?:\:([A-Za-z0-9_]+))?\}/
+		defined($2) ? "(?<$2>[% $1 %])" : "[% $1 %]"/ge;
 
 	return $string;
 } ## end sub string
@@ -225,38 +214,37 @@ sub grok2rules {
 		&& ( ref( $opts{'includes'} ) ne 'ARRAY' ) )
 	{
 		die( '$opts{includes} is specified but has a ref of "' . ref( $opts{'includes'} ) . '" instead of "ARRAY"' );
-	} else {
-		if ( defined( $opts{'includes'}[0] ) ) {
-			$rules->{'includes'} = [];
+	}
+	if ( defined( $opts{'includes'} ) && defined( $opts{'includes'}[0] ) ) {
+		$rules->{'includes'} = [];
 
-			# LEFT_PRECEDENT so an earlier include wins over a later one, the
-			# same way RuleFileParser merges. Only existence is checked below,
-			# so this is consistency rather than behavior
-			my $merger = Hash::Merge->new('LEFT_PRECEDENT');
-			my $parser = Log::Munger::RuleFileParser->new;
+		# LEFT_PRECEDENT so an earlier include wins over a later one, the
+		# same way RuleFileParser merges. Only existence is checked below,
+		# so this is consistency rather than behavior
+		my $merger = Hash::Merge->new('LEFT_PRECEDENT');
+		my $parser = Log::Munger::RuleFileParser->new;
 
-			# use a while loop instead of foreach for basically simplifying display of errors
-			my $include_int = 0;
-			while ( defined( $opts{'includes'}[$include_int] ) ) {
-				my $include = $opts{'includes'}[$include_int];
-				if ( ref($include) ne '' ) {
-					die( '$opts{includes}[' . $include_int . '] has a ref of "' . ref($include) . '" and not ""' );
-				}
+		# use a while loop instead of foreach for basically simplifying display of errors
+		my $include_int = 0;
+		while ( defined( $opts{'includes'}[$include_int] ) ) {
+			my $include = $opts{'includes'}[$include_int];
+			if ( ref($include) ne '' ) {
+				die( '$opts{includes}[' . $include_int . '] has a ref of "' . ref($include) . '" and not ""' );
+			}
 
-				push( @{ $rules->{'includes'} }, $include );
+			push( @{ $rules->{'includes'} }, $include );
 
-				my $include_rules;
-				eval { $include_rules = $parser->load( 'file' => $include ); };
-				if ($@) {
-					die( '$opts{includes}[' . $include_int . '], "' . $include . '", could not be loaded... ' . $@ );
-				}
+			my $include_rules;
+			eval { $include_rules = $parser->load( 'file' => $include ); };
+			if ($@) {
+				die( '$opts{includes}[' . $include_int . '], "' . $include . '", could not be loaded... ' . $@ );
+			}
 
-				$includes = $merger->merge( $includes, $include_rules );
+			$includes = $merger->merge( $includes, $include_rules );
 
-				$include_int++;
-			} ## end while ( defined( $opts{'includes'}[$include_int...]))
-		} ## end if ( defined( $opts{'includes'}[0] ) )
-	} ## end else [ if ( defined( $opts{'includes'} ) && ( ref...))]
+			$include_int++;
+		} ## end while ( defined( $opts{'includes'}[$include_int...]))
+	} ## end if ( defined( $opts{'includes'} ) && defined...)
 
 	my @lines;
 	eval { @lines = read_file( $opts{'file'} ); };
@@ -277,45 +265,36 @@ sub grok2rules {
 		if ( !defined($regexp) ) {
 			die(      'The line "'
 					. $line
-					. '" could not be split via /\w+/ meaning there is likely something wrong with this line as there is no regexp for the variable'
+					. '" could not be split into a name and a regexp on whitespace, meaning there is likely something wrong with this line as there is no regexp for the variable'
 			);
 		}
 
+		# a name an include already defines is handled per the overwrite policy:
+		# yes takes the grok file's version, the no_* policies keep the
+		# include's
 		my $process_line = 1;
-		if (   ( ( $opts{'overwrite'} ne 'yes' ) && ( $opts{'overwrite'} ne 'no_silent' ) )
-			&& ( defined( $includes->{'vars'}{$var} ) || defined( $includes->{'vars_templated'}{$var} ) ) )
-		{
+		if ( $opts{'overwrite'} ne 'yes' ) {
+			my $already;
 			if ( defined( $includes->{'vars'}{$var} ) ) {
-				if ( $opts{'overwrite'} eq 'no_warn' ) {
-					warn( '".var.' . $var . '" is already defined in one of the includes... skipping...' );
-					$process_line = 0;
-				} elsif ( $opts{'overwrite'} eq 'no_die' ) {
-					die( '".var.' . $var . '" is already defined in one of the includes' );
-				}
+				$already = '.vars.' . $var;
 			} elsif ( defined( $includes->{'vars_templated'}{$var} ) ) {
-				if ( $opts{'overwrite'} eq 'no_warn' ) {
-					warn( '".var_templated.' . $var . '" is already defined in one of the includes... skipping...' );
-					$process_line = 0;
-				} elsif ( $opts{'overwrite'} eq 'no_die' ) {
-					die( '".var_templated.' . $var . '" is already defined in one of the includes' );
-				}
+				$already = '.vars_templated.' . $var;
 			}
-		} elsif ( ( $opts{'overwrite'} eq 'no_silent' )
-			&& ( defined( $includes->{'vars'}{$var} ) || defined( $includes->{'vars_templated'}{$var} ) ) )
-		{
-			$process_line = 0;
-		}
-
-		if ($process_line){
-			if ( $regexp =~ /(?<GROK>\%\{(?<VAR>[A-Za-z0-9\_]+)(\:(?<CAPTURE>[A-Za-z0-9\_]+))?\})/ ) {
-				eval {
-					$regexp = Log::Munger::Degrok->string('string' => $regexp);
-				};
-				if ($@) {
-					die( 'Failed to process line "' . $line . '"... ' . $@ );
+			if ( defined($already) ) {
+				if ( $opts{'overwrite'} eq 'no_die' ) {
+					die( '"' . $already . '" is already defined in one of the includes' );
+				} elsif ( $opts{'overwrite'} eq 'no_warn' ) {
+					warn( '"' . $already . '" is already defined in one of the includes... skipping...' );
 				}
-				$rules->{'vars_templated'}{$var} = $regexp;
-			}else{
+				$process_line = 0;
+			}
+		} ## end if ( $opts{'overwrite'} ne 'yes' )
+
+		if ($process_line) {
+			# a line referencing another pattern becomes a templated var
+			if ( $regexp =~ /\%\{[A-Za-z0-9_]+(?:\:[A-Za-z0-9_]+)?\}/ ) {
+				$rules->{'vars_templated'}{$var} = Log::Munger::Degrok->string( 'string' => $regexp );
+			} else {
 				$rules->{'vars'}{$var} = $regexp;
 			}
 		}

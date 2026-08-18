@@ -171,7 +171,7 @@ sub process_item {
 	}
 
 	return $self->{'processor'}->process_item(%opts);
-} ## end sub process_item
+}
 
 =head2 explain_item
 
@@ -194,7 +194,7 @@ sub explain_item {
 	}
 
 	return $self->{'processor'}->explain_item(%opts);
-} ## end sub explain_item
+}
 
 # Rebuilds the LogProcessor from the rule file names collected so far, passing
 # along the geoip database path if one was given to new.

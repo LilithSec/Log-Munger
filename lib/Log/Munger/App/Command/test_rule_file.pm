@@ -25,7 +25,7 @@ sub validate { return 1 }
 sub execute {
 	my ( $self, $opts, $args ) = @_;
 
-	my $rules  = Log::Munger::RulesTest->test( 'file' => $opts->{'f'} );
+	my $rules = Log::Munger::RulesTest->test( 'file' => $opts->{'f'} );
 
 	print Dump($rules);
 

@@ -8,14 +8,14 @@ use JSON;
 
 sub opt_spec {
 	return (
-		[ 'rules|r=s@',    'Rule file to load (may be given more than once).' ],
-		[ 'raw',           'Each input line is a raw log line (matched as MESSAGE) instead of NDJSON.' ],
-		[ 'geoip|g=s',     'Path to a MaxMind .mmdb database for geoip enrichment.' ],
-		[ 'into|i=s',      'Key to nest the enrichment under. Default: enriched.', { default => 'enriched' } ],
-		[ 'flat',          'Merge the extracted fields into the record instead of nesting them.' ],
+		[ 'rules|r=s@',     'Rule file to load (may be given more than once).' ],
+		[ 'raw',            'Each input line is a raw log line (matched as MESSAGE) instead of NDJSON.' ],
+		[ 'geoip|g=s',      'Path to a MaxMind .mmdb database for geoip enrichment.' ],
+		[ 'into|i=s',       'Key to nest the enrichment under. Default: enriched.', { default => 'enriched' } ],
+		[ 'flat',           'Merge the extracted fields into the record instead of nesting them.' ],
 		[ 'drop-unmatched', 'Do not emit records that did not match any rule.' ],
 	);
-}
+} ## end sub opt_spec
 
 sub abstract { "Stream log lines from stdin and emit enriched NDJSON on stdout" }
 
@@ -28,7 +28,7 @@ Records that matched nothing pass through unchanged unless --drop-unmatched is g
 that will not decode as JSON is warned about and passed through, so nothing is ever dropped
 silently.
 ";
-}
+} ## end sub description
 
 sub validate { return 1 }
 
@@ -44,7 +44,7 @@ sub execute {
 	my $munger = Log::Munger->new(%margs);
 
 	my $json = JSON->new->utf8->canonical;
-	my $into = defined( $opts->{'into'} ) ? $opts->{'into'} : 'enriched';
+	my $into = $opts->{'into'};
 
 	while ( defined( my $line = <STDIN> ) ) {
 		chomp($line);
@@ -66,9 +66,9 @@ sub execute {
 				warn("skipping undecodable line: $shown\n");
 				print "$line\n";
 				next;
-			}
+			} ## end if ( $@ || ref($record) ne 'HASH' )
 			$item = $record;
-		}
+		} ## end else [ if ( $opts->{'raw'} ) ]
 
 		my $fields = $munger->process_item( 'item' => $item );
 
@@ -87,7 +87,7 @@ sub execute {
 		}
 
 		print $json->encode($record) . "\n";
-	} ## end while ( defined( my $line...))
+	} ## end while ( defined( my $line = <STDIN> ) )
 
 	return;
 } ## end sub execute

@@ -24,7 +24,7 @@ vars:
   SPACE: '\s*'
   DATA: '(.*)?'
   GREEDYDATA: '.*'
-  QUOTEDSTRING: (?>(?<!\\)(?>"(?>\.|[^\\"]+)+"|""|(?>'(?>\\.|[^\\']+)+')|''|(?>`(?>\\.|[^\\`]+)+`)|``))
+  QUOTEDSTRING: (?>(?<!\\)(?>"(?>\\.|[^\\"]+)+"|""|(?>'(?>\\.|[^\\']+)+')|''|(?>`(?>\\.|[^\\`]+)+`)|``))
   UUID: '[A-Fa-f0-9]{8}-(?:[A-Fa-f0-9]{4}-){3}[A-Fa-f0-9]{12}'
   URN: urn:[0-9A-Za-z][0-9A-Za-z-]{0,31}:(?:%[0-9a-fA-F]{2}|[0-9A-Za-z()+,.:=@;$_!*'/?#-])+
   CISCOMAC: '(?:(?:[A-Fa-f0-9]{4}\.){2}[A-Fa-f0-9]{4})'
@@ -482,6 +482,8 @@ vars_tests:
         result: '"`a130d8@a.foo.bar`"'
       - string: '  a b c="a130d8@foo" d'
         result: '"a130d8@foo"'
+      - string: '  a b c="af\"foo" d'
+        result: '"af\"foo"'
     negative:
       - '  a b c=a130d8@foo d'
       - '  a b c= d'

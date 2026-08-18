@@ -3,7 +3,7 @@ package Log::Munger::RuleFileParser;
 use 5.006;
 use strict;
 use warnings;
-use YAML::XS                   qw(Load);
+use YAML::XS qw(Load);
 
 # a rule file is data; never bless objects out of YAML tags. Old YAML::XS
 # versions default LoadBlessed on, which is an object-injection risk when
@@ -34,7 +34,7 @@ our $VERSION = '0.0.1';
     my $parser = Log::Munger::RuleFileParser->new;
     my $rules  = $parser->load( 'file' => 'sshd' );
 
-    print $rules->{'vars'}{'SSH_FAILED_PASSWORD'} . "\n";
+    print $rules->{'vars'}{'SSH_FAILED'} . "\n";
 
 Loading a rule file is four steps. The name is resolved to a path via
 L<Log::Munger::WhichRuleFile>, the YAML is read in, anything under C<includes> is
@@ -67,7 +67,7 @@ sub new {
 	bless $self;
 
 	return $self;
-} ## end sub new
+}
 
 =head2 load
 
@@ -118,24 +118,11 @@ sub load {
 					. '" and not HASH' );
 		}
 
-		foreach my $item ( @{ $template_order } ) {
-			if (   ( ref( $rules->{$template_hash}{$item} ) ne 'ARRAY' )
-				&& ( ref( $rules->{$template_hash}{$item} ) ne '' ) )
-			{
-				die(      '$rules->{'
-						. $template_hash . '}{'
-						. $item
-						. '} is of ref "'
-						. ref( $rules->{$template_hash}{$item} )
-						. '" and not "HASH" or ""' );
-			} ## end if ( ( ref( $rules->{$template_hash}{$item...})))
-			if ( ref( $rules->{$template_hash}{$item} ) eq 'ARRAY' ) {
-				my $joined = join( '', @{ $rules->{$template_hash}{$item} } );
-				$rules->{$template_hash}{$item} = $joined;
-			}
+		foreach my $item ( @{$template_order} ) {
 			# strip trailing newlines off the template source so a block-scalar
 			# terminator does not survive into the composed pattern
-			$rules->{$template_hash}{$item} =~ s/[\r\n]+\z//;
+			$rules->{$template_hash}{$item} = _normalized_var_value( $rules->{$template_hash}{$item},
+				'$rules->{' . $template_hash . '}{' . $item . '}' );
 
 			my $results;
 			$tt->process( \$rules->{$template_hash}{$item}, $rules->{'vars'}, \$results )
@@ -191,16 +178,7 @@ sub load_no_templating {
 	}
 
 	my $rules;
-	eval {
-		my $rules_yaml_raw = read_file($file_location);
-		$rules = Load($rules_yaml_raw);
-		if ( !defined($rules) ) {
-			die('Load(read_file($file_location)) returned undef');
-		}
-		if ( ref($rules) ne 'HASH' ) {
-			die( 'Load(read_file($file_location)) returned a ref of "' . ref($rules) . '" and not "HASH"' );
-		}
-	};
+	eval { $rules = _read_yaml_hash($file_location); };
 	if ($@) {
 		die( 'Failed to read in and parse "' . $file_location . '"... ' . $@ );
 	}
@@ -238,30 +216,15 @@ sub load_no_templating {
 						'file' => $rules->{'includes'}[$include_int] );
 					if ( !defined($include_location) ) {
 						die(      '.includes.'
-								. $include_int
-								. ', "'
+								. $include_int . ', "'
 								. $rules->{'includes'}[$include_int]
 								. '", could not be found by Log::Munger::WhichRuleFile->rule_file_location' );
 					}
 					my $rule_include;
-					eval {
-						my $raw_rules_include = read_file($include_location);
-						$rule_include = Load($raw_rules_include);
-						if ( !defined($rule_include) ) {
-							die( 'Load(read_file("' . $include_location . '")) returned undef for include' );
-						}
-						if ( ref($rule_include) ne 'HASH' ) {
-							die(      'Load(read_file("'
-									. $include_location
-									. '")) returned a ref of "'
-									. ref($rule_include)
-									. '" and not "HASH"' );
-						}
-					};
+					eval { $rule_include = _read_yaml_hash($include_location); };
 					if ($@) {
 						die(      '.includes.'
-								. $include_int
-								. ', "'
+								. $include_int . ', "'
 								. $rules->{'includes'}[$include_int]
 								. '", could not be loaded... '
 								. $@ );
@@ -282,27 +245,72 @@ sub load_no_templating {
 		}
 
 		foreach my $item ( keys( %{ $rules->{'vars'} } ) ) {
-			if (   ( ref( $rules->{'vars'}{$item} ) ne 'ARRAY' )
-				&& ( ref( $rules->{'vars'}{$item} ) ne '' ) )
-			{
-				die(      '$rules->{vars}{'
-						. $item
-						. '} is of ref "'
-						. ref( $rules->{'vars'}{$item} )
-						. '" and not "HASH" or ""' );
-			}
-			if ( ref( $rules->{'vars'}{$item} ) eq 'ARRAY' ) {
-				my $joined = join( '', @{ $rules->{'vars'}{$item} } );
-				$rules->{'vars'}{$item} = $joined;
-			}
 			# every plain var feeds the Template Toolkit stash; strip trailing
 			# newlines (YAML "|" block-scalar terminators) so they cannot leak
 			# into the middle of a composed pattern during templating
-			$rules->{'vars'}{$item} =~ s/[\r\n]+\z//;
-		} ## end foreach my $item ( keys( %{ $rules->{'vars'} } ...))
+			$rules->{'vars'}{$item} = _normalized_var_value( $rules->{'vars'}{$item}, '$rules->{vars}{' . $item . '}' );
+		}
 	} ## end if ( defined( $rules->{'vars'} ) )
 
 	return $rules;
 } ## end sub load_no_templating
+
+# Reads a YAML file and returns the hash ref it parses to.
+#
+# Args:
+#
+#     - $path :: The path of the file to read.
+#
+# Returns the parsed hash ref. Dies when the file cannot be read, is not valid
+# YAML, or parses to something other than a hash, such as a list or nothing at
+# all.
+#
+#     my $rules = _read_yaml_hash($file_location);
+sub _read_yaml_hash {
+	my ($path) = @_;
+
+	my $raw    = read_file($path);
+	my $parsed = Load($raw);
+	if ( !defined($parsed) ) {
+		die( 'Load(read_file("' . $path . '")) returned undef' );
+	}
+	if ( ref($parsed) ne 'HASH' ) {
+		die( 'Load(read_file("' . $path . '")) returned a ref of "' . ref($parsed) . '" and not "HASH"' );
+	}
+
+	return $parsed;
+} ## end sub _read_yaml_hash
+
+# Normalizes one var value as it came out of the YAML. A value written as an
+# array of strings is joined into a single string, and trailing newlines are
+# stripped, since a YAML "|" block scalar keeps its terminating newline and one
+# of those landing in the middle of a composed pattern would quietly stop it
+# matching single-line logs.
+#
+# Args:
+#
+#     - $value :: The value as YAML::XS returned it. A plain string or an
+#         array ref of strings.
+#
+#     - $where :: Where the value lives, such as '$rules->{vars}{FOO}'. Used in
+#         the die message.
+#
+# Returns the normalized string. Dies when the value is neither a plain string
+# nor an array ref.
+#
+#     $rules->{'vars'}{$item} = _normalized_var_value( $rules->{'vars'}{$item}, '$rules->{vars}{' . $item . '}' );
+sub _normalized_var_value {
+	my ( $value, $where ) = @_;
+
+	if ( ( ref($value) ne 'ARRAY' ) && ( ref($value) ne '' ) ) {
+		die( $where . ' is of ref "' . ref($value) . '" and not "ARRAY" or ""' );
+	}
+	if ( ref($value) eq 'ARRAY' ) {
+		$value = join( '', @{$value} );
+	}
+	$value =~ s/[\r\n]+\z//;
+
+	return $value;
+} ## end sub _normalized_var_value
 
 1;    # End of Log::Munger::RuleFileParser

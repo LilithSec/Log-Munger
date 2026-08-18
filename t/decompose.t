@@ -192,4 +192,33 @@ is( ref( $n->{'doc'} ), 'HASH', 'json nested: decoded structure stored whole und
 is( $n->{'doc'}{'b'}{'c'}, 2, 'json nested: nested structure preserved' );
 ok( !exists( $n->{'blob'} ), 'json nested: source blob removed' );
 
+# nested mode with no prefix: the decoded structure replaces the source field
+# itself, and remove: is ignored so it is not deleted right after being stored
+my ( $npfh, $npfile ) = tempfile( 'lm_jsonnestnp_XXXXXX', SUFFIX => '.yaml', TMPDIR => 1, UNLINK => 1 );
+print {$npfh} <<'YAML';
+---
+includes:
+- base
+vars_templated:
+  BLOB: '(?<blob>\{.*\})'
+rules:
+  - name: nested_noprefix
+    field: MESSAGE
+    anchored: true
+    patterns: [BLOB]
+    decompose:
+      - field: blob
+        type: json
+        nested: true
+        remove: true
+    tests:
+      negative: ['nope']
+YAML
+close($npfh);
+
+my $npm = Log::Munger->new( 'rules' => [$npfile] );
+my $np  = $npm->process_item( 'item' => { MESSAGE => '{"a":1,"b":{"c":2}}' } );
+is( ref( $np->{'blob'} ), 'HASH', 'json nested, no prefix: decoded structure replaces the source field' );
+is( $np->{'blob'}{'b'}{'c'}, 2, 'json nested, no prefix: structure preserved' );
+
 done_testing();

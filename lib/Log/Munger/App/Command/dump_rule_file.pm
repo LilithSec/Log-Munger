@@ -8,8 +8,8 @@ use YAML::XS qw(Dump);
 
 sub opt_spec {
 	return (
-		[ 'f=s',       'Rule file to read.' ],
-		[ 'var|v=s',   'Dump only the resolved value of this one var (a compiled regexp), not the whole file.' ],
+		[ 'f=s',     'Rule file to read.' ],
+		[ 'var|v=s', 'Dump only the resolved value of this one var (a compiled regexp), not the whole file.' ],
 	);
 }
 

@@ -21,7 +21,7 @@ How a rule file becomes a matcher, and how a record becomes fields.
 ```
 name ──WhichRuleFile──► path ──read_file──► YAML text ──YAML::XS::Load──► hash
                                                                             │
-                              includes merged (Hash::Merge, RIGHT_PRECEDENT)│
+                               includes merged (Hash::Merge, LEFT_PRECEDENT)│
                                                                             ▼
                                        vars normalized (lists joined, newlines trimmed)
                                                                             │
@@ -85,7 +85,10 @@ patterns anchored and tested.
 - convert last :: Coercion happens once geoip has had its look, so turning a port into a
   number never gets in the way of a lookup.
 
-No enrichment step ever overwrites an existing capture; new keys are only added if absent.
+Decompose and geoip only add keys that are absent, never overwriting an existing capture,
+with one exception: a `nested: true` json decompose with no prefix replaces its own source
+field with the decoded structure. `convert` is the step that changes existing values, and
+only for the fields it names.
 
 ## Testing
 

@@ -6,9 +6,10 @@ use warnings;
 use Algorithm::Dependency::Ordered;
 use Algorithm::Dependency::Source::HoA;
 
-# Log::Munger::RuleFileParser is loaded at runtime (via require, inside the two
-# file-based helpers below) rather than with a compile-time use: RuleFileParser
-# already uses this module, so a use here would form a circular dependency.
+# Log::Munger::RuleFileParser is loaded at runtime (via require, inside
+# _load_no_templating below) rather than with a compile-time use:
+# RuleFileParser already uses this module, so a use here would form a circular
+# dependency.
 
 =head1 NAME
 
@@ -65,7 +66,7 @@ a file shadow an include's templated var with a plain one.
 
 Returns an array ref of the C<vars_templated> names, in the order they should be
 resolved. A file with neither C<vars> nor C<vars_templated> gets an empty array
-ref. Dies if C<rules> is undef or is not a hash ref, if a templated var
+ref. Dies on anything L</depends_for_rules_hash> dies on, if a templated var
 references a name that is not defined anywhere, or if the references are
 circular.
 
@@ -117,7 +118,7 @@ sub order_for_rules_hash {
 						. '", which is not defined under .vars or .vars_templated' );
 			}
 		}
-	}
+	} ## end foreach my $var (@templated_vars)
 
 	my $deps_source = Algorithm::Dependency::Source::HoA->new($depends_info);
 	my $dep         = Algorithm::Dependency::Ordered->new(
@@ -129,11 +130,11 @@ sub order_for_rules_hash {
 
 	# a circular reference is unschedulable and Algorithm::Dependency omits it
 	# quietly rather than erroring, so catch it here by name
-	my %shadowed  = map { $_ => 1 } @vars;
-	my %scheduled = defined($schedule) ? ( map { $_ => 1 } @{$schedule} ) : ();
+	my %shadowed      = map { $_ => 1 } @vars;
+	my %scheduled     = defined($schedule) ? ( map { $_ => 1 } @{$schedule} ) : ();
 	my @unschedulable = grep { !$scheduled{$_} && !$shadowed{$_} } @templated_vars;
 	if ( !defined($schedule) || @unschedulable ) {
-		die(      'Could not work out a resolution order for .vars_templated... circular [% %] references between: '
+		die( 'Could not work out a resolution order for .vars_templated... circular [% %] references between: '
 				. join( ', ', @unschedulable ) );
 	}
 
@@ -156,7 +157,8 @@ what dies on it.
 
 Returns a hash ref of C<< { var_name => [ names it references ] } >>, or an empty
 hash ref if the file has no C<vars_templated>. Dies if C<rules> is undef, is not a
-hash ref, or holds a C<vars> / C<vars_templated> that is not a hash ref.
+hash ref, holds a C<vars> / C<vars_templated> that is not a hash ref, or holds a
+C<vars_templated> entry whose value is not a plain string.
 
     my $depends = Log::Munger::RulesTemplateOrder->depends_for_rules_hash( 'rules' => $rules_hash );
     # $depends->{TIME} = [ 'HOUR', 'MINUTE', 'SECOND' ]
@@ -198,19 +200,14 @@ sub depends_for_rules_hash {
 
 	my $template_depends = {};
 	foreach my $var (@templated_vars) {
+		# each reference is recorded once, in first-appearance order, which
+		# both dedupes the list and keeps the -d dump of this map stable
 		my @has_vars;
-		my $string        = $rules->{'vars_templated'}{$var};
-		my $loop_continue = 1;
-		while ($loop_continue) {
-			if ( $string =~ /(?<TEMPLATE>\[\% +(?<VAR>[A-Za-z0-9\_]+) +\%\])/ ) {
-				my %found_items = %+;
-				push( @has_vars, $found_items{'VAR'} );
-				my $replacement_regexp = quotemeta( $found_items{'TEMPLATE'} );
-				$string =~ s/$replacement_regexp//g;
-			} else {
-				$loop_continue = 0;
-			}
-		} ## end while ($loop_continue)
+		my %seen;
+		my $string = $rules->{'vars_templated'}{$var};
+		while ( $string =~ /\[\% +([A-Za-z0-9_]+) +\%\]/g ) {
+			push( @has_vars, $1 ) if ( !$seen{$1}++ );
+		}
 		$template_depends->{$var} = \@has_vars;
 	} ## end foreach my $var (@templated_vars)
 
@@ -237,24 +234,8 @@ the file cannot be found or loaded.
 sub order_for_rules_file {
 	my ( $blank, %opts ) = @_;
 
-	if ( !defined( $opts{'file'} ) ) {
-		die('$opts{file} is undef');
-	} elsif ( ref( $opts{'file'} ) ne '' ) {
-		die( '$opts{file} ref is "' . ref( $opts{'file'} ) . '" and not ""' );
-	}
-
-	my $rules;
-	eval {
-		require Log::Munger::RuleFileParser;
-		my $parser = Log::Munger::RuleFileParser->new;
-		$rules = $parser->load_no_templating( 'file' => $opts{'file'} );
-	};
-	if ($@) {
-		die( 'Failed to call load_no_templating for "' . $opts{'file'} . '"... ' . $@ );
-	}
-
-	return Log::Munger::RulesTemplateOrder->order_for_rules_hash( 'rules' => $rules );
-} ## end sub order_for_rules_file
+	return Log::Munger::RulesTemplateOrder->order_for_rules_hash( 'rules' => _load_no_templating( $opts{'file'} ) );
+}
 
 =head2 depends_for_rules_file
 
@@ -275,21 +256,44 @@ file cannot be found or loaded.
 sub depends_for_rules_file {
 	my ( $blank, %opts ) = @_;
 
-	if ( !defined( $opts{'file'} ) ) {
+	return Log::Munger::RulesTemplateOrder->depends_for_rules_hash( 'rules' => _load_no_templating( $opts{'file'} ) );
+}
+
+# Loads a rule file via Log::Munger::RuleFileParser->load_no_templating, which
+# is the state the ordering has to be worked out in: once load has run, the
+# [% VAR %] references this module reads have been substituted away.
+#
+# RuleFileParser is required at runtime rather than used at compile time since
+# it uses this module itself; see the note at the top of the file.
+#
+# Args:
+#
+#     - $file :: The file to load. Either a bare name resolved through the
+#         search path, such as "base", or a path.
+#
+# Returns the rules hash ref, with vars_templated left untouched. Dies when
+# $file is undef or not a plain string, or when the file cannot be found or
+# loaded.
+#
+#     my $rules = _load_no_templating( $opts{'file'} );
+sub _load_no_templating {
+	my ($file) = @_;
+
+	if ( !defined($file) ) {
 		die('$opts{file} is undef');
-	} elsif ( ref( $opts{'file'} ) ne '' ) {
-		die( '$opts{file} ref is "' . ref( $opts{'file'} ) . '" and not ""' );
+	} elsif ( ref($file) ne '' ) {
+		die( '$opts{file} ref is "' . ref($file) . '" and not ""' );
 	}
 
 	my $rules;
 	eval {
 		require Log::Munger::RuleFileParser;
 		my $parser = Log::Munger::RuleFileParser->new;
-		$rules = $parser->load_no_templating( 'file' => $opts{'file'} );
+		$rules = $parser->load_no_templating( 'file' => $file );
 	};
 	if ($@) {
-		die( 'Failed to call load_no_templating for "' . $opts{'file'} . '"... ' . $@ );
+		die( 'Failed to call load_no_templating for "' . $file . '"... ' . $@ );
 	}
 
-	return Log::Munger::RulesTemplateOrder->depends_for_rules_hash( 'rules' => $rules );
-} ## end sub depends_for_rules_file
+	return $rules;
+} ## end sub _load_no_templating

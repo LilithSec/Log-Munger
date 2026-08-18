@@ -9,10 +9,13 @@ sub opt_spec {
 	return (
 		[ 'f=s',           'Grok patterns file to convert.' ],
 		[ 'includes|i=s@', 'Rule file to treat as an include when resolving/overwriting (repeatable).' ],
-		[ 'overwrite|o=s', 'Overwrite policy for names already in an include: yes|no_silent|no_warn|no_die.',
-			{ default => 'no_warn' } ],
+		[
+			'overwrite|o=s',
+			'Overwrite policy for names already in an include: yes|no_silent|no_warn|no_die.',
+			{ default => 'no_warn' }
+		],
 	);
-}
+} ## end sub opt_spec
 
 sub abstract { "Convert a grok patterns file into a Log::Munger rules YAML skeleton" }
 
@@ -28,7 +31,7 @@ shadow the ones in base.
 What comes back is a skeleton. There is no rules section, no gates and no tests, because none
 of that exists in a grok patterns file to convert.
 ";
-}
+} ## end sub description
 
 sub validate { return 1 }
 

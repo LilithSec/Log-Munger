@@ -6,7 +6,7 @@ use warnings;
 use Template;
 use Log::Munger::RuleFileParser;
 use Log::Munger::LogProcessor ();
-use B ();
+use B                         ();
 
 =head1 NAME
 
@@ -132,7 +132,8 @@ The checks are:
 
 =item * Every C<vars_tests> entry. The var is spliced into the entry's
 C<test_template>, then each positive case has to match with C<TEST> capturing the
-expected result, and each negative case has to not match.
+expected result, and no negative case may match with C<TEST> captured. A negative
+that matches without capturing C<TEST> is a warning, not an error.
 
 =item * Every resolved var, linted for leftover grok C<%{...}>, named captures
 Perl will not accept, embedded newlines, and anything that will not compile.
@@ -263,248 +264,15 @@ sub test {
 		my $tt = Template->new();
 		foreach my $var ( keys( %{ $rules->{'vars_tests'} } ) ) {
 			$tested_vars{$var} = 1;
-
-			if (   ( ref( $rules->{'vars_tests'}{$var} ) eq 'HASH' )
-				&& defined( $rules->{'vars'}{$var} )
-				&& ( ref( $rules->{'vars'}{$var} ) eq '' ) )
-			{
-				my $test_regex;
-				if ( defined( $rules->{'vars_tests'}{$var}{'test_template'} )
-					&& ( ref( $rules->{'vars_tests'}{$var}{'test_template'} ) eq '' ) )
-				{
-					#
-					# splice the var into its test_template. everything below
-					# needs the resulting regexp, so a template that will not
-					# process ends the testing of this var here.
-					#
-					eval {
-						$tt->process(
-							\$rules->{'vars_tests'}{$var}{'test_template'},
-							{ 'TEST_VAR' => $rules->{'vars'}{$var} },
-							\$test_regex
-						) || die( $tt->error() );
-					};
-					if ($@) {
-						push( @errors, '.vars_tests.' . $var . '.test_template could not be templated...' . $@ );
-					} else {
-						#
-						# handle positive tests
-						#
-						# having none is an error rather than a warning. a var
-						# with only negative tests has never been shown to match
-						# anything, which is the same as not being tested at all.
-						#
-						if ( !defined( $rules->{'vars_tests'}{$var}{'positive'} ) ) {
-							push( @errors, '.vars_tests.' . $var . '.positive is undef' );
-						} elsif ( defined( $rules->{'vars_tests'}{$var}{'positive'} )
-							&& ( ref( $rules->{'vars_tests'}{$var}{'positive'} ) ne 'ARRAY' ) )
-						{
-							push( @errors,
-									  '.vars_tests.'
-									. $var
-									. '.positive has a ref of "'
-									. ref( $rules->{'vars_tests'}{$var}{'positive'} )
-									. '" and not "ARRAY"' );
-						} elsif ( ( ref( $rules->{'vars_tests'}{$var}{'positive'} ) eq 'ARRAY' )
-							&& !defined( $rules->{'vars_tests'}{$var}{'positive'}[0] ) )
-						{
-							push( @errors, '.vars_tests.' . $var . '.positive is empty and has no tests' );
-						} else {
-							# any tests that prevent the positive section from being processed should come before now
-							#
-							# actually process the tests now
-							#
-							my $test_int = 0;
-							while ( defined( $rules->{'vars_tests'}{$var}{'positive'}[$test_int] ) ) {
-								if ( ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int] ) ne 'HASH' ) {
-									push( @errors,
-											  '.vars_tests.'
-											. $var
-											. '.positive.'
-											. $test_int
-											. ' has a ref of "'
-											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int] )
-											. '" and not "HASH"' );
-								} elsif ( !defined( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} ) ) {
-									push( @errors,
-										'.vars_tests.' . $var . '.positive.' . $test_int . '.string is undef' );
-								} elsif ( ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} ) ne '' ) {
-									push( @errors,
-											  '.vars_tests.'
-											. $var
-											. '.positive.'
-											. $test_int
-											. '.string has a ref of "'
-											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'} )
-											. '" and not ""' );
-								} elsif ( !defined( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} ) ) {
-									push( @errors,
-										'.vars_tests.' . $var . '.positive.' . $test_int . '.result is undef' );
-								} elsif ( ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} ) ne '' ) {
-									push( @errors,
-											  '.vars_tests.'
-											. $var
-											. '.positive.'
-											. $test_int
-											. '.result has a ref of "'
-											. ref( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} )
-											. '" and not ""' );
-								} else {
-									if ( $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
-										=~ /$test_regex/ )
-									{
-										my %found_items = %+;
-										if ( !defined( $found_items{'TEST'} ) ) {
-											push( @errors,
-													  '.vars_tests.'
-													. $var
-													. '.positive.'
-													. $test_int
-													. ' matched but "TEST" was not captured... test_regex="'
-													. $test_regex
-													. '" string="'
-													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
-													. '" expected result="'
-													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'}
-													. '"' );
-										} elsif ( $found_items{'TEST'} ne
-											$rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'} )
-										{
-											push( @errors,
-													  '.vars_tests.'
-													. $var
-													. '.positive.'
-													. $test_int
-													. ' matched but "TEST" captured the wrong result, "'
-													. $found_items{'TEST'}
-													. '"... test_regex="'
-													. $test_regex
-													. '" string="'
-													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
-													. '" expected result="'
-													. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'}
-													. '"' );
-										} ## end elsif ( $found_items{'TEST'} ne $rules->{'vars_tests'...})
-									} else {
-										push( @errors,
-												  '.vars_tests.'
-												. $var
-												. '.positive.'
-												. $test_int
-												. ' did not match but was expected to... test_regex="'
-												. $test_regex
-												. '" string="'
-												. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'string'}
-												. '" expected result="'
-												. $rules->{'vars_tests'}{$var}{'positive'}[$test_int]{'result'}
-												. '"' );
-									} ## end else [ if ( $rules->{'vars_tests'}{$var}{'positive'...})]
-								} ## end else [ if ( ref( $rules->{'vars_tests'}{$var}{'positive'...}))]
-
-								$test_int++;
-							} ## end while ( defined( $rules->{'vars_tests'}{$var}...))
-
-						} ## end else [ if ( !defined( $rules->{'vars_tests'}{$var...}))]
-
-						#
-						# handle negative tests
-						#
-						if ( !defined( $rules->{'vars_tests'}{$var}{'negative'} ) ) {
-							push( @errors, '.vars_tests.' . $var . '.negative is undef' );
-						} elsif ( ref( $rules->{'vars_tests'}{$var}{'negative'} ) ne 'ARRAY' ) {
-							push( @errors,
-									  '.vars_tests.'
-									. $var
-									. '.negative has a ref of "'
-									. ref( $rules->{'vars_tests'}{$var}{'negative'} )
-									. '" and not "ARRAY"' );
-						} else {
-							# any tests that prevent the negative section from being processed should come before now
-							#
-							# actually process the tests now
-							#
-							my $test_int = 0;
-							while ( defined( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] ) ) {
-								if ( ref( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] ) ne '' ) {
-									push( @errors,
-											  '.vars_tests.'
-											. $var
-											. '.negative.'
-											. $test_int
-											. ' has a ref of "'
-											. ref( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] )
-											. '" and not ""' );
-								} else {
-									if ( $rules->{'vars_tests'}{$var}{'negative'}[$test_int] =~ /$test_regex/ ) {
-										my %found_items = %+;
-										if ( !defined( $found_items{'TEST'} ) ) {
-											push( @warnings,
-													  '.vars_tests.'
-													. $var
-													. '.negative.'
-													. $test_int
-													. ' matched but TEST was not found... possible error... test_regex="'
-													. $test_regex
-													. '" string="'
-													. $rules->{'vars_tests'}{$var}{'negative'}[$test_int]
-													. '"' );
-										} else {
-											push( @errors,
-													  '.vars_tests.'
-													. $var
-													. '.negative.'
-													. $test_int
-													. ' matched with TEST having a value of "'
-													. $found_items{'TEST'}
-													. '"... test_regex="'
-													. $test_regex
-													. '" string="'
-													. $rules->{'vars_tests'}{$var}{'negative'}[$test_int]
-													. '"' );
-										} ## end else [ if ( !defined( $found_items{'TEST'} ) ) ]
-									} ## end if ( $rules->{'vars_tests'}{$var}{'negative'...})
-								} ## end else [ if ( ref( $rules->{'vars_tests'}{$var}{'negative'...}))]
-
-								$test_int++;
-							} ## end while ( defined( $rules->{'vars_tests'}{$var}...))
-						} ## end else [ if ( !defined( $rules->{'vars_tests'}{$var...}))]
-					} ## end else [ if ($@) ]
-				} elsif ( defined( $rules->{'vars_tests'}{$var}{'test_template'} )
-					&& ( ref( $rules->{'vars_tests'}{$var}{'test_template'} ) eq '' ) )
-				{
-					push( @errors,
-							  '.vars_tests.'
-							. $var
-							. '.test_template has a ref of "'
-							. ref( $rules->{'vars_tests'}{$var}{'test_template'} )
-							. '" and not ""' );
-				} else {
-					push( @errors, '.vars_tests.' . $var . '.test_template is undef' );
-				}
-			} elsif ( ( ref( $rules->{'vars_tests'}{$var} ) eq 'HASH' )
-				&& defined( $rules->{'vars'}{$var} )
-				&& ( ref( $rules->{'vars'}{$var} ) ne '' ) )
-			{
-				push( @errors, '.vars.' . $var . ' has a ref of "' . ref( $rules->{'vars'}{$var} ) . '" and not ""' );
-			} elsif ( !defined( $rules->{'vars'}{$var} ) )
-			{
-				push( @errors, '.vars.' . $var . ' has tests for it but it is undefined' );
-			} else {
-				push( @errors,
-						  '.vars_tests.'
-						. $var
-						. ' has a ref of "'
-						. ref( $rules->{'vars_tests'}{$var} )
-						. '" and not "HASH"' );
-			}
-		} ## end foreach my $var ( keys( %{ $rules->{'vars_tests'...}}))
+			_test_var( $var, $rules, $tt, \@errors, \@warnings );
+		}
 
 		#
 		# since we are done with var tests, look for any vars we've not done any tests for
 		#
-		foreach my $var (keys( %{$rules->{'vars'}})) {
-			if (!$tested_vars{$var}){
-				push(@warnings, '.vars.'.$var.' lacks any tests');
+		foreach my $var ( keys( %{ $rules->{'vars'} } ) ) {
+			if ( !$tested_vars{$var} ) {
+				push( @warnings, '.vars.' . $var . ' lacks any tests' );
 			}
 		}
 	} ## end if ( $has_var_tests && $vars_testable )
@@ -512,7 +280,7 @@ sub test {
 	##
 	## lint every resolved var value for problems that break matching
 	##
-	if ( $vars_testable ) {
+	if ($vars_testable) {
 		foreach my $var ( sort keys( %{ $rules->{'vars'} } ) ) {
 			my $value = $rules->{'vars'}{$var};
 			next if ( ref($value) ne '' );    # ref problems already reported above
@@ -555,10 +323,10 @@ sub test {
 									. ' looks like a var reference ("'
 									. $pattern
 									. '") but no such var exists' );
-						}
+						} ## end if ( ( ref($pattern) eq '' ) && ( $pattern...))
 						$pattern_int++;
-					}
-				} ## end if ( ref( $rule->{'patterns'...}))
+					} ## end foreach my $pattern ( @{ $rule->{'patterns'} } )
+				} ## end if ( ref( $rule->{'patterns'} ) eq 'ARRAY')
 
 				# compile the rule exactly as the engine does; a failure here is
 				# what surfaces un-degrokked grok and illegal capture names
@@ -587,8 +355,7 @@ sub test {
 				if ( !defined( $rule->{'tests'} ) ) {
 					push( @warnings, $where . ' lacks any tests' );
 				} elsif ( ref( $rule->{'tests'} ) ne 'HASH' ) {
-					push( @errors,
-						$where . '.tests has a ref of "' . ref( $rule->{'tests'} ) . '" and not "HASH"' );
+					push( @errors, $where . '.tests has a ref of "' . ref( $rule->{'tests'} ) . '" and not "HASH"' );
 				} else {
 					my $gated     = 0;
 					my $converted = 0;
@@ -610,7 +377,9 @@ sub test {
 					my @unchecked = _unchecked_converts( $rule, $compiled );
 					if (@unchecked) {
 						push( @warnings,
-							$where . ' converts to a number but no test lists as numeric: ' . join( ', ', @unchecked ) );
+								  $where
+								. ' converts to a number but no test lists as numeric: '
+								. join( ', ', @unchecked ) );
 					}
 
 					# a decompose entry's own tests say it works, not that the rule is
@@ -619,9 +388,11 @@ sub test {
 					my @unwired = _unchecked_decomposes( $rule, $compiled );
 					if (@unwired) {
 						push( @warnings,
-							$where . ' decomposes into fields no test says it produces: ' . join( ', ', @unwired ) );
+								  $where
+								. ' decomposes into fields no test says it produces: '
+								. join( ', ', @unwired ) );
 					}
-				}
+				} ## end else [ if ( !defined( $rule->{'tests'} ) ) ]
 
 				# a rule may carry its own decompose entries
 				if ( defined( $rule->{'decompose'} ) ) {
@@ -630,7 +401,7 @@ sub test {
 
 				$rule_int++;
 			} ## end foreach my $rule ( @{ $rules->{'rules'} } )
-		} ## end else [ if ( ref( $rules->{'rules'...}))]
+		} ## end else [ if ( ref( $rules->{'rules'} ) ne 'ARRAY' )]
 	} ## end if ( defined( $rules->{'rules'} ) )
 
 	##
@@ -659,6 +430,223 @@ sub test {
 
 	return $results;
 } ## end sub test
+
+# Runs one var's vars_tests entry: validates the shapes involved, splices the
+# var into its test_template, and hands the resulting regexp to
+# _test_var_positive and _test_var_negative.
+#
+# Args:
+#
+#     - $var :: The name of the var under test, such as "SSH_FAILED". Both the
+#         var itself and its vars_tests entry are read out of $rules.
+#
+#     - $rules :: The loaded rules hash ref, read for .vars.$var and
+#         .vars_tests.$var.
+#
+#     - $tt :: The Template object used to process the test_template.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+#     - $warnings :: Array ref to push warning strings onto. Appended to in
+#         place.
+#
+# Returns nothing. Everything it finds goes onto $errors or $warnings.
+#
+#     _test_var( 'SSH_FAILED', $rules, $tt, \@errors, \@warnings );
+sub _test_var {
+	my ( $var, $rules, $tt, $errors, $warnings ) = @_;
+
+	my $var_tests = $rules->{'vars_tests'}{$var};
+	my $value     = $rules->{'vars'}{$var};
+
+	if ( !defined($value) ) {
+		push( @{$errors}, '.vars.' . $var . ' has tests for it but it is undefined' );
+		return;
+	}
+	if ( ref($var_tests) ne 'HASH' ) {
+		push( @{$errors}, '.vars_tests.' . $var . ' has a ref of "' . ref($var_tests) . '" and not "HASH"' );
+		return;
+	}
+	if ( ref($value) ne '' ) {
+		push( @{$errors}, '.vars.' . $var . ' has a ref of "' . ref($value) . '" and not ""' );
+		return;
+	}
+
+	my $test_template = $var_tests->{'test_template'};
+	if ( !defined($test_template) ) {
+		push( @{$errors}, '.vars_tests.' . $var . '.test_template is undef' );
+		return;
+	}
+	if ( ref($test_template) ne '' ) {
+		push(
+			@{$errors},
+			'.vars_tests.' . $var . '.test_template has a ref of "' . ref($test_template) . '" and not ""'
+		);
+		return;
+	}
+
+	#
+	# splice the var into its test_template. everything below needs the
+	# resulting regexp, so a template that will not process ends the testing of
+	# this var here.
+	#
+	my $test_regex;
+	eval { $tt->process( \$test_template, { 'TEST_VAR' => $value }, \$test_regex ) || die( $tt->error() ); };
+	if ($@) {
+		push( @{$errors}, '.vars_tests.' . $var . '.test_template could not be templated...' . $@ );
+		return;
+	}
+
+	_test_var_positive( $var, $var_tests->{'positive'}, $test_regex, $errors );
+	_test_var_negative( $var, $var_tests->{'negative'}, $test_regex, $errors, $warnings );
+
+	return;
+} ## end sub _test_var
+
+# Runs one var's positive vars_tests cases. Each case is { string, result },
+# and the string has to match the templated test regexp with TEST capturing the
+# expected result.
+#
+# Having no positive tests is an error rather than a warning. A var with only
+# negative tests has never been shown to match anything, which is the same as
+# not being tested at all.
+#
+# Args:
+#
+#     - $var :: The name of the var under test, used to prefix messages.
+#
+#     - $positive :: The positive list out of the var's vars_tests entry. An
+#         array ref of { string, result } hash refs.
+#
+#     - $test_regex :: The regexp string the test_template produced.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+# Returns nothing. Everything it finds goes onto $errors.
+#
+#     _test_var_positive( $var, $var_tests->{'positive'}, $test_regex, \@errors );
+sub _test_var_positive {
+	my ( $var, $positive, $test_regex, $errors ) = @_;
+
+	my $pwhere = '.vars_tests.' . $var . '.positive';
+	if ( !defined($positive) ) {
+		push( @{$errors}, $pwhere . ' is undef' );
+		return;
+	} elsif ( ref($positive) ne 'ARRAY' ) {
+		push( @{$errors}, $pwhere . ' has a ref of "' . ref($positive) . '" and not "ARRAY"' );
+		return;
+	} elsif ( !defined( $positive->[0] ) ) {
+		push( @{$errors}, $pwhere . ' is empty and has no tests' );
+		return;
+	}
+
+	my $test_int = 0;
+	foreach my $test ( @{$positive} ) {
+		# an undef entry ends the list, matching the while loop this replaced
+		last if ( !defined($test) );
+
+		my $twhere = $pwhere . '.' . $test_int;
+		if ( ref($test) ne 'HASH' ) {
+			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not "HASH"' );
+		} elsif ( !defined( $test->{'string'} ) ) {
+			push( @{$errors}, $twhere . '.string is undef' );
+		} elsif ( ref( $test->{'string'} ) ne '' ) {
+			push( @{$errors}, $twhere . '.string has a ref of "' . ref( $test->{'string'} ) . '" and not ""' );
+		} elsif ( !defined( $test->{'result'} ) ) {
+			push( @{$errors}, $twhere . '.result is undef' );
+		} elsif ( ref( $test->{'result'} ) ne '' ) {
+			push( @{$errors}, $twhere . '.result has a ref of "' . ref( $test->{'result'} ) . '" and not ""' );
+		} else {
+			my $detail
+				= '... test_regex="'
+				. $test_regex
+				. '" string="'
+				. $test->{'string'}
+				. '" expected result="'
+				. $test->{'result'} . '"';
+			if ( $test->{'string'} =~ /$test_regex/ ) {
+				my %found_items = %+;
+				if ( !defined( $found_items{'TEST'} ) ) {
+					push( @{$errors}, $twhere . ' matched but "TEST" was not captured' . $detail );
+				} elsif ( $found_items{'TEST'} ne $test->{'result'} ) {
+					push(
+						@{$errors},
+						$twhere
+							. ' matched but "TEST" captured the wrong result, "'
+							. $found_items{'TEST'} . '"'
+							. $detail
+					);
+				}
+			} else {
+				push( @{$errors}, $twhere . ' did not match but was expected to' . $detail );
+			}
+		} ## end else [ if ( ref($test) ne 'HASH' ) ]
+
+		$test_int++;
+	} ## end foreach my $test ( @{$positive} )
+
+	return;
+} ## end sub _test_var_positive
+
+# Runs one var's negative vars_tests cases. Each case is a plain string that
+# has to match nothing, or at least not capture TEST: a negative that matches
+# without capturing TEST is a warning rather than an error.
+#
+# Args:
+#
+#     - $var :: The name of the var under test, used to prefix messages.
+#
+#     - $negative :: The negative list out of the var's vars_tests entry. An
+#         array ref of plain strings.
+#
+#     - $test_regex :: The regexp string the test_template produced.
+#
+#     - $errors :: Array ref to push error strings onto. Appended to in place.
+#
+#     - $warnings :: Array ref to push warning strings onto. Appended to in
+#         place.
+#
+# Returns nothing. Everything it finds goes onto $errors or $warnings.
+#
+#     _test_var_negative( $var, $var_tests->{'negative'}, $test_regex, \@errors, \@warnings );
+sub _test_var_negative {
+	my ( $var, $negative, $test_regex, $errors, $warnings ) = @_;
+
+	my $nwhere = '.vars_tests.' . $var . '.negative';
+	if ( !defined($negative) ) {
+		push( @{$errors}, $nwhere . ' is undef' );
+		return;
+	} elsif ( ref($negative) ne 'ARRAY' ) {
+		push( @{$errors}, $nwhere . ' has a ref of "' . ref($negative) . '" and not "ARRAY"' );
+		return;
+	}
+
+	my $test_int = 0;
+	foreach my $test ( @{$negative} ) {
+		# an undef entry ends the list, matching the while loop this replaced
+		last if ( !defined($test) );
+
+		my $twhere = $nwhere . '.' . $test_int;
+		if ( ref($test) ne '' ) {
+			push( @{$errors}, $twhere . ' has a ref of "' . ref($test) . '" and not ""' );
+		} elsif ( $test =~ /$test_regex/ ) {
+			my %found_items = %+;
+			my $detail      = '... test_regex="' . $test_regex . '" string="' . $test . '"';
+			if ( !defined( $found_items{'TEST'} ) ) {
+				push( @{$warnings}, $twhere . ' matched but TEST was not found... possible error' . $detail );
+			} else {
+				push(
+					@{$errors},
+					$twhere . ' matched with TEST having a value of "' . $found_items{'TEST'} . '"' . $detail
+				);
+			}
+		} ## end elsif ( $test =~ /$test_regex/ )
+
+		$test_int++;
+	} ## end foreach my $test ( @{$negative} )
+
+	return;
+} ## end sub _test_var_negative
 
 # Lints one fully resolved regexp string for the four things that go wrong often
 # enough to be worth checking for by name.
@@ -726,6 +714,34 @@ sub _lint_regexp_string {
 	return @errors;
 } ## end sub _lint_regexp_string
 
+# Matches a string against a compiled rule's patterns, the way the engine does:
+# tried in order, first match wins.
+#
+# Args:
+#
+#     - $compiled :: The rule after Log::Munger::LogProcessor->_compile_rule,
+#         read for its qr// patterns list.
+#
+#     - $string :: The string to match, such as a test case's string.
+#
+# Returns a hash ref of the winning pattern's named captures, which may be an
+# empty hash ref for a pattern with no named captures, or undef when no pattern
+# matched.
+#
+#     my $captures = _first_match( $compiled, $test->{'string'} );
+sub _first_match {
+	my ( $compiled, $string ) = @_;
+
+	foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
+		if ( $string =~ $pattern ) {
+			my %captures = %+;
+			return \%captures;
+		}
+	}
+
+	return undef;
+} ## end sub _first_match
+
 # Runs a rule's positive tests. Each case names a string that has to match one of
 # the rule's patterns, along with the captures that match is expected to produce.
 #
@@ -740,11 +756,12 @@ sub _lint_regexp_string {
 # every pattern test still passes. Naming a program on at least one case is what
 # turns "these patterns work" into "this rule fires for this daemon".
 #
-# What is compared is the raw named captures and nothing else. Decompose, geoip
-# and convert do not run here, which is why a positive test's expected result
-# lists a port as the string '54321' even though a convert: turns it into a number
-# at runtime. Those steps have their own tests: decompose entries carry their own,
-# and geoip and convert are runtime concerns.
+# What is compared against a case's result is the raw named captures and nothing
+# else, which is why a positive test's expected result lists a port as the string
+# '54321' even though a convert: turns it into a number at runtime. A case that
+# also carries numeric or enriched gets a second look via _test_numeric /
+# _test_enriched, which run decompose and convert over a copy of the captures.
+# Geoip never runs here; it is a runtime concern.
 #
 # Args:
 #
@@ -821,23 +838,19 @@ sub _test_rule_positive {
 				$test_int++;
 				next;
 			}
-		} ## end if ( defined( $test->{'program'...}))
+		} ## end if ( defined( $test->{'program'} ) )
 
-		my $got;
-		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
-			if ( $test->{'string'} =~ $pattern ) {
-				my %captures = %+;
-				$got = \%captures;
-				last;
-			}
-		}
+		my $got = _first_match( $compiled, $test->{'string'} );
 
 		if ( !defined($got) ) {
 			push( @{$errors}, $twhere . ' did not match any pattern... string="' . $test->{'string'} . '"' );
 		} else {
 			my $diff = _capture_diff( $expected, $got );
 			if ( defined($diff) ) {
-				push( @{$errors}, $twhere . ' captures differ from expected: ' . $diff . ' string="' . $test->{'string'} . '"' );
+				push(
+					@{$errors},
+					$twhere . ' captures differ from expected: ' . $diff . ' string="' . $test->{'string'} . '"'
+				);
 			}
 			if ( defined( $test->{'numeric'} ) ) {
 				${$converted} = 1;
@@ -847,7 +860,7 @@ sub _test_rule_positive {
 				${$enriched} = 1;
 				_test_enriched( $twhere, $test->{'enriched'}, $compiled, $got, $errors );
 			}
-		}
+		} ## end else [ if ( !defined($got) ) ]
 
 		$test_int++;
 	} ## end foreach my $test ( @{$positive} )
@@ -945,8 +958,8 @@ sub _test_rule_negative {
 						. $string . '"'
 				);
 				last;
-			}
-		}
+			} ## end if ( $string =~ $pattern )
+		} ## end foreach my $pattern ( @{ $compiled->{'patterns'...}})
 		$test_int++;
 	} ## end foreach my $test ( @{$negative} )
 
@@ -1117,22 +1130,26 @@ sub _test_numeric {
 			next;
 		}
 		if ( !exists( $converted{$field} ) ) {
-			push( @{$errors},
-					  $twhere
+			push(
+				@{$errors},
+				$twhere
 					. '.numeric names "'
 					. $field
-					. '", which nothing produced; neither the pattern nor a decompose sets it' );
+					. '", which nothing produced; neither the pattern nor a decompose sets it'
+			);
 			next;
-		}
+		} ## end if ( !exists( $converted{$field} ) )
 		if ( !_holds_a_number( $converted{$field} ) ) {
-			push( @{$errors},
-					  $twhere
+			push(
+				@{$errors},
+				$twhere
 					. '.numeric names "'
 					. $field
 					. '", which came out as the string "'
 					. ( defined( $converted{$field} ) ? $converted{$field} : '' )
-					. '"; no convert turned it into a number' );
-		}
+					. '"; no convert turned it into a number'
+			);
+		} ## end if ( !_holds_a_number( $converted{$field} ...))
 	} ## end foreach my $field ( @{$numeric} )
 
 	return;
@@ -1178,22 +1195,16 @@ sub _unchecked_converts {
 		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
 		$listed{$_} = 1 for @{ $test->{'numeric'} || [] };
 
-		my %captures;
-		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
-			if ( $test->{'string'} =~ $pattern ) {
-				%captures = %+;
-				last;
-			}
-		}
-		next if ( !keys(%captures) );
+		my $captures = _first_match( $compiled, $test->{'string'} );
+		next if ( !defined($captures) || !keys( %{$captures} ) );
 
 		if ( @{ $compiled->{'decompose'} } ) {
-			Log::Munger::LogProcessor->_decompose( $compiled, \%captures );
+			Log::Munger::LogProcessor->_decompose( $compiled, $captures );
 		}
-		foreach my $field ( keys(%captures) ) {
+		foreach my $field ( keys( %{$captures} ) ) {
 			$produced{$field} = 1 if ( $numeric_type{$field} );
 		}
-	} ## end foreach my $test
+	} ## end foreach my $test ( @{ $rule->{'tests'}{'positive'...}})
 
 	return sort grep { !$listed{$_} } keys(%produced);
 } ## end sub _unchecked_converts
@@ -1231,26 +1242,22 @@ sub _unchecked_decomposes {
 		next if ( ref($test) ne 'HASH' || !defined( $test->{'string'} ) );
 		$named{$_} = 1 for keys( %{ $test->{'enriched'} || {} } );
 
-		my %captures;
-		foreach my $pattern ( @{ $compiled->{'patterns'} } ) {
-			if ( $test->{'string'} =~ $pattern ) {
-				%captures = %+;
-				last;
-			}
-		}
-		next if ( !keys(%captures) );
+		my $captures = _first_match( $compiled, $test->{'string'} );
+		next if ( !defined($captures) || !keys( %{$captures} ) );
 
-		my %split = %captures;
+		my %split = %{$captures};
 		Log::Munger::LogProcessor->_decompose( $compiled, \%split );
 		foreach my $field ( keys(%split) ) {
-			$produced{$field} = 1 if ( !exists( $captures{$field} ) );
+			$produced{$field} = 1 if ( !exists( $captures->{$field} ) );
 		}
-	} ## end foreach my $test
+	} ## end foreach my $test ( @{ $rule->{'tests'}{'positive'...}})
 
 	return sort grep { !$named{$_} } keys(%produced);
 } ## end sub _unchecked_decomposes
 
-# Runs a compiled rule's gates against a program name, the way the engine does.
+# Runs a compiled rule's gates against a program name. Each gate is evaluated
+# by Log::Munger::LogProcessor->_gate_passes, so this is the engine's own gate
+# check rather than a parallel copy of it.
 #
 # The engine gates on a whole record, but every gate any rule file has ever
 # needed keys on PROGRAM, so a test names a program rather than building a
@@ -1279,25 +1286,11 @@ sub _gate_refusal {
 
 	my $gate_int = 0;
 	foreach my $gate ( @{ $compiled->{'gate'} } ) {
-		my $value = $item->{ $gate->{'field'} };
-		my $hit   = 0;
-		if ( defined($value) && ref($value) eq '' ) {
-			if ( $gate->{'literals'}{$value} ) {
-				$hit = 1;
-			} else {
-				foreach my $re ( @{ $gate->{'regexps'} } ) {
-					if ( $value =~ $re ) {
-						$hit = 1;
-						last;
-					}
-				}
-			}
-		}
-		if ( !$hit ) {
+		if ( !Log::Munger::LogProcessor->_gate_passes( $gate, $item->{ $gate->{'field'} } ) ) {
 			return 'gate ' . $gate_int . ' on ' . $gate->{'field'} . ' does not accept "' . $program . '"';
 		}
 		$gate_int++;
-	} ## end foreach my $gate ( @{ $compiled...})
+	}
 
 	return undef;
 } ## end sub _gate_refusal
@@ -1417,7 +1410,7 @@ sub _test_decompose {
 			next;
 		}
 
-		my $rule = { 'decompose' => $compiled };
+		my $rule     = { 'decompose' => $compiled };
 		my $test_int = 0;
 		foreach my $test ( @{ $entry->{'tests'} } ) {
 			my $twhere = $ewhere . '.tests.' . $test_int;
@@ -1443,8 +1436,10 @@ sub _test_decompose {
 
 			my $diff = _capture_diff( $expected, \%captures );
 			if ( defined($diff) ) {
-				push( @{$errors},
-					$twhere . ' decompose output differs: ' . $diff . ' input="' . $test->{'input'} . '"' );
+				push(
+					@{$errors},
+					$twhere . ' decompose output differs: ' . $diff . ' input="' . $test->{'input'} . '"'
+				);
 			}
 
 			$test_int++;

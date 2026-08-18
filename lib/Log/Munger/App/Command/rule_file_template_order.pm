@@ -7,9 +7,7 @@ use Log::Munger::RulesTemplateOrder;
 use YAML::XS qw(Dump);
 
 sub opt_spec {
-	return ( [ 'f=s', 'Rule file to read.', { 'default' => 'base' } ],
-			 [ 'd', 'Print depend info.' ],
-		);
+	return ( [ 'f=s', 'Rule file to read.', { 'default' => 'base' } ], [ 'd', 'Print depend info.' ], );
 }
 
 sub abstract { "Show the order a rule file's templated vars get resolved in" }
@@ -29,13 +27,13 @@ sub execute {
 	my ( $self, $opts, $args ) = @_;
 
 	my $results;
-	if (! $opts->{'d'} ){
-		$results=Log::Munger::RulesTemplateOrder->order_for_rules_file('file'=>$opts->{'f'});
-	}else{
-		$results=Log::Munger::RulesTemplateOrder->depends_for_rules_file('file'=>$opts->{'f'});
+	if ( !$opts->{'d'} ) {
+		$results = Log::Munger::RulesTemplateOrder->order_for_rules_file( 'file' => $opts->{'f'} );
+	} else {
+		$results = Log::Munger::RulesTemplateOrder->depends_for_rules_file( 'file' => $opts->{'f'} );
 	}
 
 	print Dump($results);
-}
+} ## end sub execute
 
 1;
