@@ -63,8 +63,7 @@ cpanm Log::Munger
 ### GeoIP
 
 GeoIP enrichment additionally needs
-[`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB)
-(`p5-IP-Geolocation-MMDB` on FreeBSD; via `cpanm` on Debian). It is only
+[`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB). It is only
 recommended rather than required, and is loaded only when you actually pass a database.
 
 ## Quick start
