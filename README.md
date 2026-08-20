@@ -1,7 +1,7 @@
 # Log-Munger
 
 Extracts structured fields from log lines, akin to [grok](https://www.elastic.co/guide/en/logstash/current/plugins-filters-grok.html)
-for Logstash — but as a standalone Perl distribution and a `log_munger` CLI, with
+for Logstash, but as a standalone Perl distribution and a `log_munger` CLI, with
 no Elasticsearch/Logstash stack required.
 
 Feed it a decoded log record (a hash) or a raw log line, and it runs the record
@@ -23,21 +23,8 @@ ssh_user: neti
 
 ## Why
 
-Grok's good idea is a library of named regexp primitives (`%{IP}`, `%{WORD}`, …)
-composed into larger patterns. The catch is that it only runs inside Logstash.
-Log-Munger takes the idea and makes it:
-
-- Standalone :: A Perl module (`Log::Munger`) and a CLI (`log_munger`). Pipe NDJSON
-  or raw lines through it.
-- Templated :: Primitives are composed with
-  [Template Toolkit](https://metacpan.org/pod/Template) as `[% IP %]` and resolved in
-  dependency order, so one pattern can build on another.
-- Testable :: Every primitive and every rule carries its own positive and negative
-  `tests`, checkable with `log_munger test_all`.
-- Enriching :: After a match it can split key=value blobs, decode embedded JSON,
-  re-match sub-fields, coerce values, and do GeoIP lookups.
-- Grok-compatible :: `log_munger degrok` and `grok2rules` convert existing grok
-  patterns (`%{TOKEN}` and `%{TOKEN:name}`) into Log-Munger's form.
+Logstash is a dumpster fire to deal with and this allows easy parsing of log stuff in a
+reusable manner for Perl.
 
 ## Install
 
@@ -126,115 +113,109 @@ my $access = $munger->process_item( item => $raw_apache_line );
 The distribution ships a primitive library plus ready-to-use rule files
 (installed into the dist share dir):
 
-| Rule file | Matches |
-|-----------|---------|
-| `base` | The primitive library (`IP`, `WORD`, `TIMESTAMP_ISO8601`, …). No rules of its own; included by the others |
+| Rule file | Matches                                                                                                     |
+|-----------|-------------------------------------------------------------------------------------------------------------|
+| `base`    | The primitive library (`IP`, `WORD`, `TIMESTAMP_ISO8601`, etc). No rules of its own; included by the others |
 
 **Authentication and privilege**
 
-| Rule file | Matches |
-|-----------|---------|
-| `sshd` | OpenSSH auth events, plus the scan traffic that never reaches auth |
-| `dropbear` | Dropbear SSH server auth events |
-| `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication |
-| `nslcd` | The LDAP name-service daemon behind `libnss_ldap` / `pam_ldap` |
-| `luci` | LuCI (the OpenWrt web interface) authentication |
-| `xscreensaver` | XScreenSaver lock-screen unlock attempts |
-| `polkit` | polkit authorization decisions — the third way to gain privilege |
-| `auditd` | Linux audit daemon records, including SELinux AVC and AppArmor |
-| `slapd` | OpenLDAP binds, searches, and result codes |
-| `openvpn` | OpenVPN handshakes, certificate verification, and auth failures |
-| `strongswan` | strongSwan/charon IPsec tunnels, IKE, and EAP |
-| `freeradius` | RADIUS logins — the auth behind 802.1X and many VPNs |
-| `samba` | Samba (`smbd`/`nmbd`/`winbindd`) auth audit and share access |
-| `nfs` | `rpc.mountd` mount requests, allowed and refused |
+| Rule file                       | Matches                                                            |
+|---------------------------------|--------------------------------------------------------------------|
+| `sshd`                          | OpenSSH auth events, plus the scan traffic that never reaches auth |
+| `dropbear`                      | Dropbear SSH server auth events                                    |
+| `pam` / `su` / `sudo` / `login` | PAM, `su`, `sudo`, and console login authentication                |
+| `nslcd`                         | The LDAP name-service daemon behind `libnss_ldap` / `pam_ldap`     |
+| `luci`                          | LuCI (the OpenWrt web interface) authentication                    |
+| `xscreensaver`                  | XScreenSaver lock-screen unlock attempts                           |
+| `polkit`                        | polkit authorization decisions — the third way to gain privilege   |
+| `auditd`                        | Linux audit daemon records, including SELinux AVC and AppArmor     |
+| `slapd`                         | OpenLDAP binds, searches, and result codes                         |
+| `openvpn`                       | OpenVPN handshakes, certificate verification, and auth failures    |
+| `strongswan`                    | strongSwan/charon IPsec tunnels, IKE, and EAP                      |
+| `freeradius`                    | RADIUS logins — the auth behind 802.1X and many VPNs               |
+| `samba`                         | Samba (`smbd`/`nmbd`/`winbindd`) auth audit and share access       |
+| `nfs`                           | `rpc.mountd` mount requests, allowed and refused                   |
 
 **Mail**
 
-| Rule file | Matches |
-|-----------|---------|
-| `postfix` | Postfix mail log (smtpd, qmgr, delivery, …) |
-| `exim` | Exim mail log, including SMTP AUTH and TLS failures |
-| `dovecot` | Dovecot IMAP/POP3 |
-| `sendmail` | Sendmail transactions, AUTH failures, and rejections |
-| `rspamd` | Rspamd scan results — score, action, and symbols |
-| `spamd` | SpamAssassin scan results |
-| `clamav` | ClamAV detections and signature-database freshness |
+| Rule file                | Matches                                               |
+|--------------------------|-------------------------------------------------------|
+| `postfix`                | Postfix mail log (smtpd, qmgr, delivery, etc)         |
+| `exim`                   | Exim mail log, including SMTP AUTH and TLS failures   |
+| `dovecot`                | Dovecot IMAP/POP3                                     |
+| `sendmail`               | Sendmail transactions, AUTH failures, and rejections  |
+| `rspamd`                 | Rspamd scan results — score, action, and symbols      |
+| `spamd`                  | SpamAssassin scan results                             |
+| `clamav`                 | ClamAV detections and signature-database freshness    |
 | `opendkim` / `opendmarc` | DKIM and DMARC results, joined to the MTA by queue id |
-| `ssmtp` | sSMTP, the send-only MTA |
-| `sympa` | The Sympa mailing list manager's daemons |
+| `ssmtp`                  | sSMTP, the send-only MTA                              |
+| `sympa`                  | The Sympa mailing list manager's daemons              |
 
 **Web, proxy, and network services**
 
-| Rule file | Matches |
-|-----------|---------|
-| `http_access_logs` | Apache/nginx Common, Combined, and the vhost-prefixed variants |
-| `http_error_logs` | Apache/nginx error logs |
-| `haproxy` | HAProxy HTTP and TCP traffic, plus health-check state changes |
-| `squid` | Squid access.log (all three shipped logformats) and cache.log |
-| `vsftpd` / `proftpd` | FTP logins and transfers |
-| `php_fpm` | PHP-FPM pool health: dying children, slow requests, exhaustion |
-| `cups` | CUPS printing — both `error_log` and `access_log` |
-| `named` / `unbound` | DNS server logs |
-| `resolved` | `systemd-resolved` upstream health and DNSSEC failures |
-| `dnsmasq` | dnsmasq's DNS, DHCP, and TFTP logging |
-| `dhcpd` | ISC DHCP server leases |
-| `hostapd` | hostapd wireless association events (the access-point side) |
-| `wpa_supplicant` | Wireless client associations and auth failures |
-| `networkmanager` / `networkd` | Device state machines, carrier, and DHCP leases |
-| `chrony` / `ntpd` / `timesyncd` | Time synchronization daemons |
-| `xinetd` | Superserver dispatch: who reached which service, and refusals |
-| `snmpd` | Net-SNMP connections — who is querying the agent |
-| `asterisk` | Asterisk PBX |
-| `avahi` | Avahi mDNS/DNS-SD responder |
-| `lldpd` | lldpd/lldpcli link-layer neighbor discovery |
-| `netifd` / `odhcpd` | OpenWrt's network interface and DHCPv6/router-advertisement daemons |
-| `huawei` | Huawei VRP devices — S-series switches, AR routers, USG firewalls |
-| `tor` | Tor daemon |
+| Rule file                       | Matches                                                             |
+|---------------------------------|---------------------------------------------------------------------|
+| `http_access_logs`              | Apache/nginx Common, Combined, and the vhost-prefixed variants      |
+| `http_error_logs`               | Apache/nginx error logs                                             |
+| `haproxy`                       | HAProxy HTTP and TCP traffic, plus health-check state changes       |
+| `squid`                         | Squid access.log (all three shipped logformats) and cache.log       |
+| `vsftpd` / `proftpd`            | FTP logins and transfers                                            |
+| `php_fpm`                       | PHP-FPM pool health: dying children, slow requests, exhaustion      |
+| `cups`                          | CUPS printing — both `error_log` and `access_log`                   |
+| `named` / `unbound`             | DNS server logs                                                     |
+| `resolved`                      | `systemd-resolved` upstream health and DNSSEC failures              |
+| `dnsmasq`                       | dnsmasq's DNS, DHCP, and TFTP logging                               |
+| `dhcpd`                         | ISC DHCP server leases                                              |
+| `hostapd`                       | hostapd wireless association events (the access-point side)         |
+| `wpa_supplicant`                | Wireless client associations and auth failures                      |
+| `networkmanager` / `networkd`   | Device state machines, carrier, and DHCP leases                     |
+| `chrony` / `ntpd` / `timesyncd` | Time synchronization daemons                                        |
+| `xinetd`                        | Superserver dispatch: who reached which service, and refusals       |
+| `snmpd`                         | Net-SNMP connections — who is querying the agent                    |
+| `asterisk`                      | Asterisk PBX                                                        |
+| `avahi`                         | Avahi mDNS/DNS-SD responder                                         |
+| `lldpd`                         | lldpd/lldpcli link-layer neighbor discovery                         |
+| `netifd` / `odhcpd`             | OpenWrt's network interface and DHCPv6/router-advertisement daemons |
+| `huawei`                        | Huawei VRP devices — S-series switches, AR routers, USG firewalls   |
+| `tor`                           | Tor daemon                                                          |
 
 **Firewalls**
 
-| Rule file | Matches |
-|-----------|---------|
-| `netfilter` | iptables/nftables/UFW kernel firewall logs |
-| `ipfw` | FreeBSD ipfw firewall logs |
-| `pf` | OpenBSD/FreeBSD pf, read from `tcpdump -r /var/log/pflog` |
-| `fortinet` | FortiGate/FortiOS key=value logs |
-| `sonicwall` | SonicWall/SonicOS key=value logs |
-| `fail2ban` | fail2ban ban/unban actions |
-| `galla` / `kur` / `ereshkigal` / `baphomet` | The Ereshkigal ban suite: Galla log-watchers, Kur ban daemons, and the supervisors of each |
-| `suricata` | Suricata IDS — `eve.json` and `fast.log` |
-| `daemonlogger` | daemonlogger's rolling packet capture |
-| `virani` | Virani, which carves per-request pcaps out of daemonlogger's capture set |
-| `suricata_extract_submit` / `mojo_cape_submit` | Shipping Suricata-carved files to CAPEv2, and the submission endpoint receiving them |
+| Rule file                 | Matches                                                                                     |
+|---------------------------|---------------------------------------------------------------------------------------------|
+| `netfilter`               | iptables/nftables/UFW kernel firewall logs                                                  |
+| `ipfw`                    | FreeBSD ipfw firewall logs                                                                  |
+| `pf`                      | OpenBSD/FreeBSD pf, read from `tcpdump -r /var/log/pflog`                                   |
+| `fortinet`                | FortiGate/FortiOS key=value logs                                                            |
+| `sonicwall`               | SonicWall/SonicOS key=value logs                                                            |
+| `fail2ban`                | fail2ban ban/unban actions                                                                  |
+| `kur` / `ereshkigal`      | Rules for ereshkigal and it's related backend bit, kur.                                     |
+| `galla` / `baphomet`      | Rules for baphomet and it's related backend bit, galla.                                     |
+| `daemonlogger`            | daemonlogger's rolling packet capture                                                       |
+| `virani`                  | Virani, which carves per-request pcaps out of daemonlogger's capture set                    |
+| `mojo_cape_submit`        | `mojo_cape_submit`/`nergal` rules for CAPEv2, submission endpoint receiving for CAPE::Utils |
+| `suricata_extract_submit` | `suricata_extract_submit` rules for CAPEv2, sample suricata extract shipper for CAPE::Utils |
 
 **Databases, storage, and the host itself**
 
-| Rule file | Matches |
-|-----------|---------|
-| `mysql` | MySQL/MariaDB access denials and aborted connections |
-| `postgresql` | PostgreSQL authentication and connection logging |
-| `mongodb` | MongoDB structured (JSON) logging |
-| `kernel` | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, SYN floods |
-| `smartd` | Disk health: failing attributes, bad sectors, temperature |
-| `zed` | ZFS Event Daemon — checksum errors, vdev states, resilvers |
-| `docker` | Docker/containerd logfmt output |
-| `libvirt` | libvirt daemons, monolithic and modular |
-| `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions |
-| `dbus` | D-Bus message bus (`dbus-daemon` and `dbus-broker`) |
-| `cron` / `atd` | Scheduled job execution |
-| `shutdown` | `shutdown` / `reboot` / `halt` |
-| `fwupd` | fwupd firmware updates, daemon and clients |
-| `pkg` | FreeBSD `pkg(8)` package changes |
-| `rc` | FreeBSD `rc(8)` service-script warnings |
-| `syslog_daemon` | rsyslog and syslog-ng internals — rate limiting and stalled outputs |
-
-## Trusting rule files
-
-A rule file is closer to code than to data: its patterns run against your logs and its
-templated vars are processed with Template Toolkit. Only load rule files you trust, and
-read a third-party one the way you would read a third-party script before dropping it
-into `/etc/log_munger/rules/`.
+| Rule file            | Matches                                                                 |
+|----------------------|-------------------------------------------------------------------------|
+| `mysql`              | MySQL/MariaDB access denials and aborted connections                    |
+| `postgresql`         | PostgreSQL authentication and connection logging                        |
+| `mongodb`            | MongoDB structured (JSON) logging                                       |
+| `kernel`             | Linux and FreeBSD kernel ring buffer — OOM, filesystem, I/O, SYN floods |
+| `smartd`             | Disk health: failing attributes, bad sectors, temperature               |
+| `zed`                | ZFS Event Daemon — checksum errors, vdev states, resilvers              |
+| `docker`             | Docker/containerd logfmt output                                         |
+| `libvirt`            | libvirt daemons, monolithic and modular                                 |
+| `systemd` / `logind` | systemd unit lifecycle and `systemd-logind` sessions                    |
+| `dbus`               | D-Bus message bus (`dbus-daemon` and `dbus-broker`)                     |
+| `cron` / `atd`       | Scheduled job execution                                                 |
+| `shutdown`           | `shutdown` / `reboot` / `halt`                                          |
+| `fwupd`              | fwupd firmware updates, daemon and clients                              |
+| `pkg`                | FreeBSD `pkg(8)` package changes                                        |
+| `rc`                 | FreeBSD `rc(8)` service-script warnings                                 |
+| `syslog_daemon`      | rsyslog and syslog-ng internals — rate limiting and stalled outputs     |
 
 ## Documentation
 
