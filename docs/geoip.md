@@ -4,19 +4,19 @@ Log-Munger can enrich captured IP addresses with data from a
 [MaxMind](https://www.maxmind.com/) `.mmdb` database (GeoLite2 / GeoIP2), using
 [`IP::Geolocation::MMDB`](https://metacpan.org/pod/IP::Geolocation::MMDB).
 
-This is an **opt-in, soft dependency**: `IP::Geolocation::MMDB` is only `require`d — and
-the database only opened — when you actually pass a database path. If you never use geoip,
+This is an soft dependency: `IP::Geolocation::MMDB` is only `require`d — and
+the database only opened, when you actually pass a database path. If you never use geoip,
 you don't need the module installed.
 
 ## Enabling it
 
-**CLI** — pass `--geoip`/`-g` to `munge`, `explain`, or `enrich`:
+- CLI :: pass `--geoip`/`-g` to `munge`, `explain`, or `enrich`:
 
 ```sh
 log_munger enrich -r sshd -r netfilter -g /var/lib/GeoIP/GeoLite2-City.mmdb < events.ndjson
 ```
 
-**Perl** — pass `geoip` to the constructor:
+- Perl :: pass `geoip` to the constructor:
 
 ```perl
 my $munger = Log::Munger->new(
@@ -83,10 +83,8 @@ If no flagged field resolves, no `geoip` key is added.
 
 ## Timing
 
-GeoIP runs **after** `decompose` and **before** `convert` (see
+GeoIP runs after `decompose` (see
 [architecture](architecture.md#why-the-enrichment-order-is-fixed)), which buys two things:
 
 - It can look up an address a `decompose` step produced, such as `nf_SRC` split out of the
   kernel firewall blob.
-- It sees the address as a string, before any `convert` coercion, so putting a numeric
-  field through `convert` never interferes with a lookup.

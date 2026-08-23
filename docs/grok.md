@@ -1,15 +1,15 @@
 # Grok migration
 
-Log-Munger's pattern language is deliberately close to
+Log-Munger's primitives are deliberately close to
 [Logstash grok](https://www.elastic.co/guide/en/logstash/current/plugins-filters-grok.html),
 so existing grok patterns port over with a mechanical rewrite. `Log::Munger::Degrok` (and
 the `degrok` / `grok2rules` CLI commands) do that rewrite for you.
 
 ## The two syntaxes
 
-| Grok | Log-Munger | Meaning |
-|------|-----------|---------|
-| `%{TOKEN}` | `[% TOKEN %]` | Reference the named pattern `TOKEN`. |
+| Grok            | Log-Munger             | Meaning                                     |
+|-----------------|------------------------|---------------------------------------------|
+| `%{TOKEN}`      | `[% TOKEN %]`          | Reference the named pattern `TOKEN`.        |
 | `%{TOKEN:name}` | `(?<name>[% TOKEN %])` | Reference `TOKEN` and capture it as `name`. |
 
 Log-Munger composes patterns with [Template Toolkit](https://metacpan.org/pod/Template)
@@ -39,7 +39,7 @@ my $out = Log::Munger::Degrok->string( string => 'client=%{IP:client_ip}' );
 
 ## Converting a grok patterns file into a rules skeleton
 
-A grok *patterns* file is lines of `NAME regexp` (with `%{...}` references). `grok2rules`
+A grok patterns file is lines of `NAME regexp` (with `%{...}` references). `grok2rules`
 turns one into a Log-Munger rules-YAML skeleton: plain lines become `vars:` entries,
 lines that reference other patterns become `vars_templated:` entries (after degrokking).
 
@@ -62,7 +62,7 @@ The same skeleton generation is available from `degrok -f <file> -r` and from
 
 ## After conversion
 
-`grok2rules` produces the `vars` / `vars_templated` scaffolding — it does **not** invent
+`grok2rules` produces the `vars` / `vars_templated` scaffolding — it does not invent
 `rules:`, gates, tests, or enrichment. To finish the job:
 
 1. Add `includes: [base]` (or your own base) if the patterns rely on standard primitives.
