@@ -230,7 +230,7 @@ Full documentation lives in [`docs/`](docs/):
 
 Copyright (c) 2026 Zane C. Bowers-Hadley `<vvelox at vvelox.net>`.
 
-This is free software, licensed under the GNU General Public License, Version 3.
+This is free software, licensed under the GNU Lesser General Public License, Version 3.
 See [`LICENSE`](LICENSE).
 
 Bugs and feature requests: [GitHub issues](https://github.com/LilithSec/Log-Munger)

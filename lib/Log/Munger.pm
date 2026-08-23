@@ -273,7 +273,7 @@ This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
 
 This is free software, licensed under:
 
-  The GNU General Public License, Version 3, June 2007
+  The GNU Lesser General Public License, Version 3, June 2007
 
 
 =cut
