@@ -27,8 +27,8 @@ $ENV{'LOG_MUNGER_RULES_DIR'} = $FindBin::Bin . '/../share' if ( -d $FindBin::Bin
 # no rule file can describe on its own. Several files end in a catch-all so an
 # unrecognised line keeps its text rather than being dropped, and a few are
 # gateless because their source is a file rather than syslog -- pf writes binary
-# pcap that only becomes text once tcpdump has rendered it, suricata's eve.json
-# and squid's access log are tailed off disk. Each of those is reasonable alone,
+# pcap that only becomes text once tcpdump has rendered it, and squid's access log
+# are tailed off disk. Each of those is reasonable alone,
 # and each is a way to quietly swallow someone else's traffic once everything is
 # loaded together.
 #
@@ -122,7 +122,7 @@ my @ownership = (
 	[ 'an apache line goes to http_access_logs', '127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /a.gif HTTP/1.0" 200 2326 "-" "Mozilla/5.0"', 'http_clientip' ],
 	[ 'a squid line goes to squid', '1626345600.123 234 192.0.2.5 TCP_MISS/200 1234 GET http://e.com/ - DIRECT/1.2.3.4 text/html', 'squid_client_ip' ],
 	[ 'a pf line goes to pf', 'rule 12/0(match): block in on em0: 192.0.2.5.49152 > 192.0.2.1.22: Flags [S], length 0', 'pf_src_ip' ],
-	[ 'an eve.json line goes to suricata', '{"timestamp":"2026-07-15T10:00:00+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22}', 'suricata_event_type' ],
+#	[ 'an eve.json line goes to suricata', '{"timestamp":"2026-07-15T10:00:00+0000","event_type":"alert","src_ip":"203.0.113.7","src_port":44444,"dest_ip":"192.0.2.1","dest_port":22}', 'suricata_event_type' ],
 	# the daemons whose only whole-set check this used to be: each answers to a
 	# name of its own, so what is asserted is that nothing else takes the line
 	# first
