@@ -30,18 +30,12 @@ reusable manner for Perl.
 
 ### From source
 
-From a checkout:
-
 ```sh
 perl Makefile.PL
 make
 make test
 make install
 ```
-
-Core dependencies, pulled in by `Makefile.PL`: `YAML::XS`, `JSON`, `File::ShareDir`,
-`File::Slurp`, `Template`, `Hash::Merge`, `App::Cmd`,
-`Algorithm::Dependency::Source::HoA`, and `Algorithm::Dependency::Ordered`.
 
 ### FreeBSD
 

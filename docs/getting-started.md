@@ -30,9 +30,10 @@ README has the `pkg` / `apt-get` lines.
 
 ## The log-record model
 
-Log-Munger works on a **log record**: a hash of named fields. This mirrors what you get
-out of structured syslog daemons (journald JSON, syslog-ng's JSON template, rsyslog
-`mmjsonparse`, etc.), for example:
+Log-Munger works on a **log record**: a hash of named fields. This mirrors what you from
+syslog-ng's JSON template.
+
+example:
 
 ```json
 { "PROGRAM": "sshd", "HOST": "mail01", "MESSAGE": "Failed password for root from 203.0.113.7 port 44444 ssh2" }

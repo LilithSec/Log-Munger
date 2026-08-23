@@ -211,7 +211,7 @@ keep them that way.
 
 - Anchor :: Rules that consume the whole message want `anchored: true`. Reserve gateless,
   anchored rules like `http_access_logs` for whole-line formats fed in raw.
-- Namespace :: Give every capture a short prefix — `ssh_`, `postfix_`, `app_` — so fields
+- Namespace :: Give every capture a short prefix(such as `ssh_`, `postfix_`, `app_`) so fields
   from different rule files never collide in a merged record.
 - Prefer decompose over giant regexps :: For `k=v` payloads it is easier to read, and the
   dynamic keys survive format drift that would break a pattern naming each key.

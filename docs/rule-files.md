@@ -9,25 +9,18 @@ A rule file is a YAML document. There are two kinds:
 - Consumer :: Has a `rules:` section that actually matches log records. It usually
   `includes: [base]` so it can reference `[% IP %]`, `[% WORD %]`, and the rest.
 
-> **Rule of thumb:** `base.yaml` is primitives-only; consumer files carry `rules:`.
-
-> **Only load rule files you trust.** A rule file is closer to code than to data: its
-> patterns run against your logs and its `vars_templated` entries are processed with
-> Template Toolkit. Read a third-party rule file the way you would read a third-party
-> script before dropping it into the search path.
-
 ## Top-level keys
 
-| Key | In | Purpose |
-|-----|----|---------|
-| `includes` | both | List of other rule files to merge in first. The current file wins on a conflict, and an earlier include wins over a later one. |
-| `vars` | both | Plain named regexps — no templating. |
-| `vars_templated` | both | Named regexps that use `[% VAR %]` Template Toolkit references, resolved in dependency order. |
-| `vars_tests` | both | Positive/negative tests for individual `vars` / `vars_templated`. |
-| `rules` | consumer | Ordered list of match rules (see below). |
-| `geoip` | consumer | File-level default list of captured fields to GeoIP-look-up. |
-| `decompose` | consumer | File-level default list of post-match field breakdowns. |
-| `convert` | consumer | File-level default map of `field: type` coercions. |
+| Key              | In       | Purpose                                                                                                                        |
+|------------------|----------|--------------------------------------------------------------------------------------------------------------------------------|
+| `includes`       | both     | List of other rule files to merge in first. The current file wins on a conflict, and an earlier include wins over a later one. |
+| `vars`           | both     | Plain named regexps — no templating.                                                                                           |
+| `vars_templated` | both     | Named regexps that use `[% VAR %]` Template Toolkit references, resolved in dependency order.                                  |
+| `vars_tests`     | both     | Positive/negative tests for individual `vars` / `vars_templated`.                                                              |
+| `rules`          | consumer | Ordered list of match rules (see below).                                                                                       |
+| `geoip`          | consumer | File-level default list of captured fields to GeoIP-look-up.                                                                   |
+| `decompose`      | consumer | File-level default list of post-match field breakdowns.                                                                        |
+| `convert`        | consumer | File-level default map of `field: type` coercions.                                                                             |
 
 The file-level `geoip` / `decompose` / `convert` act as **defaults**: a rule uses them
 only if it does not carry its own equivalent key. A rule-level `geoip`/`decompose`/`convert`
@@ -46,7 +39,7 @@ vars:
 ```
 
 `vars_templated` values are run through [Template Toolkit](https://metacpan.org/pod/Template),
-so they can reference any other var as `[% NAME %]` — including named-capture groups:
+so they can reference any other var as `[% NAME %]`:
 
 ```yaml
 vars_templated:
@@ -162,14 +155,14 @@ Three `type`s:
 
 **`type: kv`** — split a `k=v k=v` blob.
 
-| Option | Default | Meaning |
-|--------|---------|---------|
-| `field_split` | `' '` (space) | Separator between pairs. |
-| `value_split` | `'='` | Separator between key and value. |
-| `prefix` | `''` | Prepended to each produced key name. |
-| `trim` | *(none)* | Characters stripped from each end of a value. |
-| `quoted` | `false` | Quote-aware mode: a value may be `"double"` or `'single'` quoted (quotes stripped, the separator allowed inside them); pairs are found by scanning for `key=value` shapes rather than by splitting on `field_split`. |
-| `remove` | `false` | Delete the source field afterwards. |
+| Option        | Default       | Meaning                                                                                                                |
+|---------------|---------------|------------------------------------------------------------------------------------------------------------------------|
+| `field_split` | `' '` (space) | Separator between pairs.                                                                                               |
+| `value_split` | `'='`         | Separator between key and value.                                                                                       |
+| `prefix`      | `''`          | Prepended to each produced key name.                                                                                   |
+| `trim`        | *(none)*      | Characters stripped from each end of a value.                                                                          |
+| `quoted`      | `false`       | Quote-aware mode: a value may be `"double"` or `'single'` quoted (quotes stripped, the separator allowed inside them). |
+| `remove`      | `false`       | Delete the source field afterwards.                                                                                    |
 
 ```yaml
 decompose:
@@ -185,10 +178,10 @@ This turns `nf_kv = "IN=eth0 SRC=203.0.113.7 DST=192.0.2.1 SPT=44444 DPT=22"` in
 **`type: pattern`** — re-match the field against a named var (or inline regexp), anchored,
 and merge its named captures.
 
-| Option | Meaning |
-|--------|---------|
+| Option    | Meaning                                                |
+|-----------|--------------------------------------------------------|
 | `pattern` | A var name or inline regexp; applied as `\A(?:...)\z`. |
-| `remove` | Delete the source field afterwards. |
+| `remove`  | Delete the source field afterwards.                    |
 
 ```yaml
 decompose:
@@ -199,15 +192,15 @@ decompose:
     # 'mx.example.com[1.2.3.4]:25' -> postfix_relay_hostname / _ip / _port
 ```
 
-**`type: json`** — JSON-decode the field, for the daemons that write a whole JSON
+**`type: json`** - JSON-decode the field, for the daemons that write a whole JSON
 document into `MESSAGE`. MongoDB is the bundled example.
 
-| Option | Default | Meaning |
-|--------|---------|---------|
-| `prefix` | `''` | Prepended to each produced key name. |
-| `separator` | `'_'` | Joins the path segments of a nested key. |
-| `nested` | `false` | Store the decoded structure whole under one key instead of flattening it. |
-| `remove` | `false` | Delete the source field afterwards. |
+| Option      | Default | Meaning                                                                   |
+|-------------|---------|---------------------------------------------------------------------------|
+| `prefix`    | `''`    | Prepended to each produced key name.                                      |
+| `separator` | `'_'`   | Joins the path segments of a nested key.                                  |
+| `nested`    | `false` | Store the decoded structure whole under one key instead of flattening it. |
+| `remove`    | `false` | Delete the source field afterwards.                                       |
 
 By default the decoded structure is flattened, so each leaf becomes
 `prefix + path` with the path segments joined by `separator`. Object keys and array
@@ -215,11 +208,11 @@ indices both count as segments, so `{"attr":{"remote":"1.2.3.4"}}` with `prefix:
 gives `mongo_attr_remote`. A payload of any shape therefore needs no pattern written
 for it.
 
-Some values are normalized on the way through. A MongoDB extended-JSON wrapper — a
-single-key object such as `{"$date":…}`, `{"$oid":…}`, or `{"$numberLong":…}` — collapses
+Some values are normalized on the way through. A MongoDB extended-JSON wrapper, a
+single-key object such as `{"$date":...}`, `{"$oid":...}`, or `{"$numberLong":...}`, collapses
 to the scalar inside it. Booleans become `1` and `0`. JSON null is skipped rather than
-stored. A field whose value is not valid JSON — or is JSON for a bare scalar rather than
-an object or array — is left exactly as it was.
+stored. A field whose value is not valid JSON or is JSON for a bare scalar rather than
+an object or array is left exactly as it was.
 
 ```yaml
 decompose:
@@ -235,9 +228,29 @@ With `nested: true` the decoded structure is stored whole instead, under `prefix
 a trailing separator) or, if there is no prefix, under the source field's own name —
 replacing the raw string, in which case `remove:` is ignored.
 
-Each decompose entry may carry its own `tests: [ { input, result }, … ]` list, applied in
+Each decompose entry may have its own `tests: [ { input, result }, … ]` list, applied in
 isolation by `test_all` (the `result` reflects the entry's `remove:` setting). `tests` is
 ignored at runtime.
+
+```yaml
+decompose:
+  - field: mongo_json
+    type: json
+    prefix: 'mongo_'
+    remove: true
+    tests:
+      - input: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"WTCHKPT","id":22430,"ctx":"Checkpointer","msg":"WiredTiger message","attr":{"message":{"category":"WT_VERB_CHECKPOINT_PROGRESS","verbose_level_id":1,"debug":true,"note":null}}}'
+        result:
+          mongo_t: '2026-07-27T02:49:30.131+00:00'
+          mongo_s: 'I'
+          mongo_c: 'WTCHKPT'
+          mongo_id: 22430
+          mongo_ctx: 'Checkpointer'
+          mongo_msg: 'WiredTiger message'
+          mongo_attr_message_category: 'WT_VERB_CHECKPOINT_PROGRESS'
+          mongo_attr_message_verbose_level_id: 1
+          mongo_attr_message_debug: 1
+```
 
 ### `geoip` — enrich captured addresses
 
@@ -257,22 +270,22 @@ geoip:
 A map of `field: type`. Everything a regexp captures is a string; this is how one stops
 being one. Five types, each with a few accepted spellings:
 
-- `int` :: Coerce to an integer, so it serializes as a JSON number rather than a string.
-  Also spelled `integer`.
-- `float` :: Coerce to a floating-point number. Also spelled `num` or `number`.
-- `lc` :: Lowercase the value. Also spelled `lower` or `lowercase`.
-- `uc` :: Uppercase the value. Also spelled `upper` or `uppercase`.
-- `mac` :: Rewrite a MAC address into lowercase colon-separated form. Also spelled
+- `int` :: Coerce to an integer, so it serializes as a JSON number rather than a
+  string. Alias is `integer`.
+- `float` :: Coerce to a floating-point number. Aliases are `num` or `number`.
+- `lc` :: Lowercase the value. Aliases `lower` or `lowercase`.
+- `uc` :: Uppercase the value. Aliases `upper` or `uppercase`.
+- `mac` :: Rewrite a MAC address into lowercase colon-separated form. Aliases are
   `macaddr` or `mac_address`.
 
 The case folds exist for tokens whose case varies between the sources that write them.
 SELinux logs `avc: denied` and AppArmor logs `apparmor="DENIED"` for the same verdict, so
-`auditd.yaml` captures both into `mac_result` and lowercases it. Whoever consumes the
+`auditd.yaml` captures both into `mac_result` and lowercases it. Whatever uses the
 field then does not have to care which LSM produced the line.
 
-`mac` exists for the same reason one layer down. The four spellings in the wild —
+`mac` exists for the same reason one layer down. The four spellings in the wild,
 `C4:D8:D5:3B:8C:4B`, `C4-D8-D5-3B-8C-4B`, `c4d8.d53b.8c4b` and the kernel's space-separated
-`c4 d8 d5 3b 8c 4b` — all normalize to `c4:d8:d5:3b:8c:4b`, so an address from a
+`c4 d8 d5 3b 8c 4b`, all normalize to `c4:d8:d5:3b:8c:4b`, so an address from a
 `ll header` dump compares directly against one from an ARP line. A value that is not
 twelve hex digits once the separators are stripped is left as it was.
 
@@ -308,16 +321,16 @@ vars_tests:
       - '  a b c ::1 d'
 ```
 
-Rule `tests` validate a rule's **patterns**: each `positive` string must match one of the
+Rule `tests` validate a rule's patterns: each `positive` string must match one of the
 rule's patterns and its raw named captures must equal `result`; each `negative` string must
-match none of them. The captures are compared *before* enrichment — `decompose`, `geoip`,
-and `convert` are **not** applied here. Those are covered separately: each `decompose`
-entry carries its own `tests`, and the `numeric` and `enriched` keys described below put
+match none of them. The captures are compared before enrichment with `decompose`, `geoip`,
+and `convert` are not being applied here. Those are covered separately: each `decompose`
+entry has its own `tests`, and the `numeric` and `enriched` keys described below put
 `convert` and `decompose` under test as the rule uses them; `geoip` needs a database and
 stays a runtime concern. So a rule test's `result` lists the
 `(?<...>)` captures only, and numbers appear as strings (e.g. `ssh_src_port: '54321'`) even
 when a `convert:` coerces them at runtime. See the bundled `sshd.yaml` / `netfilter.yaml`
-for full worked examples — their rule tests expect the raw port string and the still-whole
+for full worked examples, the rule tests expect the raw port string and the still-whole
 `nf_kv` blob respectively.
 
 A test case may also name the `program` the line arrived under, and that puts the rule's
