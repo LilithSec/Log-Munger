@@ -40,31 +40,47 @@ vars_templated:
   # becomes 1700000000.1, and .000 becomes an integer.
   AUDITD_ID: 'msg=audit\((?<audit_id>(?<audit_epoch>[% NUMBER %]):(?<audit_serial>[% INT %]))\)'
   #
+  # The nested single-quoted msg='...' a USER_* record carries, decomposed
+  # into audit_msg_*. auditd writes a value it has to escape -- one holding a
+  # space or a control character -- as bare hex rather than in quotes, so
+  # acct=28696E76616C6964207573657229 is "(invalid user)". The kv decompose
+  # strips quotes, after which acct="cafe" and the hex acct=cafe look the same,
+  # so an unquoted hex acct= and cmd= are captured here, ahead of it, as
+  # audit_msg_acct_decoded and audit_msg_cmd_decoded, and decoded by convert.
+  # The raw audit_msg_acct / audit_msg_cmd are kept as written.
+  AUDITD_NESTED_MSG: '(?: msg=''(?:(?=(?:[^'']*\s)?acct=(?<audit_msg_acct_decoded>(?:[0-9A-Fa-f]{2})+)[\s'']))?(?:(?=(?:[^'']*\s)?cmd=(?<audit_msg_cmd_decoded>(?:[0-9A-Fa-f]{2})+)[\s'']))?(?<audit_msg>[^'']*)'')?'
+  # log_format = ENRICHED appends, after a \x1D group separator, the values
+  # auditd resolved for the record: UID="root" AUID="unset" ARCH=x86_64
+  # SYSCALL=openat and the like. Taken as audit_enriched and decomposed into
+  # the upper-case names auditd gives them (audit_UID, audit_AUID, ...), so
+  # the raw blobs ahead of it stay as they were.
+  AUDITD_ENRICHED: '(?:\x1D(?<audit_enriched>.*))?'
+  #
   # --- type-specific patterns (matched BEFORE the generic AUDITD below) ---
   #
   # USER_AUTH / USER_ACCT / CRED_ACQ / CRED_DISP / CRED_REFR / USER_START /
   # USER_END: an outer pid/uid/auid/ses blob followed by a nested single-quoted
   # msg='...' sub-record carrying op/acct/exe/hostname/addr/terminal/res. The
   # nested blob is decomposed into audit_msg_* (acct/exe/hostname/addr/res).
-  AUDITD_USER_AUTH: 'type=(?<audit_type>USER_AUTH|USER_ACCT|CRED_ACQ|CRED_DISP|CRED_REFR|USER_START|USER_END) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_AUTH: 'type=(?<audit_type>USER_AUTH|USER_ACCT|USER_ERR|CRED_ACQ|CRED_DISP|CRED_REFR|USER_START|USER_END) [% AUDITD_ID %]: (?<audit_fields>.*?)[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
   # USER_LOGIN: an outer pid/uid/auid/ses(/res) blob plus a nested msg='...' that
   # carries op/acct/addr/terminal (and often res). uid/auid/ses/res come from the
   # outer blob (audit_*), acct/addr/terminal from the nested one (audit_msg_*).
-  AUDITD_USER_LOGIN: 'type=(?<audit_type>USER_LOGIN) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_LOGIN: 'type=(?<audit_type>USER_LOGIN) [% AUDITD_ID %]: (?<audit_fields>.*?)[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
   # USER_CMD: a privileged command (sudo et al). The nested msg='...' holds the
   # cmd (usually hex-encoded), cwd, terminal and res.
-  AUDITD_USER_CMD: 'type=(?<audit_type>USER_CMD) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_CMD: 'type=(?<audit_type>USER_CMD) [% AUDITD_ID %]: (?<audit_fields>.*?)[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
   # ADD_USER / DEL_USER / ADD_GROUP / DEL_GROUP / USER_MGMT / GRP_MGMT: account
   # and group lifecycle. The nested msg='...' carries op= (the operation) and the
   # acct/grp being touched, plus exe/hostname/addr/res.
-  AUDITD_USER_MGMT: 'type=(?<audit_type>ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_USER_MGMT: 'type=(?<audit_type>ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT) [% AUDITD_ID %]: (?<audit_fields>.*?)[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
   # AVC: SELinux access-vector-cache decisions. The message body starts with
   #   avc:  denied  { read write } for  pid=.. comm=".." scontext=.. tcontext=..
   # capture the action (denied/granted) and the { perms }, then hand the trailing
   # pid=.. comm=.. scontext=.. tcontext=.. blob to the outer kv decompose.
   # audit_avc_action is kept for the existing consumers; the same text is also
   # captured as the cross-LSM mac_result (see the AppArmor patterns below).
-  AUDITD_AVC: 'type=(?<audit_type>AVC|USER_AVC|SELINUX_ERR) [% AUDITD_ID %]: avc: +(?<mac_result>(?<audit_avc_action>denied|granted)) +\{ (?<audit_avc_perms>[^}]*) \} +for +(?<audit_fields>.*)'
+  AUDITD_AVC: 'type=(?<audit_type>AVC|USER_AVC|SELINUX_ERR) [% AUDITD_ID %]: avc: +(?<mac_result>(?<audit_avc_action>denied|granted)) +\{ (?<audit_avc_perms>[^}]*) \} +for +(?<audit_fields>.*?)[% AUDITD_ENRICHED %]'
   #
   # --- AppArmor ---
   #
@@ -89,7 +105,7 @@ vars_templated:
   # Everything after the verdict is an ordinary k=v blob and goes to the outer
   # decompose as audit_*: operation, profile, name, comm, requested_mask, info,
   # error, capability, peer and target.
-  AUDITD_APPARMOR: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: apparmor="(?<mac_result>(?<audit_apparmor>[% WORD %]))"(?: +(?<audit_fields>[% GREEDYDATA %]))?'
+  AUDITD_APPARMOR: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: apparmor="(?<mac_result>(?<audit_apparmor>[% WORD %]))"(?: +(?<audit_fields>.*?))?[% AUDITD_ENRICHED %]'
   # AppArmor dbus/mediation denials arrive from dbus-daemon as USER_AVC, so the
   # AppArmor blob is inside the nested single-quoted msg='...' instead of the
   # outer one:
@@ -100,11 +116,11 @@ vars_templated:
   # The outer blob is still the pid/uid/auid/ses one (audit_*), the nested blob
   # decomposes to audit_msg_* exactly as it did under the catch-all, and the
   # verdict lands in audit_msg_apparmor plus the shared mac_result.
-  AUDITD_APPARMOR_DBUS: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: (?<audit_fields>.*?) msg=''apparmor="(?<mac_result>(?<audit_msg_apparmor>[% WORD %]))"(?: +(?<audit_msg>[^'']*))?'''
+  AUDITD_APPARMOR_DBUS: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]: (?<audit_fields>.*?) msg=''apparmor="(?<mac_result>(?<audit_msg_apparmor>[% WORD %]))"(?: +(?<audit_msg>[^'']*))?''[% AUDITD_ENRICHED %]'
   # ANOM_* / anomaly + integrity records (ANOM_LOGIN_FAILURES, ANOM_ABEND,
   # ANOM_PROMISCUOUS, INTEGRITY_*, SECCOMP, ...): recognise the type and let the
   # outer kv decompose (and, when present, the nested one) handle the k=v blobs.
-  AUDITD_ANOM: 'type=(?<audit_type>(?:ANOM_|INTEGRITY_)[A-Z_]+|SECCOMP|MAC_STATUS|MAC_POLICY_LOAD) [% AUDITD_ID %]: (?<audit_fields>.*?)(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD_ANOM: 'type=(?<audit_type>(?:ANOM_|INTEGRITY_)[A-Z_]+|SECCOMP|MAC_STATUS|MAC_POLICY_LOAD) [% AUDITD_ID %]: (?<audit_fields>.*?)[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
   #
   # --- generic catch-all (must stay LAST in the patterns list) ---
   #
@@ -119,7 +135,7 @@ vars_templated:
   # are a large fraction of the records. There is nothing in an EOE beyond
   # audit_id, which is the point: it marks that every record sharing that id
   # has been seen.
-  AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]:(?: (?<audit_fields>.*?))?(?: msg=''(?<audit_msg>[^'']*)'')?'
+  AUDITD: 'type=(?<audit_type>[% NOTSPACE %]) [% AUDITD_ID %]:(?: (?<audit_fields>.*?))?[% AUDITD_NESTED_MSG %][% AUDITD_ENRICHED %]'
 geoip:
   - audit_msg_addr
   - audit_addr
@@ -149,7 +165,30 @@ convert:
   audit_msg_pid: int
   audit_msg_peer_pid: int
   audit_msg_sauid: int
+  # the escaped values AUDITD_NESTED_MSG captures, decoded
+  audit_msg_acct_decoded: hex
+  audit_msg_cmd_decoded: hex
 decompose:
+  # log_format = ENRICHED's resolved values after the \x1D separator. auditd
+  # names them in upper case, which keeps them apart from the raw lower-case
+  # fields they interpret (audit_UID beside audit_uid).
+  - field: audit_enriched
+    type: kv
+    quoted: true
+    prefix: 'audit_'
+    remove: true
+    tests:
+      - input: 'UID="root" AUID="unset"'
+        result:
+          audit_UID: 'root'
+          audit_AUID: 'unset'
+      - input: 'ARCH=x86_64 SYSCALL=openat AUID="neti" UID="root" GID="root"'
+        result:
+          audit_ARCH: 'x86_64'
+          audit_SYSCALL: 'openat'
+          audit_AUID: 'neti'
+          audit_UID: 'root'
+          audit_GID: 'root'
   # Outer fields. Quote-aware, for values like comm="ls" and key="watch exec".
   - field: audit_fields
     type: kv
@@ -237,6 +276,28 @@ vars_tests:
     negative:
       - 'type=USER_LOGIN msg=audit(1700000000.123:456): pid=1234 uid=0'
       - 'this is not an auditd record'
+  # TEST is what the lookahead decoded from, so a quoted acct shows up as no
+  # match rather than as a wrongly decoded one
+  AUDITD_NESTED_MSG:
+    test_template: '^[% TEST_VAR %]$(?<TEST>)'
+    positive:
+      - string: ' msg=''op=login acct=28696E76616C6964207573657229 res=failed'''
+        result: ''
+      - string: ' msg=''op=login acct="root" res=failed'''
+        result: ''
+      - string: ''
+        result: ''
+    negative:
+      - ' msg=''op=login acct="root" res=failed'
+  AUDITD_ENRICHED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "\x1DUID=\"root\" AUID=\"unset\""
+        result: "\x1DUID=\"root\" AUID=\"unset\""
+      - string: ''
+        result: ''
+    negative:
+      - 'UID="root"'
   AUDITD_USER_LOGIN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -430,6 +491,46 @@ rules:
             audit_serial: '459'
             audit_fields: 'pid=999 uid=0 auid=0 ses=1'
             audit_msg: 'op=login acct="badguy" exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'
+        # sshd's "(invalid user)", hex-encoded as auditd writes any value with a
+        # space in it, and log_format = ENRICHED's resolved names after \x1D
+        - string: "type=USER_LOGIN msg=audit(1700000005.000:461): pid=999 uid=0 auid=4294967295 ses=4294967295 msg='op=login acct=28696E76616C6964207573657229 exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.9 terminal=ssh res=failed'\x1DUID=\"root\" AUID=\"unset\""
+          enriched:
+            audit_AUID: 'unset'
+            audit_UID: 'root'
+            audit_auid: '4294967295'
+            audit_epoch: '1700000005'
+            audit_id: '1700000005.000:461'
+            audit_msg_acct: '28696E76616C6964207573657229'
+            audit_msg_acct_decoded: '(invalid user)'
+            audit_msg_addr: '198.51.100.9'
+            audit_msg_exe: '/usr/sbin/sshd'
+            audit_msg_hostname: '?'
+            audit_msg_op: 'login'
+            audit_msg_res: 'failed'
+            audit_msg_terminal: 'ssh'
+            audit_pid: '999'
+            audit_serial: '461'
+            audit_ses: '4294967295'
+            audit_type: 'USER_LOGIN'
+            audit_uid: '0'
+          result:
+            audit_type: 'USER_LOGIN'
+            audit_id: '1700000005.000:461'
+            audit_epoch: '1700000005.000'
+            audit_serial: '461'
+            audit_fields: 'pid=999 uid=0 auid=4294967295 ses=4294967295'
+            audit_msg_acct_decoded: '28696E76616C6964207573657229'
+            audit_msg: 'op=login acct=28696E76616C6964207573657229 exe="/usr/sbin/sshd" hostname=? addr=198.51.100.9 terminal=ssh res=failed'
+            audit_enriched: 'UID="root" AUID="unset"'
+        # USER_ERR, the PAM error record a bad ident produces
+        - string: 'type=USER_ERR msg=audit(1700000006.000:462): pid=1001 uid=0 auid=4294967295 ses=4294967295 msg=''op=PAM:bad_ident grantors=? acct="?" exe="/usr/sbin/sshd" hostname=198.51.100.10 addr=198.51.100.10 terminal=ssh res=failed'''
+          result:
+            audit_type: 'USER_ERR'
+            audit_id: '1700000006.000:462'
+            audit_epoch: '1700000006.000'
+            audit_serial: '462'
+            audit_fields: 'pid=1001 uid=0 auid=4294967295 ses=4294967295'
+            audit_msg: 'op=PAM:bad_ident grantors=? acct="?" exe="/usr/sbin/sshd" hostname=198.51.100.10 addr=198.51.100.10 terminal=ssh res=failed'
         # USER_CMD: hex-encoded cmd, cwd, terminal and res, all nested.
         - string: 'type=USER_CMD msg=audit(1700000004.000:460): pid=2222 uid=1000 auid=1000 ses=3 msg=''cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'''
           enriched:
@@ -437,6 +538,7 @@ rules:
             audit_epoch: '1700000004'
             audit_id: '1700000004.000:460'
             audit_msg_cmd: '6C73202D6C61'
+            audit_msg_cmd_decoded: 'ls -la'
             audit_msg_cwd: '/home/neti'
             audit_msg_res: 'success'
             audit_msg_terminal: 'pts/0'
@@ -451,6 +553,7 @@ rules:
             audit_epoch: '1700000004.000'
             audit_serial: '460'
             audit_fields: 'pid=2222 uid=1000 auid=1000 ses=3'
+            audit_msg_cmd_decoded: '6C73202D6C61'
             audit_msg: 'cwd="/home/neti" cmd=6C73202D6C61 terminal=pts/0 res=success'
         # ADD_USER: op, acct and id from the nested sub-record.
         - string: 'type=ADD_USER msg=audit(1700000006.000:462): pid=3333 uid=0 auid=0 ses=2 msg=''op=add-user id=1500 exe="/usr/sbin/useradd" hostname=? addr=? terminal=pts/0 res=success'''

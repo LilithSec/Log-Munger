@@ -268,7 +268,7 @@ geoip:
 ### `convert` — coerce captured fields
 
 A map of `field: type`. Everything a regexp captures is a string; this is how one stops
-being one. Five types, each with a few accepted spellings:
+being one. Six types, each with a few accepted spellings:
 
 - `int` :: Coerce to an integer, so it serializes as a JSON number rather than a
   string. Alias is `integer`.
@@ -277,6 +277,8 @@ being one. Five types, each with a few accepted spellings:
 - `uc` :: Uppercase the value. Aliases `upper` or `uppercase`.
 - `mac` :: Rewrite a MAC address into lowercase colon-separated form. Aliases are
   `macaddr` or `mac_address`.
+- `hex` :: Decode a run of hex bytes into the text it encodes. Aliases are `unhex` or
+  `hexdecode`.
 
 The case folds exist for tokens whose case varies between the sources that write them.
 SELinux logs `avc: denied` and AppArmor logs `apparmor="DENIED"` for the same verdict, so
@@ -288,6 +290,12 @@ field then does not have to care which LSM produced the line.
 `c4 d8 d5 3b 8c 4b`, all normalize to `c4:d8:d5:3b:8c:4b`, so an address from a
 `ll header` dump compares directly against one from an ARP line. A value that is not
 twelve hex digits once the separators are stripped is left as it was.
+
+`hex` is for logs that hex-encode a value rather than quote it. auditd writes a field that
+holds a space or a control character that way, `acct=28696E76616C6964207573657229` for
+`(invalid user)`, and `auditd.yaml` captures such a field and decodes it. Only an even run
+of hex digits is decoded, anything else is passed through. Capture only what is known to be
+encoded: `cafe` is valid hex and a plain word both, and the convert can not tell which.
 
 A field that was not captured is left alone, as is a numeric conversion of something that
 does not look like a number. `convert` runs last, so GeoIP still sees the original string
@@ -386,7 +394,7 @@ kv blob split into fields, one of which a convert then coerces.
 What it checks is how perl is holding the value, not what the value looks like. Asking
 `looks_like_number` would pass on the captured string whether the convert ran or not, which
 is the one thing the case was written to find out. A rule that converts a field to a number
-and lists none is reported as a warning; `lc`, `uc` and `mac` are not numeric conversions
+and lists none is reported as a warning; `lc`, `uc`, `mac` and `hex` are not numeric conversions
 and are not warned about.
 
 An `enriched` map says what the whole field set looks like at that same point, which is what

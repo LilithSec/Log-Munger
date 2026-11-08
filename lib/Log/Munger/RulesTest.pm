@@ -1163,7 +1163,7 @@ sub _test_numeric {
 # count as strings while its port conversion was tested.
 #
 # Only fields the rule's own positive tests really produce are considered, and
-# only int and float entries -- lc, uc and mac turn a string into another string,
+# only int and float entries -- lc, uc, mac and hex turn a string into another string,
 # and a rule that inherits the file level map often produces none of the fields in
 # it. Warning about either would be noise, and noise in a lint teaches people to
 # skip the output.

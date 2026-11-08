@@ -139,6 +139,13 @@ Revision history for Log-Munger
           (slapd_src_path / slapd_dst_path)
         - slapd: add TLS established; RESULT of an extended operation (empty
           oid=, no tag=)
+        - convert: add hex (aliases unhex, hexdecode), decoding whole hex
+          bytes and passing anything else through
+        - auditd: USER_ERR read by the USER_* pattern
+        - auditd: a hex-encoded (unquoted) acct= or cmd= decoded into
+          audit_msg_acct_decoded / audit_msg_cmd_decoded
+        - auditd: log_format = ENRICHED's values after the \x1D separator
+          taken as audit_enriched and split into audit_UID, audit_AUID, ...
 
 0.0.1   2026-08-23/17:00
         - init

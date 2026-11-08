@@ -112,7 +112,7 @@ convert:
 
 `geoip` only fires when a database is supplied via `--geoip`. `convert` makes `app_dur`
 serialize as a JSON number rather than the string the regexp captured. The other types
-are `int`, the case folds `lc` and `uc`, and `mac`; see
+are `int`, the case folds `lc` and `uc`, `mac`, and `hex`; see
 [rule-files.md](rule-files.md#convert--coerce-captured-fields) for what each does.
 
 ## 7. Add a rule test

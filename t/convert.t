@@ -112,12 +112,32 @@ is_deeply(
 	'mac aliases normalize'
 );
 
+# hex: auditd writes a value that needs escaping as unquoted hex, and the
+# text it encodes is what a reader wants
+my $hex_convert = Log::Munger::LogProcessor->_compile_convert( { 'h' => 'hex' } );
+my %hex_captures = ( 'h' => '28696E76616C6964207573657229' );
+Log::Munger::LogProcessor->_convert( { 'convert' => $hex_convert }, \%hex_captures );
+is( $hex_captures{'h'}, '(invalid user)', 'hex decodes whole hex bytes' );
+
+# not whole hex bytes, so passed through
+foreach my $not_hex ( '?', 'abc', 'root' ) {
+	my %c = ( 'h' => $not_hex );
+	Log::Munger::LogProcessor->_convert( { 'convert' => $hex_convert }, \%c );
+	is( $c{'h'}, $not_hex, "hex leaves \"$not_hex\" alone" );
+}
+
+is_deeply(
+	Log::Munger::LogProcessor->_compile_convert( { 'a' => 'HEX', 'b' => 'unhex', 'c' => 'hexdecode' } ),
+	{ 'a' => 'hex', 'b' => 'hex', 'c' => 'hex' },
+	'hex aliases normalize'
+);
+
 # an unknown convert type is a load-time error
 eval {
 	my $bad = { 'convert' => { 'x' => 'stringy' }, 'rules' => [] };
 	Log::Munger::LogProcessor->_compile_convert( $bad->{'convert'} );
 };
-like( $@, qr/unknown \(expected int, float, lc, uc, or mac\)/, 'unknown convert type dies at compile' );
+like( $@, qr/unknown \(expected int, float, lc, uc, mac, or hex\)/, 'unknown convert type dies at compile' );
 
 # RulesTest reports a bad file-level convert map
 my $badres = Log::Munger::RulesTest->test(

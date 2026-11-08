@@ -759,8 +759,10 @@ sub _compile_convert {
 			$normalized{$field} = 'uc';
 		} elsif ( $type =~ /\A(?:mac|macaddr|mac_address)\z/i ) {
 			$normalized{$field} = 'mac';
+		} elsif ( $type =~ /\A(?:hex|unhex|hexdecode)\z/i ) {
+			$normalized{$field} = 'hex';
 		} else {
-			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, uc, or mac)' );
+			die( '.convert.' . $field . ' type "' . $type . '" is unknown (expected int, float, lc, uc, mac, or hex)' );
 		}
 	} ## end foreach my $field ( keys( %{$convert} ) )
 
@@ -769,7 +771,7 @@ sub _compile_convert {
 
 # Coerces the rule's convert fields in the captures hash: int/float to numbers
 # so they serialize as JSON numbers rather than strings, lc/uc to a case-folded
-# string, mac to lowercase colon-separated hex.
+# string, mac to lowercase colon-separated hex, hex to the text it encodes.
 #
 # Args:
 #
@@ -777,8 +779,9 @@ sub _compile_convert {
 #
 #     - $captures :: Hash ref of the captured fields. Modified in place. A
 #         field that is not present is left untouched, as is a numeric
-#         conversion of something that does not look like a number and a mac
-#         conversion of something that is not twelve hex digits.
+#         conversion of something that does not look like a number, a mac
+#         conversion of something that is not twelve hex digits, and a hex
+#         conversion of something that is not whole hex bytes.
 #
 # Returns nothing. Never dies.
 #
@@ -803,6 +806,13 @@ sub _convert {
 			next;
 		} elsif ( $type eq 'mac' ) {
 			$captures->{$field} = $self->_normalize_mac($value);
+			next;
+		} elsif ( $type eq 'hex' ) {
+			# "6C73202D6C61" -> "ls -la"; anything that is not whole hex bytes,
+			# such as auditd's "?" for an unknown value, is passed through
+			if ( $value =~ /\A(?:[0-9A-Fa-f]{2})+\z/ ) {
+				$captures->{$field} = pack( 'H*', $value );
+			}
 			next;
 		}
 
@@ -866,7 +876,7 @@ sub _normalize_mac {
 #         patterns  => [ qr//, ... ],
 #         geoip     => [ 'field_name', ... ],
 #         decompose => [ ... ],      # see _compile_decompose
-#         convert   => { field_name => 'int'|'float'|'lc'|'uc'|'mac', ... },
+#         convert   => { field_name => 'int'|'float'|'lc'|'uc'|'mac'|'hex', ... },
 #     }
 #
 # A rule may set anchored: true, in which case each pattern is wrapped as
