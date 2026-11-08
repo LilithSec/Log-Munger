@@ -24,6 +24,15 @@
 includes:
 - base
 vars_templated:
+  # The ruser/rhost/user end of an authentication-failure line, captured straight
+  # off it so the kv decompose (first value wins, and it never overwrites a
+  # capture) can not take a forged rhost= instead. ruser is whatever the client
+  # typed and may carry a whole " rhost=<addr>" of its own, ahead of the real
+  # one. pam_unix names user= only for an account that exists, so user= may not
+  # hold " rhost=" and ruser may hold anything... the reading fail2ban settled
+  # on (789571aa), which takes the real rhost= even with a forgery on both
+  # sides. Optional, so a tail of some other shape is left to the decompose.
+  PAM_RHOST_TAIL: '(?:(?=.*? ruser=(?<pam_ruser>\S*|.*?) rhost=(?<pam_rhost>\S*)(?:\s+user=(?<pam_user>\S*(?: +(?!rhost=)\S+)*))?\s*$))?'
   # authentication-failure line -- module/service/type header, then the whole
   # "logname= uid= ..." blob captured as pam_kv for the decompose step below.
   # NOTE: pam_module uses USERNAME rather than WORD because base WORD is
@@ -33,15 +42,17 @@ vars_templated:
   # Linux-PAM before 0.99 wrote the module without the service and type, as
   # "(pam_unix) authentication failure; ..." or "pam_unix: authentication
   # failure; ...", and both are still in old logs and on embedded systems.
-  PAM_AUTH_FAILURE: '(?:pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): |\(pam_(?<pam_module>[% USERNAME %])\) |pam_(?<pam_module>[% USERNAME %]): )authentication failure; (?<pam_kv>logname=[% GREEDYDATA %])'
+  PAM_AUTH_FAILURE: '(?:pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): |\(pam_(?<pam_module>[% USERNAME %])\) |pam_(?<pam_module>[% USERNAME %]): )authentication failure; [% PAM_RHOST_TAIL %](?<pam_kv>logname=[% GREEDYDATA %])'
   # The same failure with no module named at all, as some current builds log
   # it under the calling program (vsftpd on Amazon Linux, for one):
   #   authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7 user=neti
   #
   # Like PAM_AUTH_ERROR it has no "pam_" to key on in a gateless file, so it is
   # pinned to pam_unix's exact key list in order rather than taking any tail.
-  # The gap before user= is one space or two depending on the version.
-  PAM_AUTH_FAILURE_BARE: 'authentication failure; (?<pam_kv>logname=\S* uid=[% INT %] euid=[% INT %] tty=\S* ruser=\S* rhost=\S*(?:\s+user=\S*)?)'
+  # The gap before user= is one space or two depending on the version. ruser
+  # and user= are read as PAM_RHOST_TAIL reads them, so an account with a space
+  # in it does not cost the match.
+  PAM_AUTH_FAILURE_BARE: 'authentication failure; [% PAM_RHOST_TAIL %](?<pam_kv>logname=\S* uid=[% INT %] euid=[% INT %] tty=\S* ruser=(?:\S*|.*?) rhost=\S*(?:\s+user=\S*(?: +(?!rhost=)\S+)*)?\s*)'
   # session open/close line.
   PAM_SESSION: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): session (?<pam_session_action>opened|closed) for user (?<pam_user>[% USERNAME %])(?:\(uid=(?<pam_uid>[% INT %])\))?(?: by (?:(?<pam_by_user>[% USERNAME %]))?\(uid=(?<pam_by_uid>[% INT %])\))?'
   # -------------------------------------------------------------------------
@@ -96,6 +107,21 @@ vars_templated:
   # form would claim any program's "Authentication error" line.
   PAM_AUTH_ERROR: 'Authentication error; user=(?<pam_user>[% USERNAME %])'
 vars_tests:
+  # TEST is the rhost the lookahead captured, found again on the line, so a
+  # forged rhost= taken in place of the real one shows up as the wrong result
+  PAM_RHOST_TAIL:
+    test_template: '^[% TEST_VAR %].* rhost=(?<TEST>\k<pam_rhost>)(?:\s|$)'
+    positive:
+      - string: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+        result: '203.0.113.7'
+      # a forged rhost= in ruser
+      - string: 'logname= uid=0 euid=0 tty=ftp ruser=test rhost=192.0.2.100 rhost=203.0.113.7'
+        result: '203.0.113.7'
+      # forged on both sides... ruser is the client's, user= is not
+      - string: 'logname= uid=0 euid=0 tty=xxx ruser=a rhost=192.0.2.102 user=a rhost=192.0.2.103 user=a rhost=203.0.113.7 user='
+        result: '203.0.113.7'
+    negative:
+      - 'logname= uid=0 euid=0 tty=ssh user=root'
   PAM_AUTH_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -289,6 +315,9 @@ rules:
             - pam_euid
             - pam_uid
           result:
+            pam_ruser: ''
+            pam_rhost: '203.0.113.7'
+            pam_user: 'root'
             pam_module: 'unix'
             pam_service: 'sshd'
             pam_type: 'auth'
@@ -296,6 +325,8 @@ rules:
         # Linux-PAM before 0.99: module only
         - string: '(pam_unix) authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
           result:
+            pam_ruser: ''
+            pam_rhost: '203.0.113.7'
             pam_module: 'unix'
             pam_kv: 'logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
         # no module named; the two spaces before user= leave an empty token
@@ -313,13 +344,44 @@ rules:
             - pam_euid
             - pam_uid
           result:
+            pam_ruser: 'neti'
+            pam_rhost: '203.0.113.7'
+            pam_user: 'neti'
             pam_kv: 'logname= uid=0 euid=0 tty=dovecot ruser=neti rhost=203.0.113.7  user=neti'
         - string: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
           result:
+            pam_ruser: 'neti'
+            pam_rhost: ''
+            pam_user: 'root'
             pam_module: 'unix'
             pam_service: 'su'
             pam_type: 'auth'
             pam_kv: 'logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
+        # a forged rhost= in ruser, ahead of the real one (fail2ban 789571aa)
+        - string: 'pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=test rhost=192.0.2.100 rhost=203.0.113.7'
+          enriched:
+            pam_euid: '0'
+            pam_logname: ''
+            pam_module: 'unix'
+            pam_rhost: '203.0.113.7'
+            pam_ruser: 'test rhost=192.0.2.100'
+            pam_service: 'vsftpd'
+            pam_tty: 'ftp'
+            pam_type: 'auth'
+            pam_uid: '0'
+          result:
+            pam_module: 'unix'
+            pam_service: 'vsftpd'
+            pam_type: 'auth'
+            pam_ruser: 'test rhost=192.0.2.100'
+            pam_rhost: '203.0.113.7'
+            pam_kv: 'logname= uid=0 euid=0 tty=ftp ruser=test rhost=192.0.2.100 rhost=203.0.113.7'
+        # a typed account with a space in it, which the bare form used to drop
+        - string: 'authentication failure; logname= uid=0 euid=0 tty= ruser=a b rhost=203.0.113.7'
+          result:
+            pam_ruser: 'a b'
+            pam_rhost: '203.0.113.7'
+            pam_kv: 'logname= uid=0 euid=0 tty= ruser=a b rhost=203.0.113.7'
         # session lines
         - string: 'pam_unix(su:session): session opened for user root(uid=0) by neti(uid=1000)'
           numeric:

@@ -12,11 +12,22 @@
 includes:
 - base
 vars:
-  # The contents of a double-quoted field, with no embedded quotes.
-  HTTPD_QS: '[^"]*'
+  # The contents of a double-quoted field. Apache writes a quote inside one as
+  # \" and a backslash as \\, so an escaped pair is taken whole; nginx writes
+  # \x22 instead, which needs nothing. The referrer and user agent are the
+  # client's to write, and a bare [^"]* let any client break the line, and so
+  # skip enrichment, with a single quote in its agent.
+  HTTPD_QS: '(?:[^"\\]|\\.)*'
+  # The request method. A word, but one that may carry a hyphen, as M-SEARCH
+  # (SSDP) and the WebDAV extensions do.
+  HTTPD_VERB: '[A-Za-z][\w-]*'
 vars_templated:
-  # %l and %u are usually "-", which USERNAME already covers.
-  HTTPD_USER: '[% EMAILADDRESS %]|[% USERNAME %]'
+  # %l and %u are usually "-". %u is whatever the client sent for basic auth,
+  # so on a failed login it may be anything... jdoe+x, DOMAIN\\jdoe,
+  # percent-encoded, or holding spaces. Runs of non-space are taken, joined by
+  # single spaces, lazily, so the timestamp that follows ends it. The client
+  # address comes first on the line, so nothing written here can move it.
+  HTTPD_USER: '\S+(?: \S+)*?'
   # base INT has no sign, so the "-0700"/"+0000" zone is spelled out here.
   #
   # Two spellings are accepted. Apache and nginx write the CLF form,
@@ -27,8 +38,22 @@ vars_templated:
   # second pattern. Which form matched is recoverable from http_timestamp
   # itself, so no flag is needed.
   HTTPD_TIMESTAMP: '[% MONTHDAY %]/[% MONTH %]/[% YEAR %][: ][% TIME %](?: [+-][0-9]{4})?'
-  HTTPD_COMMONLOG: '(?<http_clientip>[% HOSTNAMEorIP %]) (?<http_ident>[% HTTPD_USER %]) (?<http_auth>[% HTTPD_USER %]) \[(?<http_timestamp>[% HTTPD_TIMESTAMP %])\] "(?:(?<http_verb>[% WORD %]) (?<http_request>[% NOTSPACE %])(?: HTTP/(?<http_httpversion>[% NUMBER %]))?|(?<http_rawrequest>[% HTTPD_QS %]))" (?:(?<http_response>[% NUMBER %])|-) (?:(?<http_bytes>[% NUMBER %])|-)'
-  HTTPD_COMBINEDLOG: '[% HTTPD_COMMONLOG %] "(?<http_referrer>[% HTTPD_QS %])" "(?<http_agent>[% HTTPD_QS %])"'
+  # The request line, "GET /index.html HTTP/1.1". A path holding spaces still
+  # parses when the line ends in a version, since " HTTP/x" closes it. Without
+  # a version the path is one run of non-space, "GET /" or "CONNECT host:443".
+  # Anything else -- a TLS handshake sent to a plain port, an empty "", a lone
+  # "HELP" -- is kept whole as http_rawrequest.
+  HTTPD_REQUEST_LINE: '(?:(?<http_verb>[% HTTPD_VERB %]) (?:(?<http_request>(?:[^"\\]|\\.)*?) HTTP/(?<http_httpversion>[% NUMBER %])|(?<http_request>(?:[^\s"\\]|\\.)+))|(?<http_rawrequest>[% HTTPD_QS %]))'
+  HTTPD_COMMONLOG: '(?<http_clientip>[% HOSTNAMEorIP %]) (?<http_ident>[% HTTPD_USER %]) (?<http_auth>[% HTTPD_USER %]) \[(?<http_timestamp>[% HTTPD_TIMESTAMP %])\] "[% HTTPD_REQUEST_LINE %]" (?:(?<http_response>[% NUMBER %])|-) (?:(?<http_bytes>[% NUMBER %])|-)'
+  # What servers append after the user agent.
+  #
+  #   nginx's stock "main" format: "$http_x_forwarded_for"
+  #   Traefik's CLF: <request count> "<router>" "<backend url>" <duration>ms
+  #
+  # Anything else after the agent -- %D, $request_time, a custom field -- is
+  # kept whole as http_extra rather than costing the line its match.
+  HTTPD_COMBINED_TAIL: '(?: "(?<http_x_forwarded_for>[% HTTPD_QS %])")?(?: (?<http_request_count>[% INT %]) "(?<http_router>[% HTTPD_QS %])" "(?<http_backend_url>[% HTTPD_QS %])" (?<http_duration_ms>[% INT %])ms)?(?: (?<http_extra>.*?))?'
+  HTTPD_COMBINEDLOG: '[% HTTPD_COMMONLOG %] "(?<http_referrer>[% HTTPD_QS %])" "(?<http_agent>[% HTTPD_QS %])"[% HTTPD_COMBINED_TAIL %]'
   # The same two formats with apache's "%v:%p" (vhost_combined) or "%v"
   # (vhost_common) prefix on the front.
   #
@@ -53,19 +78,70 @@ vars_tests:
         result: '-'
       - string: '""'
         result: ''
+      # apache's escaped quote and backslash
+      - string: '"Mozilla \"quoted\" agent \\ x"'
+        result: 'Mozilla \"quoted\" agent \\ x'
     negative:
       - 'no surrounding quotes'
-  HTTPD_USER:
-    test_template: '(?<TEST>[% TEST_VAR %])'
+  HTTPD_VERB:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
-      - string: 'frank'
-        result: 'frank'
-      - string: 'user@example.com'
-        result: 'user@example.com'
-      - string: '-'
-        result: '-'
+      - string: 'GET'
+        result: 'GET'
+      - string: 'M-SEARCH'
+        result: 'M-SEARCH'
     negative:
-      - '!!!'
+      - '\x16\x03\x01'
+  HTTPD_USER:
+    test_template: '^(?<TEST>[% TEST_VAR %]) \['
+    positive:
+      - string: 'frank ['
+        result: 'frank'
+      - string: 'user@example.com ['
+        result: 'user@example.com'
+      - string: '- ['
+        result: '-'
+      # a failed basic-auth login is whatever the client sent
+      - string: 'jdoe+x ['
+        result: 'jdoe+x'
+      - string: 'DOMAIN\\jdoe ['
+        result: 'DOMAIN\\jdoe'
+      - string: 'j%C3%B6 ['
+        result: 'j%C3%B6'
+      - string: 'john doe ['
+        result: 'john doe'
+    negative:
+      - ' ['
+  HTTPD_REQUEST_LINE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'GET /index.html HTTP/1.1'
+        result: 'GET /index.html HTTP/1.1'
+      - string: 'GET /a b c HTTP/1.1'
+        result: 'GET /a b c HTTP/1.1'
+      - string: 'M-SEARCH * HTTP/1.1'
+        result: 'M-SEARCH * HTTP/1.1'
+      - string: 'CONNECT 192.0.2.1:443'
+        result: 'CONNECT 192.0.2.1:443'
+      - string: '\x16\x03\x01\x00\xa5\x01'
+        result: '\x16\x03\x01\x00\xa5\x01'
+      - string: ''
+        result: ''
+    negative:
+      - 'GET /"x HTTP/1.1'
+  HTTPD_COMBINED_TAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: ''
+        result: ''
+      - string: ' "198.51.100.3, 203.0.113.9"'
+        result: ' "198.51.100.3, 203.0.113.9"'
+      - string: ' 72 "Auth for frontend-Host-traefik-0" "/dashboard/" 0ms'
+        result: ' 72 "Auth for frontend-Host-traefik-0" "/dashboard/" 0ms'
+      - string: ' 0.004 0.003 .'
+        result: ' 0.004 0.003 .'
+    negative:
+      - 'no leading space'
   HTTPD_TIMESTAMP:
     test_template: '(?<TEST>[% TEST_VAR %])'
     positive:
@@ -135,6 +211,8 @@ convert:
   http_port: int
   http_response: int
   http_bytes: int
+  http_request_count: int
+  http_duration_ms: int
 rules:
   - name: http_access
     field: MESSAGE
@@ -236,6 +314,84 @@ rules:
             http_request: '/static/js/hexdump.js'
             http_httpversion: '1.1'
             http_response: '200'
+        # nginx's stock "main" format, with $http_x_forwarded_for on the end
+        - string: '192.0.2.20 - - [20/Jan/2015:19:53:28 +0100] "GET //pma/scripts/setup.php HTTP/1.1" 404 47 "-" "Mozilla/5.0" "198.51.100.3, 203.0.113.9"'
+          result:
+            http_clientip: '192.0.2.20'
+            http_ident: '-'
+            http_auth: '-'
+            http_timestamp: '20/Jan/2015:19:53:28 +0100'
+            http_verb: 'GET'
+            http_request: '//pma/scripts/setup.php'
+            http_httpversion: '1.1'
+            http_response: '404'
+            http_bytes: '47'
+            http_referrer: '-'
+            http_agent: 'Mozilla/5.0'
+            http_x_forwarded_for: '198.51.100.3, 203.0.113.9'
+        # Traefik, a failed basic auth
+        - string: '192.0.2.21 - username [18/Nov/2018:21:34:30 +0000] "GET /dashboard/ HTTP/2.0" 401 17 "-" "Mozilla/5.0" 72 "Auth for frontend-Host-traefik-0" "/dashboard/" 0ms'
+          numeric:
+            - http_duration_ms
+            - http_request_count
+          result:
+            http_clientip: '192.0.2.21'
+            http_ident: '-'
+            http_auth: 'username'
+            http_timestamp: '18/Nov/2018:21:34:30 +0000'
+            http_verb: 'GET'
+            http_request: '/dashboard/'
+            http_httpversion: '2.0'
+            http_response: '401'
+            http_bytes: '17'
+            http_referrer: '-'
+            http_agent: 'Mozilla/5.0'
+            http_request_count: '72'
+            http_router: 'Auth for frontend-Host-traefik-0'
+            http_backend_url: '/dashboard/'
+            http_duration_ms: '0'
+        # an escaped quote in the agent, a basic-auth account with a space,
+        # and timing fields after the agent
+        - string: '192.0.2.22 - john doe [07/Nov/2026:12:00:00 +0000] "GET /private/ HTTP/1.1" 401 10 "-" "Mozilla \"quoted\" agent" 0.004 0.003 .'
+          result:
+            http_clientip: '192.0.2.22'
+            http_ident: '-'
+            http_auth: 'john doe'
+            http_timestamp: '07/Nov/2026:12:00:00 +0000'
+            http_verb: 'GET'
+            http_request: '/private/'
+            http_httpversion: '1.1'
+            http_response: '401'
+            http_bytes: '10'
+            http_referrer: '-'
+            http_agent: 'Mozilla \"quoted\" agent'
+            http_extra: '0.004 0.003 .'
+        # a hyphenated method, and a TLS handshake sent to a plain port
+        - string: '192.0.2.23 - - [07/Nov/2026:12:00:01 +0000] "M-SEARCH * HTTP/1.1" 400 0 "-" "-"'
+          result:
+            http_clientip: '192.0.2.23'
+            http_ident: '-'
+            http_auth: '-'
+            http_timestamp: '07/Nov/2026:12:00:01 +0000'
+            http_verb: 'M-SEARCH'
+            http_request: '*'
+            http_httpversion: '1.1'
+            http_response: '400'
+            http_bytes: '0'
+            http_referrer: '-'
+            http_agent: '-'
+        - string: '192.0.2.24 - - [07/Nov/2026:12:00:02 +0000] "\x16\x03\x01\x00\xa5\x01\x00\x00\xa1\x03\x03" 400 157 "-" "-" "-"'
+          result:
+            http_clientip: '192.0.2.24'
+            http_ident: '-'
+            http_auth: '-'
+            http_timestamp: '07/Nov/2026:12:00:02 +0000'
+            http_rawrequest: '\x16\x03\x01\x00\xa5\x01\x00\x00\xa1\x03\x03'
+            http_response: '400'
+            http_bytes: '157'
+            http_referrer: '-'
+            http_agent: '-'
+            http_x_forwarded_for: '-'
       negative:
         - 'this is not an access log line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

@@ -62,6 +62,33 @@ Revision history for Log-Munger
           vsftpd_reason
         - pam: match the pre-0.99 "(pam_unix) " and "pam_unix: " prefixes and
           a bare "authentication failure; logname=..." line
+        - dovecot: login lines take the last rip=/lip= pair, so a pair forged
+          in user=<> no longer sets dovecot_rip
+        - dovecot: passdb account is greedy, so an address planted after a
+          comma in it no longer sets dovecot_rip
+        - dovecot: managesieve "bytes=in/out" session stats
+        - vsftpd: FAIL LOGIN takes the last Client marker, so one forged in
+          the typed account no longer sets vsftpd_client_ip
+        - pam: ruser/rhost/user read as fail2ban reads them (789571aa), so a
+          rhost= forged in ruser no longer sets pam_rhost and a ruser with a
+          space no longer drops the bare form
+        - sendmail: relay= captured by the patterns, so one forged in an
+          address or in user= no longer sets sendmail_relay_ip; a ruleset line
+          whose arg1 holds a space or comma yields no relay at all
+        - sendmail: ruleset lines split by key, reject= kept whole
+        - sendmail: AUTH failure takes a queue id, captured user as
+          sendmail_user
+        - sendmail: [IPv6:addr] relays, host before "did not issue"
+        - sendmail: add possible SMTP attack, pre-greeting traffic, EXPN/VRFY
+          rejected, lost input channel and "<rcpt>... status" lines
+        - http_access_logs: quoted fields take apache's \" escapes, so a quote
+          in the user agent no longer fails the line
+        - http_access_logs: nginx main's x-forwarded-for, Traefik's request
+          count/router/backend/duration, and anything else after the agent
+          (http_extra) are taken instead of failing the line
+        - http_access_logs: %u takes any account basic auth sent, spaces
+          included; methods may hold a hyphen; a request path with spaces
+          keeps its verb/path/version when the line ends in HTTP/x
 
 0.0.1   2026-08-23/17:00
         - init

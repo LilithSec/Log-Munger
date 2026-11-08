@@ -42,11 +42,22 @@ vars_templated:
   #
   # The last is userlist_enable turning an account away before a password is
   # asked for; the reason is kept as vsftpd_reason.
-  VSFTPD_LOGIN: '[% VSFTPD_HEAD %](?<vsftpd_action>LOGIN): [% VSFTPD_CLIENT %](?:, anon password "(?<vsftpd_anon_password>[^"]*)"|, "(?<vsftpd_reason>[^"]*)")?'
+  #
+  # The two verdicts take their own halves because a client writes on opposite
+  # sides of the address in each. On a FAIL the bracketed account is whatever
+  # was typed, so it may carry a whole forged "] FAIL LOGIN: Client "<addr>"";
+  # that half is greedy and ends on vsftpd's own reason, so the last marker is
+  # taken. On an OK the account is a real one with no "]" in it, but the anon
+  # password after the address is the client's, so that half keeps the first
+  # marker instead.
+  VSFTPD_LOGIN: '(?:[% VSFTPD_DATE %] )?(?:\[pid (?<vsftpd_pid>[% INT %])\] )?\[(?:(?<vsftpd_user>[^\]]*)\] (?<vsftpd_result>OK) (?<vsftpd_action>LOGIN): [% VSFTPD_CLIENT %](?:, anon password "(?<vsftpd_anon_password>[^"]*)")?|(?<vsftpd_user>.*)\] (?<vsftpd_result>FAIL) (?<vsftpd_action>LOGIN): [% VSFTPD_CLIENT %](?:, "(?<vsftpd_reason>[^"]*)")?)'
   # Everything else vsftpd reports per-account: MKDIR, RMDIR, DELETE, RENAME,
   # CHMOD and friends. Same head, same "Client" clause, an action this file
-  # does not need to know the name of in advance.
-  VSFTPD_ACTION: '[% VSFTPD_HEAD %](?<vsftpd_action>[A-Z]+): [% VSFTPD_CLIENT %](?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
+  # does not need to know the name of in advance. Only a logged-in account
+  # reaches these, so the first marker is vsftpd's. A FAIL LOGIN is refused
+  # here, so one VSFTPD_LOGIN could not place does not land with a forged
+  # address taken from the typed account.
+  VSFTPD_ACTION: '[% VSFTPD_HEAD %](?<vsftpd_action>(?!(?<=FAIL )LOGIN:)[A-Z]+): [% VSFTPD_CLIENT %](?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
   # "[pid 1234] CONNECT: Client "192.0.2.5""
   # No account yet, so no bracketed user and no OK/FAIL.
   VSFTPD_CONNECT: '(?:[% VSFTPD_DATE %] )?(?:\[pid (?<vsftpd_pid>[% INT %])\] )?(?<vsftpd_action>CONNECT): [% VSFTPD_CLIENT %](?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
@@ -91,8 +102,13 @@ vars_tests:
         result: '[neti] FAIL LOGIN: Client "192.0.2.5"'
       - string: '[pid 15019] [guest] FAIL LOGIN: Client "::ffff:192.0.2.5", "User is not in the allow user list."'
         result: '[pid 15019] [guest] FAIL LOGIN: Client "::ffff:192.0.2.5", "User is not in the allow user list."'
+      # a typed account carrying a forged marker of its own
+      - string: '[pid 124] [x] FAIL LOGIN: Client "8.8.8.8", y] FAIL LOGIN: Client "192.0.2.9"'
+        result: '[pid 124] [x] FAIL LOGIN: Client "8.8.8.8", y] FAIL LOGIN: Client "192.0.2.9"'
     negative:
       - '[pid 1234] CONNECT: Client "192.0.2.5"'
+      # a reason vsftpd never writes after a FAIL
+      - '[pid 124] [x] FAIL LOGIN: Client "192.0.2.9", anon password "?"'
   VSFTPD_ACTION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -102,6 +118,8 @@ vars_tests:
         result: '[pid 1234] [neti] FAIL DELETE: Client "192.0.2.5", "/etc/shadow"'
     negative:
       - '[pid 1234] CONNECT: Client "192.0.2.5"'
+      # VSFTPD_LOGIN's to place, never this one's
+      - '[pid 124] [x] FAIL LOGIN: Client "8.8.8.8", y] FAIL LOGIN: Client "192.0.2.9"'
   VSFTPD_CLIENT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -206,6 +224,24 @@ rules:
             vsftpd_pid: '1234'
             vsftpd_action: 'CONNECT'
             vsftpd_client_ip: '192.0.2.5'
+        # the typed account forging a marker... the last one is vsftpd's
+        - string: '[pid 124] [x] FAIL LOGIN: Client "8.8.8.8", y] FAIL LOGIN: Client "192.0.2.9"'
+          result:
+            vsftpd_pid: '124'
+            vsftpd_user: 'x] FAIL LOGIN: Client "8.8.8.8", y'
+            vsftpd_result: 'FAIL'
+            vsftpd_action: 'LOGIN'
+            vsftpd_client_ip: '192.0.2.9'
+        # an anon password forging one after the real address... the account
+        # is a real one, so the first marker is vsftpd's
+        - string: '[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "x] OK LOGIN: Client "8.8.8.8", "z"'
+          result:
+            vsftpd_pid: '1234'
+            vsftpd_user: 'ftp'
+            vsftpd_result: 'OK'
+            vsftpd_action: 'LOGIN'
+            vsftpd_client_ip: '192.0.2.5'
+            vsftpd_detail: 'anon password "x] OK LOGIN: Client "8.8.8.8", "z"'
       negative:
         - 'this is not a vsftpd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

@@ -36,6 +36,14 @@ vars_templated:
   # Writing to its own log_path rather than syslog, dovecot puts "Info: " on
   # login lines too, which is why the login patterns take it as optional.
   DOVECOT_LEVEL: '(?<dovecot_level>Debug|Info|Warning|Error|Fatal|Panic)'
+  # The last rip= on a login line and the lip= after it, captured straight off
+  # the line so the kv decompose (first value wins, and it never overwrites a
+  # capture) can not take a forged pair instead. user=<...> ends at the first
+  # ">", so an account of "a>, rip=8.8.8.8, lip=9.9.9.9" reads as further
+  # fields ahead of dovecot's own. Nothing the client chooses comes after the
+  # real pair, so the greedy lookahead lands on it. Optional, since not every
+  # login line names an address.
+  DOVECOT_KV_ADDRS: '(?:(?=(?:.*, )?rip=(?<dovecot_rip>[% IP %])(?:, lip=(?<dovecot_lip>[% IP %]))?(?:,|$)))?'
   # The ", "-separated key=value tail of a login-process line, for the shapes
   # that can end in a TLS error. Since 2.3 a failed handshake is appended as
   # prose before the session:
@@ -50,14 +58,14 @@ vars_templated:
   # stays in dovecot_kv as before.
   #
   # dovecot_kv is lazy, so this only works at the end of an anchored pattern.
-  DOVECOT_LOGIN_KV: '(?<dovecot_kv>[\w-]+=.*?)(?:, (?<dovecot_tls_state>TLS(?: handshaking)?): (?<dovecot_tls_error>.*?)(?:, session=<(?<dovecot_session>[^>]*)>)?)?'
+  DOVECOT_LOGIN_KV: '[% DOVECOT_KV_ADDRS %](?<dovecot_kv>[\w-]+=.*?)(?:, (?<dovecot_tls_state>TLS(?: handshaking)?): (?<dovecot_tls_error>.*?)(?:, session=<(?<dovecot_session>[^>]*)>)?)?'
   # "imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, ..."
   #
   # The tail has to start with a key=value token. Without that the pattern also
   # swallows "imap-login: Error: Failed to initialize SSL server context: ..."
   # and the reason text on a Disconnected line, and the kv decompose then turns
   # whatever prose it was handed into junk field names.
-  DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]): (?<dovecot_kv>[\w-]+=[% GREEDYDATA %])'
+  DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]): [% DOVECOT_KV_ADDRS %](?<dovecot_kv>[\w-]+=[% GREEDYDATA %])'
   # A pre-auth disconnect that says why, e.g.
   #   imap-login: Disconnected: TLS initialization failed. (auth failed, 2 attempts in 6 secs): user=<x>, method=PLAIN, rip=203.0.113.7, ...
   #   imap-login: Disconnected: Connection closed (no auth attempts in 0 secs): user=<>, rip=203.0.113.7, ...
@@ -89,7 +97,7 @@ vars_templated:
   # service is the bare protocol, the (user)<pid><session> triplet follows, then
   # the event/reason and a SPACE-separated in=/out=/deleted=/expunged= stats blob
   # captured as dovecot_stats (space-split decompose below).
-  DOVECOT_SESSION_STATS: '(?<dovecot_service>[% WORD %])\((?<dovecot_user>[^)]*)\)<(?<dovecot_pid>[% INT %])><(?<dovecot_session>[^>]*)>: (?<dovecot_event>[% WORD %]): (?<dovecot_reason>.*?) (?<dovecot_stats>in=[% INT %] out=[% INT %][% GREEDYDATA %])'
+  DOVECOT_SESSION_STATS: '(?<dovecot_service>[% WORD %])\((?<dovecot_user>[^)]*)\)<(?<dovecot_pid>[% INT %])><(?<dovecot_session>[^>]*)>: (?<dovecot_event>[% WORD %]): (?<dovecot_reason>.*?) (?:(?<dovecot_stats>in=[% INT %] out=[% INT %][% GREEDYDATA %])|bytes=(?<dovecot_in>[% INT %])/(?<dovecot_out>[% INT %]))'
   # Aborted pre-auth login, e.g.
   #   imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, ...
   #   pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1
@@ -101,7 +109,7 @@ vars_templated:
   # Login failure from a login process, e.g.
   #   imap-login: Login failed: Authentication failed: Password mismatch, user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>
   # reason is everything up to the ", user=<" that starts the kv blob.
-  DOVECOT_LOGIN_FAILED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]) failed: (?<dovecot_reason>.*?), (?<dovecot_kv>user=<[% GREEDYDATA %])'
+  DOVECOT_LOGIN_FAILED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]) failed: (?<dovecot_reason>.*?), [% DOVECOT_KV_ADDRS %](?<dovecot_kv>user=<[% GREEDYDATA %])'
   # auth backend (passdb) failure, with the user and remote IP in the backend's
   # parentheses:
   #   auth: passwd-file(neti,203.0.113.7): unknown user
@@ -115,16 +123,19 @@ vars_templated:
   # worker's pid, a level, and the 2.3 worker-connection chain whose
   # auth-worker<N> is the request id. A third item in the parentheses is the
   # session id when it is in <...>, and is otherwise kept as dovecot_auth_mech.
+  # The account is greedy: it may hold a comma, so "x,8.8.8.8" would otherwise
+  # plant an address ahead of the real one, and the last address is the
+  # one dovecot wrote.
   # The 1.x auth instance name, as in "auth-worker(default):", is accepted and
   # dropped.
-  DOVECOT_AUTH_FAIL: '(?<dovecot_service>auth(?:-worker)?)(?:\((?:(?<dovecot_pid>[% INT %])|[^)]*)\))?: (?:[% DOVECOT_LEVEL %]: )?(?:conn (?<dovecot_auth_conn>\S+) \([^)]*\): auth-worker<(?<dovecot_auth_request>[% INT %])>: )?(?<dovecot_auth_db>[\w-]+)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])(?:,(?:<(?<dovecot_session>[^>]*)>|(?<dovecot_auth_mech>[^)]+))?)?\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
+  DOVECOT_AUTH_FAIL: '(?<dovecot_service>auth(?:-worker)?)(?:\((?:(?<dovecot_pid>[% INT %])|[^)]*)\))?: (?:[% DOVECOT_LEVEL %]: )?(?:conn (?<dovecot_auth_conn>\S+) \([^)]*\): auth-worker<(?<dovecot_auth_request>[% INT %])>: )?(?<dovecot_auth_db>[\w-]+)\((?<dovecot_user>[^)]*),(?<dovecot_rip>[% IP %])(?:,(?:<(?<dovecot_session>[^>]*)>|(?<dovecot_auth_mech>[^)]+))?)?\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
   # The newer auth-process prefix, with the user and remote IP on the process
   # rather than on the backend:
   #   auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)
   #   auth(neti@example.com,203.0.113.7,sasl:login)<a1b2c3>: Info: sql: Password mismatch
   #
   # A numeric first <...> is the process id and anything else is the session.
-  DOVECOT_AUTH_REQUEST: '(?<dovecot_service>auth(?:-worker)?)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])(?:,(?<dovecot_auth_mech>[^)]+))?\)(?:<(?<dovecot_pid>[% INT %])>)?(?:<(?<dovecot_session>[^>]*)>)?: (?:[% DOVECOT_LEVEL %]: )?(?:request \[(?<dovecot_auth_request>[% INT %])\]: )?(?<dovecot_auth_db>[\w-]+): (?<dovecot_auth_reason>[% GREEDYDATA %])'
+  DOVECOT_AUTH_REQUEST: '(?<dovecot_service>auth(?:-worker)?)\((?<dovecot_user>[^)]*),(?<dovecot_rip>[% IP %])(?:,(?<dovecot_auth_mech>[^)]+))?\)(?:<(?<dovecot_pid>[% INT %])>)?(?:<(?<dovecot_session>[^>]*)>)?: (?:[% DOVECOT_LEVEL %]: )?(?:request \[(?<dovecot_auth_request>[% INT %])\]: )?(?<dovecot_auth_db>[\w-]+): (?<dovecot_auth_reason>[% GREEDYDATA %])'
   # A generic informational auth line, e.g.
   #   auth: Info: passwd(neti): unknown user
   DOVECOT_AUTH_INFO: 'auth: Info: (?<dovecot_auth_info>[% GREEDYDATA %])'
@@ -170,6 +181,19 @@ vars_tests:
         result: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
     negative:
       - 'this is not a dovecot login line at all'
+  # TEST is the address the lookahead captured, found again on the line, so a
+  # forged rip= taken in place of the real one shows up as the wrong result
+  DOVECOT_KV_ADDRS:
+    test_template: '^[% TEST_VAR %].*\brip=(?<TEST>\k<dovecot_rip>)(?:,|$)'
+    positive:
+      - string: 'user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS'
+        result: '203.0.113.7'
+      - string: 'rip=203.0.113.7, lip=192.0.2.1'
+        result: '203.0.113.7'
+      - string: 'user=<a>, rip=8.8.8.8, lip=9.9.9.9>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS'
+        result: '203.0.113.7'
+    negative:
+      - 'user=<neti>, method=PLAIN, TLS'
   DOVECOT_SESSION_STATS:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -177,6 +201,9 @@ vars_tests:
         result: 'imap(neti)<1234><AbC>: Disconnected: Logged out in=100 out=200 deleted=0 expunged=0 trashed=0 hdr_count=1 hdr_bytes=50 body_count=2 body_bytes=300'
       - string: 'pop3(alice)<55><s1>: Disconnected: Logged out top=0/0, retr=1/2345, del=0/1, size=2345 in=100 out=200'
         result: 'pop3(alice)<55><s1>: Disconnected: Logged out top=0/0, retr=1/2345, del=0/1, size=2345 in=100 out=200'
+      # managesieve totals its session as bytes=in/out
+      - string: 'managesieve(neti)<123><AbC>: Disconnected: Logged out bytes=1/2'
+        result: 'managesieve(neti)<123><AbC>: Disconnected: Logged out bytes=1/2'
     negative:
       - 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
   DOVECOT_ABORTED_LOGIN:
@@ -216,6 +243,9 @@ vars_tests:
         result: 'auth-worker(304): pam(neti,203.0.113.7): pam_authenticate() failed: Authentication failure (password mismatch?)'
       - string: 'auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): unknown user'
         result: 'auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): unknown user'
+      # an account holding a comma plants an address ahead of the real one
+      - string: 'auth-worker(304): pam(x,8.8.8.8,203.0.113.7): pam_authenticate() failed'
+        result: 'auth-worker(304): pam(x,8.8.8.8,203.0.113.7): pam_authenticate() failed'
     negative:
       - 'auth: Info: passwd(neti): unknown user'
       - 'auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed'
@@ -465,16 +495,22 @@ rules:
             - dovecot_mpid
           program: 'dovecot'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_event: 'Login'
             dovecot_kv: 'user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
         - string: 'pop3-login: Disconnected: user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
           result:
+            dovecot_rip: '198.51.100.9'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'pop3'
             dovecot_event: 'Disconnected'
             dovecot_kv: 'user=<>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, TLS, session=<XyZ>'
         - string: 'imap-login: Login: user=<alice@example.com>, method=PLAIN, rip=192.0.2.9, lip=192.0.2.1, mpid=99, secured, session=<q>'
           result:
+            dovecot_rip: '192.0.2.9'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_event: 'Login'
             dovecot_kv: 'user=<alice@example.com>, method=PLAIN, rip=192.0.2.9, lip=192.0.2.1, mpid=99, secured, session=<q>'
@@ -526,11 +562,15 @@ rules:
         # user=<..>,... blob in dovecot_kv (kv decompose tested separately).
         - string: 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_abort_reason: 'auth failed, 1 attempts in 2 secs'
             dovecot_kv: 'user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
         - string: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
           result:
+            dovecot_rip: '198.51.100.9'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'pop3'
             dovecot_abort_reason: 'no auth attempts in 0 secs'
             dovecot_kv: 'user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
@@ -538,12 +578,16 @@ rules:
         # user=<..>,... blob in dovecot_kv.
         - string: 'imap-login: Login failed: Authentication failed: Password mismatch, user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_event: 'Login'
             dovecot_reason: 'Authentication failed: Password mismatch'
             dovecot_kv: 'user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>'
         - string: 'pop3-login: Login failed: unknown user, user=<bob>, method=PLAIN, rip=198.51.100.9, lip=192.0.2.1, session=<q>'
           result:
+            dovecot_rip: '198.51.100.9'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'pop3'
             dovecot_event: 'Login'
             dovecot_reason: 'unknown user'
@@ -609,6 +653,8 @@ rules:
         # DOVECOT_LOGIN_DISCONNECTED: pre-auth disconnect that says why
         - string: 'imap-login: Disconnected: TLS initialization failed. (auth failed, 2 attempts in 6 secs): user=<neti@example.net>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, session=<AbC>'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_event: 'Disconnected'
             dovecot_reason: 'TLS initialization failed.'
@@ -644,6 +690,8 @@ rules:
         # blob starts at rip=
         - string: 'pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'pop3'
             dovecot_abort_reason: 'tried to use disabled plaintext auth'
             dovecot_kv: 'rip=203.0.113.7, lip=192.0.2.1'
@@ -663,6 +711,8 @@ rules:
             dovecot_tls_state: 'TLS'
             dovecot_user: ''
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'imap'
             dovecot_event: 'Login aborted'
             dovecot_reason: 'Connection closed: read(size=653) failed: Connection reset by peer'
@@ -674,6 +724,8 @@ rules:
             dovecot_session: 'AbC'
         - string: 'managesieve-login: Login aborted: Logged out (auth failed, 1 attempts in 10 secs) (auth_failed): user=<neti@example.com>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'managesieve'
             dovecot_event: 'Login aborted'
             dovecot_reason: 'Logged out'
@@ -683,6 +735,8 @@ rules:
         # DOVECOT_LOGIN_CLOSED
         - string: 'submission-login: Client has quit the connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=LOGIN, rip=203.0.113.7, lip=192.0.2.1'
           result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
             dovecot_service: 'submission'
             dovecot_reason: 'Client has quit the connection'
             dovecot_abort_reason: 'auth failed, 1 attempts in 2 secs'
@@ -690,6 +744,7 @@ rules:
         # DOVECOT_LOGIN_DISCONNECTED with the level dovecot's own log file adds
         - string: 'pop3-login: Info: Disconnected: Inactivity (auth failed, 1 attempts in 178 secs): user=<neti>, method=PLAIN, rip=203.0.113.7'
           result:
+            dovecot_rip: '203.0.113.7'
             dovecot_service: 'pop3'
             dovecot_level: 'Info'
             dovecot_event: 'Disconnected'
@@ -740,6 +795,52 @@ rules:
             dovecot_level: 'Info'
             dovecot_auth_db: 'sql'
             dovecot_auth_reason: 'Password mismatch'
+        # a forged rip/lip pair in the account name... the last pair is dovecot's
+        - string: 'imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, lip=9.9.9.9>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS'
+          program: 'dovecot'
+          result:
+            dovecot_rip: '203.0.113.7'
+            dovecot_lip: '192.0.2.1'
+            dovecot_service: 'imap'
+            dovecot_event: 'Disconnected'
+            dovecot_abort_reason: 'auth failed, 2 attempts'
+            dovecot_kv: 'user=<a>, rip=8.8.8.8, lip=9.9.9.9>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS'
+        # a comma planted in the passdb account
+        - string: 'auth-worker(304): pam(x,8.8.8.8,203.0.113.7): pam_authenticate() failed: Authentication failure (Password mismatch?)'
+          program: 'dovecot'
+          result:
+            dovecot_service: 'auth-worker'
+            dovecot_pid: '304'
+            dovecot_auth_db: 'pam'
+            dovecot_user: 'x,8.8.8.8'
+            dovecot_rip: '203.0.113.7'
+            dovecot_auth_reason: 'pam_authenticate() failed: Authentication failure (Password mismatch?)'
+        - string: 'auth-worker(x,8.8.8.8,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)'
+          program: 'dovecot'
+          result:
+            dovecot_service: 'auth-worker'
+            dovecot_user: 'x,8.8.8.8'
+            dovecot_rip: '203.0.113.7'
+            dovecot_pid: '566595'
+            dovecot_session: 'a1b2c3'
+            dovecot_auth_request: '3'
+            dovecot_auth_db: 'pam'
+            dovecot_auth_reason: 'pam_authenticate() failed: Authentication failure (Password mismatch?)'
+        # managesieve session totals
+        - string: 'managesieve(neti)<123><AbC>: Disconnected: Logged out bytes=1/2'
+          program: 'dovecot'
+          numeric:
+            - dovecot_in
+            - dovecot_out
+          result:
+            dovecot_service: 'managesieve'
+            dovecot_user: 'neti'
+            dovecot_pid: '123'
+            dovecot_session: 'AbC'
+            dovecot_event: 'Disconnected'
+            dovecot_reason: 'Logged out'
+            dovecot_in: '1'
+            dovecot_out: '2'
       negative:
         - 'this is not a dovecot login line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

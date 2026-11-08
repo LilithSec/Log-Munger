@@ -19,6 +19,12 @@
 # A second decompose then splits the relay clause, since "host [address]" is
 # one value to the kv splitter but two things to anyone reading it.
 #
+# The kv split keeps the first value of a repeated key, and addresses are the
+# client's to write, so a from=<x, relay=[192.0.2.99], y@b> would hand it a
+# forged relay. Wherever a line can carry one, the patterns capture relay=
+# themselves first, and a capture is never overwritten by a decompose. See
+# SENDMAIL_TRANSACTION and SENDMAIL_REJECT for how each picks the real one.
+#
 # Note that a delivery takes at least two lines -- one from=, one to= per
 # recipient -- joined only by the queue id, which is why sendmail_qid is
 # captured on every pattern here.
@@ -27,32 +33,83 @@ includes:
 vars_templated:
   # The queue id every per-message line opens with.
   SENDMAIL_QID: '(?<sendmail_qid>[A-Za-z0-9]+): '
+  # A relay= value as one string, "host.example.com [192.0.2.5]" with an
+  # optional "(may be forged)", for the relay decompose to split. The host is a
+  # DNS name, so it holds no space, comma or "[", and nothing a client writes
+  # can pass for one.
+  SENDMAIL_RELAY_VALUE: '(?:[^\[\s,]+ )?\[[^\]\s]+\](?: \(may be forged\))?'
   # A message transaction: the kv blob, whatever is in it.
   #
   # Anchored on the leading key rather than on the shape of the whole blob,
-  # since the shape is exactly what varies. from=, to= and ruleset= are the
-  # three that open a transaction line.
-  SENDMAIL_TRANSACTION: '[% SENDMAIL_QID %](?<sendmail_kv>(?:from|to|ruleset|ctladdr)=[% GREEDYDATA %])'
+  # since the shape is exactly what varies. from=, to= and ctladdr= open a
+  # transaction line; ruleset= lines are SENDMAIL_REJECT's.
+  #
+  # On a from= line the relay is captured straight off the line, so the kv
+  # decompose (first value wins, and it never overwrites a capture) can not
+  # take a forged one instead. from= and msgid= are the client's to write and
+  # either may carry ", relay=[<addr>]", but both come before relay=, and
+  # relay= ends the line, so the last one is sendmail's.
+  SENDMAIL_TRANSACTION: '[% SENDMAIL_QID %](?:(?=from=.*, relay=(?<sendmail_relay>[% SENDMAIL_RELAY_VALUE %])$))?(?<sendmail_kv>(?:from|to|ctladdr)=[% GREEDYDATA %])'
   # "host.example.com [192.0.2.5]" as the relay= value. Fed to the second
   # decompose so the address can be looked up.
   #
   # The host is often "[192.0.2.5]" on its own when there is no reverse DNS,
-  # which is why it is optional.
-  SENDMAIL_RELAY_INFO: '(?:(?<sendmail_relay_host>[^\[\s]+) )?\[(?<sendmail_relay_ip>[% IP %])\](?: \(may be forged\))?'
-  # "AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not
-  #  found, relay=scanner [203.0.113.7]"
+  # which is why it is optional. An IPv6 peer is written "[IPv6:2001:db8::1]",
+  # and the "IPv6:" is dropped so sendmail_relay_ip holds the plain address.
+  SENDMAIL_RELAY_INFO: '(?:(?<sendmail_relay_host>[^\[\s]+) )?\[(?:IPv6:)?(?<sendmail_relay_ip>[% IP %])\](?: \(may be forged\))?'
+  # "06I02CNi016764: AUTH failure (LOGIN): authentication failure (-13)
+  #  SASL(-13): authentication failure: checkpass failed, user=neti,
+  #  relay=example.com [192.0.2.3] (may be forged)"
   #
-  # The SMTP AUTH brute force. No queue id, because nothing was accepted.
-  SENDMAIL_AUTH_FAILURE: 'AUTH failure \((?<sendmail_auth_mech>[^)]*)\): (?<sendmail_auth_error>.*), relay=(?<sendmail_relay>[% GREEDYDATA %])'
+  # The SMTP AUTH brute force. user= is the client's to write and may carry a
+  # ", relay=[<addr>]" of its own, so it is greedy and the relay= that ends the
+  # line is sendmail's.
+  SENDMAIL_AUTH_FAILURE: '(?:[% SENDMAIL_QID %])?AUTH failure \((?<sendmail_auth_mech>[^)]*)\): (?<sendmail_auth_error>.*?)(?:, user=(?<sendmail_user>.*))?, relay=(?<sendmail_relay>[% SENDMAIL_RELAY_VALUE %])'
   # "ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner
   #  [203.0.113.7], reject=550 5.7.1 Access denied"
+  # "s1P819mk027713: ruleset=check_rcpt, arg1=<a@example.com>,
+  #  relay=[192.0.2.5], reject=550 5.7.1 <a@example.com>... Relaying denied"
   #
-  # A connection refused before a queue id existed.
-  SENDMAIL_REJECT: '(?<sendmail_kv>ruleset=[% GREEDYDATA %])'
-  # "did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA"
+  # A connection or recipient refused by a ruleset. The client writes on both
+  # sides of the relay here... arg1 ahead of it, and the reject text after it
+  # echoes arg1... so neither the first nor the last relay= can be trusted.
+  # The keys are read in sendmail's own order instead, with arg1 and arg2
+  # holding no space or comma, which leaves no room for a forged ", relay=" to
+  # fit ahead of the real one. reject= is taken whole, commas and all.
+  SENDMAIL_REJECT: '(?:[% SENDMAIL_QID %])?ruleset=(?<sendmail_ruleset>\w+), arg1=(?<sendmail_arg1>[^\s,]*)(?:, arg2=(?<sendmail_arg2>[^\s,]*))?, relay=(?<sendmail_relay>[% SENDMAIL_RELAY_VALUE %]), reject=(?<sendmail_reject>.*)'
+  # Any other ruleset= line... an arg1 holding a space or comma, or an action
+  # other than reject=. It can not be told apart from a forgery, so sendmail_relay
+  # is captured empty, which keeps the kv decompose from filling it with a
+  # relay= that may be the client's. The rest of the blob is still split.
+  SENDMAIL_REJECT_UNTRUSTED: '(?:[% SENDMAIL_QID %])?(?<sendmail_relay>)(?<sendmail_kv>ruleset=[% GREEDYDATA %])'
+  # "06QDQnNf050437: example.com [192.0.2.3] did not issue
+  #  MAIL/EXPN/VRFY/ETRN during connection to MTA"
   #
   # A connection that opened and did nothing, which in bulk is a port scan.
-  SENDMAIL_NO_COMMAND: '(?:[% SENDMAIL_QID %])?did not issue (?<sendmail_expected_commands>[% NOTSPACE %]) during connection to (?<sendmail_daemon>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  SENDMAIL_NO_COMMAND: '(?:[% SENDMAIL_QID %])?(?:[% SENDMAIL_RELAY_INFO %] )?did not issue (?<sendmail_expected_commands>[% NOTSPACE %]) during connection to (?<sendmail_daemon>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
+  # "s1GNXHYB005133: [190.5.230.178]: possible SMTP attack: command=AUTH, count=5"
+  #
+  # sendmail's own count of a command repeated past its limit, AUTH being the
+  # brute force.
+  SENDMAIL_SMTP_ATTACK: '(?:[% SENDMAIL_QID %])?[% SENDMAIL_RELAY_INFO %]: possible SMTP attack: command=(?<sendmail_command>[^,]+), count=(?<sendmail_count>[% INT %])'
+  # "s1R9r60D044307: rejecting commands from  [209.15.212.253] due to
+  #  pre-greeting traffic after 0 seconds"
+  #
+  # A client talking before the greeting, which spamware does. With no
+  # reverse DNS the host is empty and leaves two spaces.
+  SENDMAIL_PREGREETING: '(?:[% SENDMAIL_QID %])?rejecting commands from  ?[% SENDMAIL_RELAY_INFO %] due to pre-greeting traffic after (?<sendmail_pregreet_secs>[% INT %]) seconds'
+  # "s1MD2hsd004030: rrcs.example.net [192.0.2.24]: VRFY root [rejected]"
+  #
+  # Account enumeration refused. Either case, as the client sent it.
+  SENDMAIL_EXPN_VRFY: '(?:[% SENDMAIL_QID %])?[% SENDMAIL_RELAY_INFO %]: (?<sendmail_command>(?i:EXPN|VRFY)) (?<sendmail_command_arg>.*) \[rejected\]'
+  # "56VFYCxS024291: lost input channel from mail.example.net [192.0.2.196]
+  #  to MTA-v4 after rcpt"
+  SENDMAIL_LOST_INPUT: '(?:[% SENDMAIL_QID %])?lost input channel from [% SENDMAIL_RELAY_INFO %] to (?<sendmail_daemon>[% NOTSPACE %]) after (?<sendmail_state>[% NOTSPACE %])'
+  # "rA37ZTSC026250: <neti@example.com>... No such user here"
+  #
+  # A recipient refused, with no address on the line... the from= line of the
+  # same queue id carries it.
+  SENDMAIL_RCPT_STATUS: '[% SENDMAIL_QID %]<(?<sendmail_rcpt>[^>]*)>\.\.\. (?<sendmail_rcpt_status>.+)'
   # Anything else logged against a queue id.
   SENDMAIL_QID_MESSAGE: '[% SENDMAIL_QID %](?<sendmail_message>.+)'
   # Lines with no queue id: startup, queue runs, configuration.
@@ -84,13 +141,26 @@ vars_tests:
         result: '[203.0.113.7]'
       - string: 'scanner.example.net [203.0.113.7] (may be forged)'
         result: 'scanner.example.net [203.0.113.7] (may be forged)'
+      - string: 'example.com [IPv6:2001:db8::1]'
+        result: 'example.com [IPv6:2001:db8::1]'
     negative:
       - 'mail.example.com'
+  SENDMAIL_RELAY_VALUE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'mail.example.com [192.0.2.5]'
+        result: 'mail.example.com [192.0.2.5]'
+      - string: '[203.0.113.7] (may be forged)'
+        result: '[203.0.113.7] (may be forged)'
+    negative:
+      - '[192.0.2.99], y@b> [192.0.2.5]'
   SENDMAIL_AUTH_FAILURE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
       - string: 'AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not found, relay=scanner [203.0.113.7]'
         result: 'AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not found, relay=scanner [203.0.113.7]'
+      - string: '06I02CNi016764: AUTH failure (LOGIN): authentication failure (-13) SASL(-13): authentication failure: checkpass failed, user=neti, relay=example.com [192.0.2.3] (may be forged)'
+        result: '06I02CNi016764: AUTH failure (LOGIN): authentication failure (-13) SASL(-13): authentication failure: checkpass failed, user=neti, relay=example.com [192.0.2.3] (may be forged)'
     negative:
       - '1rABCD012345: from=<a@b>, size=1234'
   SENDMAIL_REJECT:
@@ -98,6 +168,17 @@ vars_tests:
     positive:
       - string: 'ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner [203.0.113.7], reject=550 5.7.1 Access denied'
         result: 'ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner [203.0.113.7], reject=550 5.7.1 Access denied'
+      - string: 's1P819mk027713: ruleset=check_rcpt, arg1=<a@example.com>, relay=[192.0.2.5], reject=550 5.7.1 <a@example.com>... Rejected: IP in SpamHaus PBL, see http://example.net'
+        result: 's1P819mk027713: ruleset=check_rcpt, arg1=<a@example.com>, relay=[192.0.2.5], reject=550 5.7.1 <a@example.com>... Rejected: IP in SpamHaus PBL, see http://example.net'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+      # an arg1 holding a forged relay is not one this reads
+      - 's1P819mk027713: ruleset=check_rcpt, arg1=<x, relay=[192.0.2.99], y@b>, relay=[198.51.100.7], reject=550 5.7.1 Relaying denied'
+  SENDMAIL_REJECT_UNTRUSTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 's1P819mk027713: ruleset=check_rcpt, arg1=<x, relay=[192.0.2.99], y@b>, relay=[198.51.100.7], reject=550 5.7.1 Relaying denied'
+        result: 's1P819mk027713: ruleset=check_rcpt, arg1=<x, relay=[192.0.2.99], y@b>, relay=[198.51.100.7], reject=550 5.7.1 Relaying denied'
     negative:
       - '1rABCD012345: from=<a@b>, size=1234'
   SENDMAIL_NO_COMMAND:
@@ -107,6 +188,51 @@ vars_tests:
         result: 'did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA'
       - string: '1rABCD012345: did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA'
         result: '1rABCD012345: did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA'
+      - string: 'v27K4Vj8018624: some-host.example.org [192.0.2.195] (may be forged) did not issue MAIL/EXPN/VRFY/ETRN during connection to MSP-v4'
+        result: 'v27K4Vj8018624: some-host.example.org [192.0.2.195] (may be forged) did not issue MAIL/EXPN/VRFY/ETRN during connection to MSP-v4'
+      - string: '06QDQnNf050438: example.com [IPv6:2001:DB8::1] did not issue MAIL/EXPN/VRFY/ETRN during connection to IPv6'
+        result: '06QDQnNf050438: example.com [IPv6:2001:DB8::1] did not issue MAIL/EXPN/VRFY/ETRN during connection to IPv6'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+  SENDMAIL_SMTP_ATTACK:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 's1GNXHYB005133: [190.5.230.178]: possible SMTP attack: command=AUTH, count=5'
+        result: 's1GNXHYB005133: [190.5.230.178]: possible SMTP attack: command=AUTH, count=5'
+      - string: 's1OHxxSn001499: dsl.example.net [192.0.2.192] (may be forged): possible SMTP attack: command=AUTH, count=6'
+        result: 's1OHxxSn001499: dsl.example.net [192.0.2.192] (may be forged): possible SMTP attack: command=AUTH, count=6'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+  SENDMAIL_PREGREETING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 's1R9r60D044307: rejecting commands from  [209.15.212.253] due to pre-greeting traffic after 0 seconds'
+        result: 's1R9r60D044307: rejecting commands from  [209.15.212.253] due to pre-greeting traffic after 0 seconds'
+      - string: 'u9A0GtpL018001: rejecting commands from example.com [192.0.2.4] due to pre-greeting traffic after 6 seconds'
+        result: 'u9A0GtpL018001: rejecting commands from example.com [192.0.2.4] due to pre-greeting traffic after 6 seconds'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+  SENDMAIL_EXPN_VRFY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 's1NKIkZa093301: [76.72.174.70]: EXPN root [rejected]'
+        result: 's1NKIkZa093301: [76.72.174.70]: EXPN root [rejected]'
+      - string: 's1D0GoSs025815: [217.193.142.180]: vrfy info [rejected]'
+        result: 's1D0GoSs025815: [217.193.142.180]: vrfy info [rejected]'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+  SENDMAIL_LOST_INPUT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '56VFYCxS024291: lost input channel from mail.example.net [192.0.2.196] to MTA-v4 after rcpt'
+        result: '56VFYCxS024291: lost input channel from mail.example.net [192.0.2.196] to MTA-v4 after rcpt'
+    negative:
+      - '1rABCD012345: from=<a@b>, size=1234'
+  SENDMAIL_RCPT_STATUS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'rA37ZTSC026250: <neti@example.com>... No such user here'
+        result: 'rA37ZTSC026250: <neti@example.com>... No such user here'
     negative:
       - '1rABCD012345: from=<a@b>, size=1234'
   SENDMAIL_QID_MESSAGE:
@@ -131,6 +257,8 @@ convert:
   sendmail_size: int
   sendmail_nrcpts: int
   sendmail_pri: int
+  sendmail_count: int
+  sendmail_pregreet_secs: int
 # Split the comma-separated kv blob, then split the relay clause out of what
 # that produced. Order matters: the second entry works on a field the first
 # one created.
@@ -174,8 +302,14 @@ rules:
     patterns:
       - SENDMAIL_TRANSACTION
       - SENDMAIL_REJECT
+      - SENDMAIL_REJECT_UNTRUSTED
       - SENDMAIL_AUTH_FAILURE
       - SENDMAIL_NO_COMMAND
+      - SENDMAIL_SMTP_ATTACK
+      - SENDMAIL_PREGREETING
+      - SENDMAIL_EXPN_VRFY
+      - SENDMAIL_LOST_INPUT
+      - SENDMAIL_RCPT_STATUS
       - SENDMAIL_QID_MESSAGE
       # last: matches anything, which is only safe because the rule is gated
       - SENDMAIL_MESSAGE
@@ -201,6 +335,7 @@ rules:
           program: 'sendmail'
           result:
             sendmail_qid: '1rABCD012345'
+            sendmail_relay: 'mail.example.com [192.0.2.5]'
             sendmail_kv: 'from=<sender@example.com>, size=1234, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=mail.example.com [192.0.2.5]'
         - string: '1rABCD012345: to=<victim@example.org>, delay=00:00:01, mailer=local, pri=31234, dsn=2.0.0, stat=Sent'
           enriched:
@@ -227,7 +362,55 @@ rules:
             sendmail_relay_ip: '203.0.113.7'
             sendmail_ruleset: 'check_relay'
           result:
-            sendmail_kv: 'ruleset=check_relay, arg1=scanner, arg2=203.0.113.7, relay=scanner [203.0.113.7], reject=550 5.7.1 Access denied'
+            sendmail_ruleset: 'check_relay'
+            sendmail_arg1: 'scanner'
+            sendmail_arg2: '203.0.113.7'
+            sendmail_relay: 'scanner [203.0.113.7]'
+            sendmail_reject: '550 5.7.1 Access denied'
+        # reject text keeps its commas
+        - string: 's1N9csSZ016772: ruleset=check_rcpt, arg1=<a@example.com>, relay=[192.0.2.250], reject=550 5.7.1 <a@example.com>... Rejected: IP in Barracuda RBL, see: http://example.net/?ip=192.0.2.250'
+          enriched:
+            sendmail_arg1: '<a@example.com>'
+            sendmail_qid: 's1N9csSZ016772'
+            sendmail_reject: '550 5.7.1 <a@example.com>... Rejected: IP in Barracuda RBL, see: http://example.net/?ip=192.0.2.250'
+            sendmail_relay: '[192.0.2.250]'
+            sendmail_relay_ip: '192.0.2.250'
+            sendmail_ruleset: 'check_rcpt'
+          result:
+            sendmail_qid: 's1N9csSZ016772'
+            sendmail_ruleset: 'check_rcpt'
+            sendmail_arg1: '<a@example.com>'
+            sendmail_relay: '[192.0.2.250]'
+            sendmail_reject: '550 5.7.1 <a@example.com>... Rejected: IP in Barracuda RBL, see: http://example.net/?ip=192.0.2.250'
+        # a forged relay in arg1, which the reject text echoes after the real
+        # one... no relay address is taken from the line at all
+        - string: 's1P819mk027713: ruleset=check_rcpt, arg1=<x, relay=[192.0.2.99], y@b>, relay=[198.51.100.7], reject=550 5.7.1 <x, relay=[192.0.2.99], y@b>... Relaying denied'
+          enriched:
+            sendmail_arg1: '<x'
+            sendmail_qid: 's1P819mk027713'
+            sendmail_reject: '550 5.7.1 <x'
+            sendmail_relay: ''
+            sendmail_ruleset: 'check_rcpt'
+          result:
+            sendmail_qid: 's1P819mk027713'
+            sendmail_relay: ''
+            sendmail_kv: 'ruleset=check_rcpt, arg1=<x, relay=[192.0.2.99], y@b>, relay=[198.51.100.7], reject=550 5.7.1 <x, relay=[192.0.2.99], y@b>... Relaying denied'
+        # a forged relay in from=... relay= ends the line, so the last is sendmail's
+        - string: '1rABCD012346: from=<x, relay=[192.0.2.99], y@b>, size=0, class=0, nrcpts=0, proto=ESMTP, daemon=MTA, relay=[198.51.100.7]'
+          enriched:
+            sendmail_class: '0'
+            sendmail_daemon: 'MTA'
+            sendmail_from: '<x'
+            sendmail_nrcpts: '0'
+            sendmail_proto: 'ESMTP'
+            sendmail_qid: '1rABCD012346'
+            sendmail_relay: '[198.51.100.7]'
+            sendmail_relay_ip: '198.51.100.7'
+            sendmail_size: '0'
+          result:
+            sendmail_qid: '1rABCD012346'
+            sendmail_relay: '[198.51.100.7]'
+            sendmail_kv: 'from=<x, relay=[192.0.2.99], y@b>, size=0, class=0, nrcpts=0, proto=ESMTP, daemon=MTA, relay=[198.51.100.7]'
         - string: 'AUTH failure (LOGIN): authentication failure (-1) SASL(-13): user not found, relay=scanner [203.0.113.7]'
           enriched:
             sendmail_auth_error: 'authentication failure (-1) SASL(-13): user not found'
