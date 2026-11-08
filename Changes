@@ -101,6 +101,12 @@ Revision history for Log-Munger
         - http_error_logs: apache 2.2 [client] takes a port
         - http_error_logs: add lighttpd and suhosin; auth failures name the
           account as http_error_user
+        - named: client lines take BIND's own timestamp, print-category and
+          print-severity prefixes (dns_category, dns_severity) and a
+          "view <name>: " (dns_view)
+        - named: add zone transfer denied, bad zone transfer request (NOTAUTH)
+          and update / update forwarding denied
+        - named: gate accepts named-<variant> (named-pkcs11, named-sdb)
 
 0.0.1   2026-08-23/17:00
         - init

@@ -18,18 +18,37 @@
 includes:
 - base
 vars_templated:
+  # The head every client-scoped line opens with:
+  #   client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): 
+  # and in front of it, all optional: BIND's own timestamp (its file log, or
+  # print-time), the category and severity print-category/print-severity add
+  # ("security: info: ", "update-security: error: "), and after it the view on
+  # a server with more than one ("view internal: "). The address comes first,
+  # so the query name the client sent, which follows, can not move it.
+  NAMED_CLIENT_HEAD: '(?:(?<dns_log_timestamp>[% MONTHDAY %]-[% MONTH %]-[% YEAR %] [% TIME %]) )?(?:(?<dns_category>(?!(?:critical|error|warning|notice|info|debug|dynamic)\b)[\w-]+): )?(?:(?<dns_severity>critical|error|warning|notice|info|debug(?: \d+)?|dynamic): )?client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: (?:view (?<dns_view>[^:\s]+): )?'
   # A single BIND9 query-log line. Tolerates the optional "@0x..." client
   # address token and the optional trailing "(server_ip)".
-  NAMED_QUERY: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: query: (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]) (?<dns_flags>[% NOTSPACE %])(?: \((?<dns_server_ip>[% IP %])\))?'
+  NAMED_QUERY: '[% NAMED_CLIENT_HEAD %]query: (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]) (?<dns_flags>[% NOTSPACE %])(?: \((?<dns_server_ip>[% IP %])\))?'
   # Query denied by an ACL, e.g.:
   #   client @0x7f 203.0.113.7#40000 (example.com): query (cache) 'example.com/A/IN' denied
   # The "@0x..." token and "(cache)"/"(recursion)" qualifier are optional, as is
   # the "(view)" between the client address and the colon.
-  NAMED_QUERY_DENIED: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: query(?: \((?<dns_query_source>[% WORD %])\))? ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'' denied(?: [% GREEDYDATA %])?'
+  NAMED_QUERY_DENIED: '[% NAMED_CLIENT_HEAD %]query(?: \((?<dns_query_source>[% WORD %])\))? ''(?<dns_query_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_type>[% WORD %])/(?<dns_query_class>[% WORD %])'' denied(?: [% GREEDYDATA %])?'
+  # Zone transfer refused by allow-transfer, e.g.:
+  #   client 192.0.2.9#56275 (example.com): zone transfer 'example.com/AXFR/IN' denied
+  NAMED_XFR_DENIED: '[% NAMED_CLIENT_HEAD %]zone transfer ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_xfr_type>[% WORD %])/(?<dns_query_class>[% WORD %])'' denied(?: [% GREEDYDATA %])?'
+  # A transfer asked of a server that is not authoritative for the zone, e.g.:
+  #   client 192.0.2.9#42592 (example.com): bad zone transfer request: 'example.com/IN': non-authoritative zone (NOTAUTH)
+  NAMED_XFR_BAD: '[% NAMED_CLIENT_HEAD %]bad zone transfer request: ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_error>[% GREEDYDATA %])'
+  # A dynamic update refused by allow-update, or one a secondary would not
+  # forward, e.g.:
+  #   client 192.0.2.9#5300 (example.com): update 'example.com/IN' denied
+  #   client 192.0.2.9#5300 (example.com): update forwarding 'example.com/IN' denied
+  NAMED_UPDATE_DENIED: '[% NAMED_CLIENT_HEAD %]update(?<dns_update_forwarding> forwarding)? ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'' denied(?: [% GREEDYDATA %])?'
   # Zone transfer start, e.g.:
   #   client 192.0.2.9#5300 (example.com): transfer of 'example.com/IN': AXFR started
   #   client 192.0.2.9#5300 (example.com): transfer of 'example.com/IN': AXFR-style IXFR ended
-  NAMED_XFR_CLIENT: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: transfer of ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_xfr_type>(?:AXFR-style IXFR|AXFR|IXFR)) (?<dns_xfr_state>started|ended|deferred)(?: [% GREEDYDATA %])?'
+  NAMED_XFR_CLIENT: '[% NAMED_CLIENT_HEAD %]transfer of ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_xfr_type>(?:AXFR-style IXFR|AXFR|IXFR)) (?<dns_xfr_state>started|ended|deferred)(?: [% GREEDYDATA %])?'
   # Outbound/failed zone transfer from a master, e.g.:
   #   transfer of 'example.com/IN' from 192.0.2.2#53: failed while receiving responses: ...
   NAMED_XFR_FROM: 'transfer of ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'' from (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %]): (?<dns_xfr_result>[% GREEDYDATA %])'
@@ -93,10 +112,10 @@ vars_templated:
   # Response-rate-limiting (RRL) action, e.g.:
   #   client 203.0.113.7#40000 (example.com): rate limit slip response to 203.0.113.0/24 for example.com IN A  (abcd1234)
   #   client 203.0.113.7#40000 (example.com): rate limit drop responses to ...
-  NAMED_RRL: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: rate limit (?<dns_rrl_action>[% WORD %]) (?<dns_rrl_kind>[% WORD %]) to (?<dns_rrl_network>[% NOTSPACE %])(?: for (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]))?(?: [% GREEDYDATA %])?'
+  NAMED_RRL: '[% NAMED_CLIENT_HEAD %]rate limit (?<dns_rrl_action>[% WORD %]) (?<dns_rrl_kind>[% WORD %]) to (?<dns_rrl_network>[% NOTSPACE %])(?: for (?<dns_query_name>[% NOTSPACE %]) (?<dns_query_class>[% WORD %]) (?<dns_query_type>[% WORD %]))?(?: [% GREEDYDATA %])?'
   # Dynamic DNS (DDNS) update, e.g.:
   #   client 192.0.2.9#40000: updating zone 'example.com/IN': adding an RR at 'host.example.com' A 192.0.2.50
-  NAMED_DDNS: 'client(?: @0x[0-9a-fA-F]+)? (?<dns_client_ip>[% IP %])#(?<dns_client_port>[% INT %])(?: \([% DATA %]\))?: updating zone ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_ddns_op>[% GREEDYDATA %])'
+  NAMED_DDNS: '[% NAMED_CLIENT_HEAD %]updating zone ''(?<dns_zone_name>[% NOTSPACE_NO_SLASH %])/(?<dns_query_class>[% WORD %])'': (?<dns_ddns_op>[% GREEDYDATA %])'
   # Lame server report, e.g.:
   #   lame server resolving 'example.com' (in 'example.com'?): 192.0.2.2#53
   NAMED_LAME: 'lame server resolving ''(?<dns_query_name>[% NOTSPACE %])''(?: \(in ''(?<dns_zone_name>[% NOTSPACE %])''\?\))?: (?<dns_src_ip>[% IP %])#(?<dns_src_port>[% INT %])(?: [% GREEDYDATA %])?'
@@ -198,6 +217,42 @@ vars_tests:
         result: 'client 198.51.100.9#40000 (test.org): query ''test.org/AAAA/IN'' denied'
     negative:
       - 'client @0x7f 192.0.2.5#54321 (example.com): query: example.com IN A + (192.0.2.1)'
+  NAMED_CLIENT_HEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])'
+    positive:
+      - string: 'client 192.0.2.5#54321: '
+        result: 'client 192.0.2.5#54321: '
+      - string: 'client @0x7f 192.0.2.5#54321 (example.com): view internal: '
+        result: 'client @0x7f 192.0.2.5#54321 (example.com): view internal: '
+      - string: 'security: info: client @0x7f 192.0.2.8#53 (example.io): '
+        result: 'security: info: client @0x7f 192.0.2.8#53 (example.io): '
+      - string: '11-Aug-2013 03:36:11.372 error: client 192.0.2.4#52115: '
+        result: '11-Aug-2013 03:36:11.372 error: client 192.0.2.4#52115: '
+    negative:
+      - 'transfer of ''example.com/IN'' from 192.0.2.2#53: '
+  NAMED_XFR_DENIED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 192.0.2.19#56275: zone transfer ''example.eu/AXFR/IN'' denied'
+        result: 'client 192.0.2.19#56275: zone transfer ''example.eu/AXFR/IN'' denied'
+    negative:
+      - 'client 192.0.2.9#5300 (example.com): transfer of ''example.com/IN'': AXFR started'
+  NAMED_XFR_BAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 192.0.2.38#42592 (example.com.ua): bad zone transfer request: ''example.com.ua/IN'': non-authoritative zone (NOTAUTH)'
+        result: 'client 192.0.2.38#42592 (example.com.ua): bad zone transfer request: ''example.com.ua/IN'': non-authoritative zone (NOTAUTH)'
+    negative:
+      - 'client 192.0.2.19#56275: zone transfer ''example.eu/AXFR/IN'' denied'
+  NAMED_UPDATE_DENIED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'client 192.0.2.9#5300 (example.com): update ''example.com/IN'' denied'
+        result: 'client 192.0.2.9#5300 (example.com): update ''example.com/IN'' denied'
+      - string: 'client 192.0.2.9#5300 (example.com): update forwarding ''example.com/IN'' denied'
+        result: 'client 192.0.2.9#5300 (example.com): update forwarding ''example.com/IN'' denied'
+    negative:
+      - 'client 192.0.2.9#5300 (example.com): updating zone ''example.com/IN'': adding an RR at ''x.example.com'' A'
   NAMED_XFR_CLIENT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -502,12 +557,15 @@ rules:
     gate:
       - field: PROGRAM
         values:
-          - '//^named$//'
+          - '//^named(?:-\w+)?$//'
     field: MESSAGE
     anchored: true
     patterns:
       - NAMED_QUERY
       - NAMED_QUERY_DENIED
+      - NAMED_XFR_DENIED
+      - NAMED_XFR_BAD
+      - NAMED_UPDATE_DENIED
       - NAMED_XFR_CLIENT
       - NAMED_XFR_FROM
       - NAMED_ZONE_LOAD
@@ -823,7 +881,88 @@ rules:
         - string: 'linked to OpenSSL version: OpenSSL 3.0.16 11 Feb 2025'
           result:
             dns_message: 'linked to OpenSSL version: OpenSSL 3.0.16 11 Feb 2025'
+        # zone transfer refused, plain and with print-time and a severity
+        - string: 'client 192.0.2.19#56275: zone transfer ''example.eu/AXFR/IN'' denied'
+          program: 'named'
+          result:
+            dns_client_ip: '192.0.2.19'
+            dns_client_port: '56275'
+            dns_zone_name: 'example.eu'
+            dns_xfr_type: 'AXFR'
+            dns_query_class: 'IN'
+        - string: '11-Aug-2013 03:36:11.372 error: client 192.0.2.4#52115: zone transfer ''example.com/AXFR/IN'' denied'
+          result:
+            dns_log_timestamp: '11-Aug-2013 03:36:11.372'
+            dns_severity: 'error'
+            dns_client_ip: '192.0.2.4'
+            dns_client_port: '52115'
+            dns_zone_name: 'example.com'
+            dns_xfr_type: 'AXFR'
+            dns_query_class: 'IN'
+        # print-category and print-severity
+        - string: 'update-security: error: client @0x7f4e45c07a48 192.0.2.237#55956 (example.ca): zone transfer ''example.ca/AXFR/IN'' denied'
+          result:
+            dns_category: 'update-security'
+            dns_severity: 'error'
+            dns_client_ip: '192.0.2.237'
+            dns_client_port: '55956'
+            dns_zone_name: 'example.ca'
+            dns_xfr_type: 'AXFR'
+            dns_query_class: 'IN'
+        - string: 'security: info: client @0x7f4e446fd6e8 192.0.2.8#53 (example.io): query (cache) ''example.io/A/IN'' denied'
+          result:
+            dns_category: 'security'
+            dns_severity: 'info'
+            dns_client_ip: '192.0.2.8'
+            dns_client_port: '53'
+            dns_query_source: 'cache'
+            dns_query_name: 'example.io'
+            dns_query_type: 'A'
+            dns_query_class: 'IN'
+        - string: 'client 192.0.2.38#42592 (example.com.ua): bad zone transfer request: ''example.com.ua/IN'': non-authoritative zone (NOTAUTH)'
+          result:
+            dns_client_ip: '192.0.2.38'
+            dns_client_port: '42592'
+            dns_zone_name: 'example.com.ua'
+            dns_query_class: 'IN'
+            dns_error: 'non-authoritative zone (NOTAUTH)'
+        - string: 'client 192.0.2.9#5300 (example.com): update ''example.com/IN'' denied'
+          result:
+            dns_client_ip: '192.0.2.9'
+            dns_client_port: '5300'
+            dns_zone_name: 'example.com'
+            dns_query_class: 'IN'
+        # a server with views
+        - string: 'client 192.0.2.89#9334: view external: query (cache) ''./NS/IN'' denied'
+          result:
+            dns_client_ip: '192.0.2.89'
+            dns_client_port: '9334'
+            dns_view: 'external'
+            dns_query_source: 'cache'
+            dns_query_name: '.'
+            dns_query_type: 'NS'
+            dns_query_class: 'IN'
+        - string: 'client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): view internal: query: example.com IN A +E(0)K (192.0.2.1)'
+          result:
+            dns_client_ip: '192.0.2.5'
+            dns_client_port: '54321'
+            dns_view: 'internal'
+            dns_query_name: 'example.com'
+            dns_query_class: 'IN'
+            dns_query_type: 'A'
+            dns_flags: '+E(0)K'
+            dns_server_ip: '192.0.2.1'
+        # a named-<variant> binary
+        - string: 'client 192.0.2.40#4795: query ''example.com/NS/IN'' denied'
+          program: 'named-pkcs11'
+          result:
+            dns_client_ip: '192.0.2.40'
+            dns_client_port: '4795'
+            dns_query_name: 'example.com'
+            dns_query_type: 'NS'
+            dns_query_class: 'IN'
       negative:
         - ''
+        # named-<variant> is let through, but not a program that merely starts so
         - string: 'client @0x7f8b1c0d5e00 192.0.2.5#54321 (example.com): query: example.com IN A +E(0)K (192.0.2.1)'
-          program: 'named-extra'
+          program: 'namedctl'
