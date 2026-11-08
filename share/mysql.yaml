@@ -10,7 +10,9 @@
 # the line. How much of that prefix is present depends on the version --
 # MariaDB and MySQL 5.7 write "<date> <thread> [<level>] ", MySQL 8 writes
 # "<date> <thread> [<level>] [<code>] [<subsystem>] " -- so the whole prefix is
-# optional here and the message is matched on its own text.
+# optional here and the message is matched on its own text. MySQL 5.5 and
+# MariaDB up to 10.0 write no thread id at all, and an older date form; see
+# MYSQL_TIMESTAMP.
 #
 # "Access denied" is the line to count. A database reachable from somewhere it
 # should not be says so here first, naming both the account and the host that
@@ -18,9 +20,19 @@
 includes:
 - base
 vars_templated:
+  # The three dates the server has written over the years:
+  #
+  #   2026-07-15T10:00:00.123456Z   MySQL 5.7+, MariaDB with log_timestamps
+  #   2026-07-15  8:25:38           MariaDB 10.1+, hour padded with a space
+  #   130324  0:04:00               MySQL 5.5 and MariaDB up to 10.0 (YYMMDD)
+  #
+  # The padded hour leaves two spaces before a single-digit hour, which the
+  # ISO8601 form does not allow, so both older forms are spelled out.
+  MYSQL_TIMESTAMP: '(?:[% TIMESTAMP_ISO8601 %]|[0-9]{4}-[0-9]{2}-[0-9]{2} +[0-9]{1,2}:[0-9]{2}:[0-9]{2}|[0-9]{6} +[0-9]{1,2}:[0-9]{2}:[0-9]{2})'
   # The server's own prefix: timestamp, thread id, severity, and on MySQL 8 an
-  # error code and subsystem in further brackets.
-  MYSQL_PREFIX: '(?:(?<mysql_timestamp>[% TIMESTAMP_ISO8601 %]) +(?<mysql_thread>[% INT %]) \[(?<mysql_level>[A-Za-z]+)\] (?:\[(?<mysql_code>[A-Za-z0-9-]+)\] )?(?:\[(?<mysql_subsystem>[^\]]+)\] )?)?'
+  # error code and subsystem in further brackets. The thread id is missing on
+  # the YYMMDD-dated versions.
+  MYSQL_PREFIX: '(?:(?<mysql_timestamp>[% MYSQL_TIMESTAMP %])(?: +(?<mysql_thread>[% INT %]))? \[(?<mysql_level>[A-Za-z]+)\] (?:\[(?<mysql_code>[A-Za-z0-9-]+)\] )?(?:\[(?<mysql_subsystem>[^\]]+)\] )?)?'
   # "Access denied for user ''root''@''192.0.2.5'' (using password: YES)"
   #
   # The host is whatever MySQL resolved the peer to, so it is an address only
@@ -43,8 +55,23 @@ vars_templated:
   # Anything else the server logged, keeping the severity so a consumer can at
   # least sort by it. Requires the prefix, so this only claims lines the
   # server actually stamped.
-  MYSQL_MESSAGE: '(?<mysql_timestamp>[% TIMESTAMP_ISO8601 %]) +(?<mysql_thread>[% INT %]) \[(?<mysql_level>[A-Za-z]+)\] (?:\[(?<mysql_code>[A-Za-z0-9-]+)\] )?(?:\[(?<mysql_subsystem>[^\]]+)\] )?(?<mysql_message>.+)'
+  MYSQL_MESSAGE: '(?<mysql_timestamp>[% MYSQL_TIMESTAMP %])(?: +(?<mysql_thread>[% INT %]))? \[(?<mysql_level>[A-Za-z]+)\] (?:\[(?<mysql_code>[A-Za-z0-9-]+)\] )?(?:\[(?<mysql_subsystem>[^\]]+)\] )?(?<mysql_message>.+)'
 vars_tests:
+  MYSQL_TIMESTAMP:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2026-07-15T10:00:00.123456Z'
+        result: '2026-07-15T10:00:00.123456Z'
+      - string: '2026-07-15  8:25:38'
+        result: '2026-07-15  8:25:38'
+      - string: '2026-07-15 13:16:50'
+        result: '2026-07-15 13:16:50'
+      - string: '130324  0:04:00'
+        result: '130324  0:04:00'
+      - string: '130916 21:30:26'
+        result: '130916 21:30:26'
+    negative:
+      - '15-07-2026 10:00:00'
   MYSQL_PREFIX:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -52,6 +79,10 @@ vars_tests:
         result: '2026-07-15T10:00:00.123456Z 12 [Warning] '
       - string: '2026-07-15T10:00:00.123456Z 12 [Note] [MY-010926] [Server] '
         result: '2026-07-15T10:00:00.123456Z 12 [Note] [MY-010926] [Server] '
+      - string: '2026-07-15  8:25:38 139845235329792 [Warning] '
+        result: '2026-07-15  8:25:38 139845235329792 [Warning] '
+      - string: '130324  0:04:00 [Warning] '
+        result: '130324  0:04:00 [Warning] '
       # the whole prefix is optional, so nothing at all is a match
       - string: ''
         result: ''
@@ -123,6 +154,25 @@ rules:
             mysql_level: 'Warning'
             mysql_user: 'root'
             mysql_src_ip: '192.0.2.5'
+            mysql_used_password: 'YES'
+        # MySQL 5.5: YYMMDD date, padded hour, no thread id
+        - string: '130324  0:04:00 [Warning] Access denied for user ''root''@''203.0.113.7'' (using password: NO)'
+          result:
+            mysql_timestamp: '130324  0:04:00'
+            mysql_level: 'Warning'
+            mysql_user: 'root'
+            mysql_src_ip: '203.0.113.7'
+            mysql_used_password: 'NO'
+        # MariaDB 10.1+: padded hour
+        - string: '2026-07-15  8:25:38 139845235329792 [Warning] Access denied for user ''neti''@''203.0.113.7'' (using password: YES)'
+          numeric:
+            - mysql_thread
+          result:
+            mysql_timestamp: '2026-07-15  8:25:38'
+            mysql_thread: '139845235329792'
+            mysql_level: 'Warning'
+            mysql_user: 'neti'
+            mysql_src_ip: '203.0.113.7'
             mysql_used_password: 'YES'
         # the peer resolved to a name, so it does not land in mysql_src_ip
         - string: 'Access denied for user ''admin''@''scanner.example.net'' (using password: NO)'

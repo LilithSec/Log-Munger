@@ -51,6 +51,8 @@ Revision history for Log-Munger
         - postfix: add too many errors after, anvil rate/concurrency limit
           warnings and hostname does not resolve warnings, each capturing
           the client address
+        - mysql: accept the MySQL 5.5 YYMMDD date, MariaDB space-padded hour
+          and a prefix with no thread id
 
 0.0.1   2026-08-23/17:00
         - init
