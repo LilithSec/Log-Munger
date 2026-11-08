@@ -107,6 +107,11 @@ Revision history for Log-Munger
         - named: add zone transfer denied, bad zone transfer request (NOTAUTH)
           and update / update forwarding denied
         - named: gate accepts named-<variant> (named-pkcs11, named-sdb)
+        - proftpd: head takes the older "): " form, ::ffff: mapped client
+          addresses unwrapped
+        - proftpd: refusals with no "(Login failed)" (no such user found,
+          Limit access denies login, Invalid shell, ...) captured with user
+          and reason; accounts may hold spaces
 
 0.0.1   2026-08-23/17:00
         - init

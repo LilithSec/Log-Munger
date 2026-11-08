@@ -8,10 +8,13 @@
 # Every ProFTPD message opens with the same head:
 #
 #   <server> (<client-name>[<client-address>]) - <what happened>
+#   <server> (<client-name>[<client-address>]): <what happened>
 #
-# The client name is the reverse lookup, falling back to the address where
-# there is none, so the two are usually the same string. The bracketed address
-# is the trustworthy one, and it is what the geoip lookup reads.
+# the second being older versions'. The client name is the reverse lookup,
+# falling back to the address where there is none, so the two are usually the
+# same string. The bracketed address is the trustworthy one, and it is what
+# the geoip lookup reads. It opens the line, so a "name[address]" the client
+# writes into a USER later on can not stand in for it.
 includes:
 - base
 vars_templated:
@@ -20,15 +23,26 @@ vars_templated:
   # The name is matched as "anything but an opening bracket" rather than as a
   # hostname: it is whatever the reverse lookup returned, and on an unresolved
   # v6 peer that is a bare address with colons in it.
-  PROFTPD_HEAD: '(?<proftpd_server>[% NOTSPACE %]) \((?<proftpd_client_host>[^\[]*)\[(?<proftpd_client_ip>[% IP %])\]\) - '
+  #
+  # A v4 client on a dual-stack socket is logged as "::ffff:192.0.2.5"; the
+  # mapping prefix is dropped so proftpd_client_ip holds the plain address
+  # every other file reports.
+  PROFTPD_HEAD: '(?<proftpd_server>[% NOTSPACE %]) \((?<proftpd_client_host>[^\[]*)\[(?:::ffff:(?<proftpd_client_ip>[% IPv4 %])|(?<proftpd_client_ip>[% IP %]))\]\)(?: -|:) '
   # "USER neti: Login successful."
   PROFTPD_LOGIN_OK: '[% PROFTPD_HEAD %]USER (?<proftpd_user>[% NOTSPACE %]): Login successful\.?(?: [% GREEDYDATA %])?'
+  # The reasons ProFTPD gives a refused login with no "(Login failed)" ahead of
+  # them, fail2ban's list. Spelled out so that some other "USER x: ..." line
+  # is not read as a failure.
+  PROFTPD_FAIL_REASON: '(?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
   # "USER admin (Login failed): Incorrect password."
+  # "USER admin: no such user found from scanner [203.0.113.7] to 192.0.2.1:21"
+  # "USER root: Limit access denies login"
   #
   # The reason is kept in a field of its own: "Incorrect password" means the
   # account exists and "No such user found" that it does not, which is what
-  # separates a targeted attempt from a dictionary sweep.
-  PROFTPD_LOGIN_FAIL: '[% PROFTPD_HEAD %]USER (?<proftpd_user>[% NOTSPACE %]) \(Login failed\): (?<proftpd_reason>[% GREEDYDATA %])'
+  # separates a targeted attempt from a dictionary sweep. The account is what
+  # the client typed and may hold spaces.
+  PROFTPD_LOGIN_FAIL: '[% PROFTPD_HEAD %]USER (?:(?<proftpd_user>.*?) \(Login failed\): (?<proftpd_reason>[% GREEDYDATA %])|(?<proftpd_user>.*?): (?<proftpd_reason>[% PROFTPD_FAIL_REASON %](?:[% GREEDYDATA %])?))'
   # "FTP session opened." / "FTP session closed."
   PROFTPD_SESSION: '[% PROFTPD_HEAD %]FTP session (?<proftpd_session_event>opened|closed)\.?(?: [% GREEDYDATA %])?'
   # "SECURITY VIOLATION: root login attempted."
@@ -48,6 +62,9 @@ vars_tests:
       # unresolved peers repeat the address in both slots
       - string: 'ftp.example.com (203.0.113.7[203.0.113.7]) - '
         result: 'ftp.example.com (203.0.113.7[203.0.113.7]) - '
+      # older versions, and a v4-mapped peer
+      - string: 'ftp.example.com (mail.example.net[::ffff:192.0.2.66]): '
+        result: 'ftp.example.com (mail.example.net[::ffff:192.0.2.66]): '
     negative:
       - '192.0.2.1 - USER neti: Login successful.'
   PROFTPD_LOGIN_OK:
@@ -64,8 +81,27 @@ vars_tests:
         result: '192.0.2.1 (scanner[203.0.113.7]) - USER admin (Login failed): Incorrect password.'
       - string: '192.0.2.1 (scanner[203.0.113.7]) - USER oracle (Login failed): No such user found'
         result: '192.0.2.1 (scanner[203.0.113.7]) - USER oracle (Login failed): No such user found'
+      - string: '192.0.2.1 (scanner[203.0.113.7]): USER first last (Login failed): Incorrect password.'
+        result: '192.0.2.1 (scanner[203.0.113.7]): USER first last (Login failed): Incorrect password.'
+      - string: '192.0.2.1 (example.com[203.0.113.7]) - USER neti@example.org: no such user found from example.com [203.0.113.7] to 192.0.2.1:21 '
+        result: '192.0.2.1 (example.com[203.0.113.7]) - USER neti@example.org: no such user found from example.com [203.0.113.7] to 192.0.2.1:21 '
+      - string: '192.0.2.1 (scanner[203.0.113.7]) - USER root: Limit access denies login'
+        result: '192.0.2.1 (scanner[203.0.113.7]) - USER root: Limit access denies login'
+      - string: '192.0.2.1 (scanner[203.0.113.7]) - USER x: Invalid shell: ''/bin/false'''
+        result: '192.0.2.1 (scanner[203.0.113.7]) - USER x: Invalid shell: ''/bin/false'''
     negative:
       - '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: Login successful.'
+      # a "USER x: ..." that is no refusal
+      - '192.0.2.1 (client.example.net[198.51.100.9]) - USER neti: something else entirely'
+  PROFTPD_FAIL_REASON:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'no such user found'
+        result: 'no such user found'
+      - string: 'Maximum login length exceeded'
+        result: 'Maximum login length exceeded'
+    negative:
+      - 'Login successful.'
   PROFTPD_SESSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -158,6 +194,38 @@ rules:
             proftpd_client_ip: '203.0.113.7'
             proftpd_limit_kind: 'login attempts'
             proftpd_limit: '3'
+        # older versions' ": " head, a v4-mapped peer, and an account the
+        # client typed with spaces in it
+        - string: 'ftp.example.com (mail.example.net[::ffff:192.0.2.66]): USER first last (Login failed): Incorrect password.'
+          result:
+            proftpd_server: 'ftp.example.com'
+            proftpd_client_host: 'mail.example.net'
+            proftpd_client_ip: '192.0.2.66'
+            proftpd_user: 'first last'
+            proftpd_reason: 'Incorrect password.'
+        # a refusal with no "(Login failed)"
+        - string: '192.0.2.1 (example.com[203.0.113.7]) - USER neti@example.org: no such user found from example.com [203.0.113.7] to 192.0.2.1:21 '
+          result:
+            proftpd_server: '192.0.2.1'
+            proftpd_client_host: 'example.com'
+            proftpd_client_ip: '203.0.113.7'
+            proftpd_user: 'neti@example.org'
+            proftpd_reason: 'no such user found from example.com [203.0.113.7] to 192.0.2.1:21 '
+        # a typed account carrying a "name[address]" of its own... the head
+        # opens the line, so the address is still the real one
+        - string: '192.0.2.1 (scanner[203.0.113.7]) - USER x (hiho[198.51.100.44]) (Login failed): Incorrect password.'
+          result:
+            proftpd_server: '192.0.2.1'
+            proftpd_client_host: 'scanner'
+            proftpd_client_ip: '203.0.113.7'
+            proftpd_user: 'x (hiho[198.51.100.44])'
+            proftpd_reason: 'Incorrect password.'
+        - string: 'ftp.example.com (::ffff:192.0.2.100[::ffff:192.0.2.100]): SECURITY VIOLATION: root login attempted.'
+          result:
+            proftpd_server: 'ftp.example.com'
+            proftpd_client_host: '::ffff:192.0.2.100'
+            proftpd_client_ip: '192.0.2.100'
+            proftpd_violation: 'root login attempted.'
         # unrecognised, but the head still gives the peer
         - string: '192.0.2.1 (client.example.net[198.51.100.9]) - Preparing to chroot to directory ''/home/neti'''
           result:
