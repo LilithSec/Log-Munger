@@ -124,6 +124,9 @@ Revision history for Log-Munger
           longer sets dropbear_src_ip
         - dropbear: older "Exit before auth (user ...): ... from <peer>" form;
           user and fail count captured as dropbear_user / dropbear_fails
+        - haproxy: captured request/response header blocks before the request
+          taken as haproxy_req_headers / haproxy_res_headers instead of
+          failing the line; ::ffff: mapped client addresses unwrapped
 
 0.0.1   2026-08-23/17:00
         - init

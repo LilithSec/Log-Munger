@@ -27,13 +27,23 @@ vars_templated:
   # share. The accept date carries milliseconds, which HTTPDATE does not, so
   # it is matched as "anything but a closing bracket" rather than being parsed
   # here; a consumer that wants it parsed has the string.
-  HAPROXY_HEAD: '(?<haproxy_client_ip>[% IP %]):(?<haproxy_client_port>[% INT %]) \[(?<haproxy_accept_date>[^\]]*)\] (?<haproxy_frontend>[% NOTSPACE %]) (?<haproxy_backend>[^/\s]+)/(?<haproxy_server>[% NOTSPACE %]) '
+  #
+  # A v4 client on a dual-stack listener is logged as "::ffff:192.0.2.5:49152";
+  # the mapping prefix is dropped so haproxy_client_ip holds the plain address
+  # every other file reports.
+  HAPROXY_HEAD: '(?:::ffff:(?<haproxy_client_ip>[% IPv4 %])|(?<haproxy_client_ip>[% IP %])):(?<haproxy_client_port>[% INT %]) \[(?<haproxy_accept_date>[^\]]*)\] (?<haproxy_frontend>[% NOTSPACE %]) (?<haproxy_backend>[^/\s]+)/(?<haproxy_server>[% NOTSPACE %]) '
   # The full HTTP traffic line.
   #
   # term_state is the two-to-four character code saying how the session ended.
   # The first character carries the verdict: "C" is a client abort, "S" a
   # server one, "P" the proxy itself, and "s" a server timeout.
-  HAPROXY_HTTP: '[% HAPROXY_HEAD %](?<haproxy_timers>[-0-9]+/[-0-9]+/[-0-9]+/[-0-9]+/[+-]?[0-9]+) (?<haproxy_status>[-0-9]+) (?<haproxy_bytes>[+-]?[0-9]+) (?<haproxy_req_cookie>[% NOTSPACE %]) (?<haproxy_res_cookie>[% NOTSPACE %]) (?<haproxy_term_state>[% NOTSPACE %]) (?<haproxy_conns>[% NOTSPACE %]) (?<haproxy_queues>[% NOTSPACE %]) "(?<haproxy_request>[^"]*)"(?: [% GREEDYDATA %])?'
+  #
+  # With "capture request header" / "capture response header" configured, the
+  # captured values sit between the queue counters and the request, each set
+  # in braces and "|"-separated: {example.com|curl/8.0} {text/html}. haproxy
+  # escapes "{", "}" and a quote inside a captured value, so a header the
+  # client sent can not close its block early.
+  HAPROXY_HTTP: '[% HAPROXY_HEAD %](?<haproxy_timers>[-0-9]+/[-0-9]+/[-0-9]+/[-0-9]+/[+-]?[0-9]+) (?<haproxy_status>[-0-9]+) (?<haproxy_bytes>[+-]?[0-9]+) (?<haproxy_req_cookie>[% NOTSPACE %]) (?<haproxy_res_cookie>[% NOTSPACE %]) (?<haproxy_term_state>[% NOTSPACE %]) (?<haproxy_conns>[% NOTSPACE %]) (?<haproxy_queues>[% NOTSPACE %])(?: \{(?<haproxy_req_headers>[^}]*)\})?(?: \{(?<haproxy_res_headers>[^}]*)\})? "(?<haproxy_request>[^"]*)"(?: [% GREEDYDATA %])?'
   # The TCP traffic line: three timers, no status code and no request.
   HAPROXY_TCP: '[% HAPROXY_HEAD %](?<haproxy_timers>[-0-9]+/[-0-9]+/[+-]?[0-9]+) (?<haproxy_bytes>[+-]?[0-9]+) (?<haproxy_term_state>[% NOTSPACE %]) (?<haproxy_conns>[% NOTSPACE %]) (?<haproxy_queues>[% NOTSPACE %])(?: [% GREEDYDATA %])?'
   # "Server backend/server1 is DOWN, reason: Layer4 connection problem, info:
@@ -73,6 +83,9 @@ vars_tests:
       # a client that gave up: -1 timers, no status, and a C-prefixed term state
       - string: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] http-in backend1/<NOSRV> -1/-1/-1/-1/0 400 0 - - CR-- 1/1/0/0/0 0/0 "<BADREQ>"'
         result: '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] http-in backend1/<NOSRV> -1/-1/-1/-1/0 400 0 - - CR-- 1/1/0/0/0 0/0 "<BADREQ>"'
+      # captured request and response headers
+      - string: '192.0.2.9:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 {example.com|curl/8.0} {text/html} "GET / HTTP/1.1"'
+        result: '192.0.2.9:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 {example.com|curl/8.0} {text/html} "GET / HTTP/1.1"'
     negative:
       - '192.0.2.5:49152 [15/Jul/2026:10:00:00.123] tcp-in backend1/server1 0/1/2 1234 -- 1/1/0/0/0 0/0'
   HAPROXY_TCP:
@@ -204,6 +217,26 @@ rules:
             haproxy_dst_port: '443'
             haproxy_frontend: 'http-in'
             haproxy_mode: 'HTTP'
+        # a failed basic auth with captured headers, from a v4-mapped client
+        - string: '::ffff:192.0.2.33:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 {example.com|curl/8.0} {text/html} "GET / HTTP/1.1"'
+          result:
+            haproxy_client_ip: '192.0.2.33'
+            haproxy_client_port: '58430'
+            haproxy_accept_date: '14/Nov/2015:22:45:11.608'
+            haproxy_frontend: 'main'
+            haproxy_backend: 'main'
+            haproxy_server: '<NOSRV>'
+            haproxy_timers: '-1/-1/-1/-1/0'
+            haproxy_status: '401'
+            haproxy_bytes: '248'
+            haproxy_req_cookie: '-'
+            haproxy_res_cookie: '-'
+            haproxy_term_state: 'PR--'
+            haproxy_conns: '0/0/0/0/0'
+            haproxy_queues: '0/0'
+            haproxy_req_headers: 'example.com|curl/8.0'
+            haproxy_res_headers: 'text/html'
+            haproxy_request: 'GET / HTTP/1.1'
       negative:
         - 'this is not a haproxy line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
