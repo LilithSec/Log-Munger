@@ -136,6 +136,7 @@ The distribution ships a primitive library plus ready-to-use rule files
 | `postfix`                | Postfix mail log (smtpd, qmgr, delivery, etc)         |
 | `exim`                   | Exim mail log, including SMTP AUTH and TLS failures   |
 | `dovecot`                | Dovecot IMAP/POP3                                     |
+| `cyrus`                  | Cyrus imapd, pop3d, timsieved and lmtpd logins        |
 | `sendmail`               | Sendmail transactions, AUTH failures, and rejections  |
 | `rspamd`                 | Rspamd scan results — score, action, and symbols      |
 | `spamd`                  | SpamAssassin scan results                             |

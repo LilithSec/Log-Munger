@@ -35,6 +35,7 @@ share/chrony.yaml
 share/clamav.yaml
 share/cron.yaml
 share/cups.yaml
+share/cyrus.yaml
 share/daemonlogger.yaml
 share/dbus.yaml
 share/dhcpd.yaml

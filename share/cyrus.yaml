@@ -1,0 +1,166 @@
+---
+# Cyrus IMAP server log enrichment: imapd, pop3d, timsieved (ManageSieve) and
+# lmtpd, and the master process that starts them.
+#
+# Gates on the syslog PROGRAM field naming one of those daemons, with or
+# without the "cyrus/" prefix Debian's build gives them ("cyrus/imaps",
+# "cyrus/timsieved"). Patterns are anchored (each must match the whole
+# MESSAGE) and first-match wins. Every capture is namespaced with cyrus_ .
+#
+# The daemons share one login shape, the peer as "<host>[<address>]" or
+# "<host> [<address>]":
+#
+#   badlogin: example.com [192.0.2.4] plaintext neti SASL(-13): authentication failure: checkpass failed
+#   badlogin: example.com [192.0.2.4] CRAM-MD5 [SASL(-13): authentication failure: incorrect digest response]
+#   badlogin: example.com[192.0.2.4] PLAIN authentication failure                 (timsieved)
+#   login: example.com [192.0.2.4] neti plaintext User logged in SESSIONID=<...>
+#
+# The bracketed address comes ahead of anything the client typed, so a name
+# planted in the account can not stand in for it.
+includes:
+- base
+vars_templated:
+  # The "<host>[<address>]" / "<host> [<address>]" peer. The host is the
+  # reverse lookup and may be missing ("[192.0.2.4]"). A v4 client on a
+  # dual-stack socket is "[::ffff:192.0.2.4]", and the mapping prefix is
+  # dropped so cyrus_client_ip holds the plain address.
+  CYRUS_PEER: '(?:(?<cyrus_client_host>[^\s\[]+) ?)?\[(?:::ffff:(?<cyrus_client_ip>[% IPv4 %])|(?<cyrus_client_ip>[% IP %]))\]'
+  # "badlogin: example.com [192.0.2.4] plaintext neti SASL(-13): authentication failure: checkpass failed"
+  # "badlogin: example.com [192.0.2.4] DIGEST-MD5 [SASL(-13): authentication failure: client response doesn't match what we generated]"
+  # "badlogin: example.com[192.0.2.4] PLAIN authentication failure"
+  #
+  # The SASL brute force, from any of the daemons. imapd and pop3d name the
+  # account for a plaintext login and then the SASL error, bracketed or not;
+  # timsieved names no account at all. The account is only taken when a SASL
+  # error follows it, so timsieved's "authentication failure" is not read as
+  # one.
+  CYRUS_BADLOGIN: 'badlogin: [% CYRUS_PEER %] (?<cyrus_mech>\S+) (?:(?<cyrus_user>\S+) (?=\[?SASL\())?(?:\[(?<cyrus_error>[^\]]*)\]|(?<cyrus_error>.+))'
+  # "login: example.com [192.0.2.4] neti plaintext User logged in SESSIONID=<cyrus-1234-1-0>"
+  # "login: example.com [192.0.2.4] neti PLAIN+TLS User logged in"
+  CYRUS_LOGIN: 'login: [% CYRUS_PEER %] (?<cyrus_user>\S+) (?<cyrus_mech>\S+)(?: (?<cyrus_message>.*?))?(?: SESSIONID=<(?<cyrus_session>[^>]*)>)?'
+  # Anything else the Cyrus daemons said. Matching anything is only safe
+  # because the rule is gated on PROGRAM.
+  CYRUS_MESSAGE: '(?<cyrus_message>.+)'
+vars_tests:
+  CYRUS_PEER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'example.com [192.0.2.4]'
+        result: 'example.com [192.0.2.4]'
+      - string: 'example.com[192.0.2.4]'
+        result: 'example.com[192.0.2.4]'
+      - string: '[192.0.2.4]'
+        result: '[192.0.2.4]'
+      - string: 'mail.example.net [::ffff:192.0.2.4]'
+        result: 'mail.example.net [::ffff:192.0.2.4]'
+    negative:
+      - 'example.com 192.0.2.4'
+  CYRUS_BADLOGIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'badlogin: localhost [198.51.100.23] plaintext administrator SASL(-13): authentication failure: checkpass failed'
+        result: 'badlogin: localhost [198.51.100.23] plaintext administrator SASL(-13): authentication failure: checkpass failed'
+      - string: 'badlogin: example.com [198.51.100.57] CRAM-MD5 [SASL(-13): authentication failure: incorrect digest response]'
+        result: 'badlogin: example.com [198.51.100.57] CRAM-MD5 [SASL(-13): authentication failure: incorrect digest response]'
+      - string: 'badlogin: example.com[192.0.2.4] PLAIN authentication failure'
+        result: 'badlogin: example.com[192.0.2.4] PLAIN authentication failure'
+    negative:
+      - 'login: example.com [192.0.2.4] neti plaintext User logged in'
+  CYRUS_LOGIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'login: example.com [192.0.2.4] neti plaintext User logged in SESSIONID=<cyrus-1234-1-0>'
+        result: 'login: example.com [192.0.2.4] neti plaintext User logged in SESSIONID=<cyrus-1234-1-0>'
+      - string: 'login: example.com [192.0.2.4] neti PLAIN+TLS User logged in'
+        result: 'login: example.com [192.0.2.4] neti PLAIN+TLS User logged in'
+    negative:
+      - 'badlogin: example.com[192.0.2.4] PLAIN authentication failure'
+  CYRUS_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'accepted connection'
+        result: 'accepted connection'
+    negative:
+      - ''
+geoip:
+  - cyrus_client_ip
+rules:
+  - name: cyrus
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^(?:cyrus\/)?(?:imap[ds]?|pop3[ds]?|(?:tim)?sieved?|lmtpd?|master)$//'
+    field: MESSAGE
+    anchored: true
+    patterns:
+      - CYRUS_BADLOGIN
+      - CYRUS_LOGIN
+      # last: matches anything, which is only safe because the rule is gated
+      - CYRUS_MESSAGE
+    tests:
+      positive:
+        # timsieved, which names no account
+        - string: 'badlogin: example.com[192.0.2.4] PLAIN authentication failure'
+          program: 'cyrus/timsieved'
+          result:
+            cyrus_client_host: 'example.com'
+            cyrus_client_ip: '192.0.2.4'
+            cyrus_mech: 'PLAIN'
+            cyrus_error: 'authentication failure'
+        - string: 'badlogin: web4[192.0.2.5] OTP authentication failure'
+          program: 'timsieved'
+          result:
+            cyrus_client_host: 'web4'
+            cyrus_client_ip: '192.0.2.5'
+            cyrus_mech: 'OTP'
+            cyrus_error: 'authentication failure'
+        # imapd/pop3d, a plaintext login naming the account
+        - string: 'badlogin: localhost [198.51.100.23] plaintext administrator SASL(-13): authentication failure: checkpass failed'
+          program: 'cyrus/pop3'
+          result:
+            cyrus_client_host: 'localhost'
+            cyrus_client_ip: '198.51.100.23'
+            cyrus_mech: 'plaintext'
+            cyrus_user: 'administrator'
+            cyrus_error: 'SASL(-13): authentication failure: checkpass failed'
+        # a SASL mechanism with the error bracketed, and no reverse lookup
+        - string: 'badlogin: [192.0.2.6] plain [SASL(-13): authentication failure: Password verification failed]'
+          program: 'imap'
+          result:
+            cyrus_client_ip: '192.0.2.6'
+            cyrus_mech: 'plain'
+            cyrus_error: 'SASL(-13): authentication failure: Password verification failed'
+        - string: 'badlogin: example.com [198.51.100.45] DIGEST-MD5 [SASL(-13): authentication failure: client response doesn''t match what we generated]'
+          program: 'imapd'
+          result:
+            cyrus_client_host: 'example.com'
+            cyrus_client_ip: '198.51.100.45'
+            cyrus_mech: 'DIGEST-MD5'
+            cyrus_error: 'SASL(-13): authentication failure: client response doesn''t match what we generated'
+        # a v4-mapped peer
+        - string: 'badlogin: mail.example.net [::ffff:192.0.2.7] plaintext neti SASL(-13): user not found: Password verification failed'
+          program: 'cyrus/imaps'
+          result:
+            cyrus_client_host: 'mail.example.net'
+            cyrus_client_ip: '192.0.2.7'
+            cyrus_mech: 'plaintext'
+            cyrus_user: 'neti'
+            cyrus_error: 'SASL(-13): user not found: Password verification failed'
+        - string: 'login: example.com [192.0.2.8] neti plaintext User logged in SESSIONID=<cyrus-1234-1-0>'
+          program: 'cyrus/imap'
+          result:
+            cyrus_client_host: 'example.com'
+            cyrus_client_ip: '192.0.2.8'
+            cyrus_user: 'neti'
+            cyrus_mech: 'plaintext'
+            cyrus_message: 'User logged in'
+            cyrus_session: 'cyrus-1234-1-0'
+        # falls through to the catch-all
+        - string: 'accepted connection'
+          program: 'cyrus/imaps'
+          result:
+            cyrus_message: 'accepted connection'
+      negative:
+        - ''
+        - string: 'badlogin: example.com[192.0.2.4] PLAIN authentication failure'
+          program: 'sshd'

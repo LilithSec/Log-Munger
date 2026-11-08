@@ -77,6 +77,7 @@ my @ownership = (
 	[ 'nslcd goes to nslcd', { PROGRAM => 'nslcd', MESSAGE => 'accepting connections' }, 'nslcd_message' ],
 	[ 'pkg goes to pkg', { PROGRAM => 'pkg', MESSAGE => 'nginx upgraded: 1.28.0_2,3 -> 1.28.0_3,3' }, 'pkg_version_from' ],
 	# the OpenWRT set, each of which ends in a catch-all
+	[ 'cyrus timsieved goes to cyrus', { PROGRAM => 'cyrus/timsieved', MESSAGE => 'accepted connection' }, 'cyrus_message' ],
 	[ 'dropbear goes to dropbear', { PROGRAM => 'dropbear', MESSAGE => 'Not backgrounding' }, 'dropbear_message' ],
 	[ 'odhcpd goes to odhcpd', { PROGRAM => 'odhcpd', MESSAGE => 'Raising SIGUSR1 due to reload' }, 'odhcpd_message' ],
 	[ 'netifd goes to netifd', { PROGRAM => 'netifd', MESSAGE => "Network device 'phy0-ap1' link is up" }, 'netifd_link_state' ],
