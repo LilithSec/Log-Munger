@@ -1,9 +1,19 @@
 ---
-# HTTP error-log enrichment for apache (2.4 and 2.2) and nginx error logs.
+# HTTP error-log enrichment for apache (2.4 and 2.2), nginx and lighttpd error
+# logs, and the suhosin alerts PHP writes into them.
 #
-# Gateless + anchored, like http_access_logs: it matches the whole MESSAGE
-# field, so it handles raw error-log lines fed straight in
-# (process_item(item => $line)) as well as syslog-delivered error logs.
+# The first rule is gateless + anchored, like http_access_logs: it matches the
+# whole MESSAGE field, so it handles raw error-log lines fed straight in
+# (process_item(item => $line)) as well as syslog-delivered ones that keep
+# their own timestamp, which nginx's and lighttpd's do.
+#
+# apache's "ErrorLog syslog" does not: syslog stamps the line, so the body
+# starts at "[module:level]". That shape is too loose to take from any program,
+# so the second rule reads it, gated on the httpd/apache2 program name.
+#
+# Every address here sits beside text the client wrote... a URI, a Host header,
+# a referrer, an account name. Each pattern says how it keeps a forged copy of
+# the address from being taken in place of the real one.
 includes:
 - base
 vars_templated:
@@ -11,12 +21,119 @@ vars_templated:
   HTTP_ERROR_APACHE_DATE: '[% DAY %] [% MONTH %] +[% MONTHDAY %] [% TIME %] [% YEAR %]'
   # nginx: "2000/10/11 14:32:52"
   HTTP_ERROR_NGINX_DATE: '[% YEAR %]/[% MONTHNUM %]/[% MONTHDAY %] [% TIME %]'
+  # lighttpd: "2011-12-25 17:09:20"
+  HTTP_ERROR_LIGHTTPD_DATE: '[% YEAR %]-[% MONTHNUM %]-[% MONTHDAY %] [% TIME %]'
+  # The inside of an apache 2.4 [client ...] block.
+  #
+  #   [client 192.0.2.1:58585]
+  #   [client [2001:db8::1]:51548]
+  #   [client 2001:db8::1:51548]       2.4's own unbracketed form
+  #   [client ::ffff:192.0.2.5:51395]  a v4 client on a dual-stack socket
+  #
+  # 2.4 always logs the port, so a trailing :<digits> is read as the port first
+  # and the address only takes it when nothing else parses. The ::ffff: mapping
+  # prefix is dropped so the address matches what every other file reports.
+  HTTP_ERROR_APACHE24_PEER: '(?:\[(?<http_error_client_ip>[% IPv6 %])\]:(?<http_error_client_port>[% POSINT %])|::ffff:(?<http_error_client_ip>[% IPv4 %])(?::(?<http_error_client_port>[% POSINT %]))?|(?<http_error_client_ip>[% HOSTNAMEorIP %]):(?<http_error_client_port>[% POSINT %])|(?<http_error_client_ip>[% HOSTNAMEorIP %]))'
+  # The same, named as the mod_remoteip peer.
+  HTTP_ERROR_APACHE24_REMOTE: '\[remote (?:\[(?<http_error_remote_ip>[% IPv6 %])\]:(?<http_error_remote_port>[% POSINT %])|::ffff:(?<http_error_remote_ip>[% IPv4 %])(?::(?<http_error_remote_port>[% POSINT %]))?|(?<http_error_remote_ip>[% HOSTNAMEorIP %]):(?<http_error_remote_port>[% POSINT %])|(?<http_error_remote_ip>[% HOSTNAMEorIP %]))\]'
+  # The address blocks of a 2.4 line.
+  #
+  # With mod_remoteip, [client] holds the address taken from X-Forwarded-For and
+  # [remote] the peer the connection came from, and both are kept. A [remote]
+  # with no [client] before it is the peer of a connection-level message and is
+  # the client. ModSecurity writes the [client] block a second time without the
+  # port; that copy is stepped over.
+  #
+  # These come before the message, so nothing the client writes into the
+  # message can stand in for them.
+  HTTP_ERROR_APACHE24_ADDRS: '(?: \[client [% HTTP_ERROR_APACHE24_PEER %]\](?: \[client [^\]]*\])?(?: [% HTTP_ERROR_APACHE24_REMOTE %])?| \[remote [% HTTP_ERROR_APACHE24_PEER %]\])?'
+  # An apache message and the ", referer: <url>" apache appends when the
+  # request had one. The referrer is the client's, but it comes after the
+  # address blocks, so it can move nothing.
+  HTTP_ERROR_APACHE_MESSAGE: '(?<http_error_message>.*?)(?:, referer: (?<http_error_referer>.*))?'
+  # apache 2.4 from [module:level] on, which is all "ErrorLog syslog" writes:
+  #   [module:level] [pid N:tid N] [client ip:port] AH00000: message
+  # The pid block is left out by a custom ErrorLogFormat, so it is optional. The
+  # code is apache's own AHnnnnn only... a module's "ModSecurity:" or
+  # "Digest:" is part of its message.
+  HTTP_ERROR_APACHE24_BODY: '\[(?:(?<http_error_module>[% WORD %]))?:(?<http_error_loglevel>[% LOGLEVEL %])\](?: \[pid (?<http_error_pid>[% POSINT %])(?::tid (?<http_error_tid>[% NUMBER %]))?\])?[% HTTP_ERROR_APACHE24_ADDRS %](?: (?<http_error_code>AH\d+):)? [% HTTP_ERROR_APACHE_MESSAGE %]'
   # apache 2.4: [ts] [module:level] [pid N:tid N] [client ip:port] CODE: message
-  HTTP_ERROR_APACHE24: '\[(?<http_error_timestamp>[% HTTP_ERROR_APACHE_DATE %])\] \[(?:(?<http_error_module>[% WORD %]))?:(?<http_error_loglevel>[% LOGLEVEL %])\] \[pid (?<http_error_pid>[% POSINT %])(?::tid (?<http_error_tid>[% NUMBER %]))?\](?: \[client (?<http_error_client_ip>[% HOSTNAMEorIP %])(?::(?<http_error_client_port>[% POSINT %]))?\])?(?: (?<http_error_code>[% WORD %]):)? (?<http_error_message>[% GREEDYDATA %])'
+  HTTP_ERROR_APACHE24: '\[(?<http_error_timestamp>[% HTTP_ERROR_APACHE_DATE %])\] [% HTTP_ERROR_APACHE24_BODY %]'
+  # apache 2.2 from [level] on. 2.2 logs no port, so the address is taken whole
+  # first, "[client 2001:db8::1]" reading as one address rather than an address
+  # and a port; a port is still accepted after a v4 address or a name.
+  HTTP_ERROR_APACHE22_BODY: '\[(?<http_error_loglevel>[% LOGLEVEL %])\](?: \[client (?:::ffff:(?<http_error_client_ip>[% IPv4 %])|(?<http_error_client_ip>[% HOSTNAMEorIP %]))(?::(?<http_error_client_port>[% POSINT %]))?\](?: \[client [^\]]*\])?)? [% HTTP_ERROR_APACHE_MESSAGE %]'
   # apache 2.2: [ts] [level] [client ip] message
-  HTTP_ERROR_APACHE22: '\[(?<http_error_timestamp>[% HTTP_ERROR_APACHE_DATE %])\] \[(?<http_error_loglevel>[% LOGLEVEL %])\](?: \[client (?<http_error_client_ip>[% HOSTNAMEorIP %])\])? (?<http_error_message>[% GREEDYDATA %])'
-  # nginx: ts [level] pid#tid: *conn message[, client: .., server: .., request: "..", host: ".."]
-  HTTP_ERROR_NGINX: '(?<http_error_timestamp>[% HTTP_ERROR_NGINX_DATE %]) \[(?<http_error_loglevel>[% LOGLEVEL %])\] (?<http_error_pid>[% POSINT %])#(?<http_error_tid>[% NUMBER %]): (?:\*(?<http_error_connectionid>[% NUMBER %]) )?(?<http_error_message>.*?)(?:, client: (?<http_error_client_ip>[% HOSTNAMEorIP %]))?(?:, server: (?<http_error_server>[^,]*))?(?:, request: "(?<http_error_request>[^"]*)")?(?:, host: "(?<http_error_host>[^"]*)")?'
+  HTTP_ERROR_APACHE22: '\[(?<http_error_timestamp>[% HTTP_ERROR_APACHE_DATE %])\] [% HTTP_ERROR_APACHE22_BODY %]'
+  # The tail nginx appends to a request's error, in nginx's own order:
+  #   , client: <ip>, server: <name>, login: "<user>", request: "<line>",
+  #   subrequest: "<uri>", upstream: "<url>", host: "<host>",
+  #   referrer: "<url>"
+  # each present only when it applies (login only from the mail module).
+  #
+  # nginx writes the request line, Host header and referrer raw (it accepts
+  # spaces and quotes in Host), and the message ahead of the tail can hold the
+  # URI or the account, so a client can plant a whole ", client: <addr>,
+  # server: ..." before the real tail or after it. With text of the client's on
+  # both sides there is no telling which tail is nginx's, so a line that holds
+  # a second one yields no address at all rather than the wrong one:
+  #
+  #   * the message may not hold ", client: ", so the tail starts at the first
+  #     one on the line (HTTP_ERROR_NGINX)
+  #   * the values a client sets hold no whitespace, as fail2ban's nginx
+  #     filters hold them, and every ", key: " of a tail has a space in it, so
+  #     neither a tail planted ahead of the real one nor one planted inside a
+  #     value parses to the end of the line
+  #
+  # The request line is the one value with spaces, and it is held to
+  # "<method> <uri>[ HTTP/<version>]". The cost is that a client can make its
+  # own lines yield no address, never someone else's.
+  HTTP_ERROR_NGINX_TAIL: '(?:, client: (?:::ffff:(?<http_error_client_ip>[% IPv4 %])|(?<http_error_client_ip>[% HOSTNAMEorIP %])))?(?:, server: (?<http_error_server>\S*))?(?:, login: "(?<http_error_login>\S*)")?(?:, request: "(?<http_error_request>\S+ \S+(?: HTTP/[\d.]+)?)")?(?:, subrequest: "(?<http_error_subrequest>\S*)")?(?:, upstream: "(?<http_error_upstream>\S*)")?(?:, host: "(?<http_error_host>\S*)")?(?:, referrer: "(?<http_error_referrer>\S*)")?'
+  # nginx: ts [level] pid#tid: *conn message[, client: .., server: .., ...]
+  #
+  # Some journal setups leave nginx's syslog tag at the front of the body,
+  # "host nginx[983478]: 2023/12/09 ..." and even twice over, "host
+  # nginx[23141]: host nginx: 2025/09/07 ...", which is stepped over.
+  #
+  # The message stops at the first ", client: ". When the tail from there does
+  # not parse to the end of the line -- a second tail, or a value with a space
+  # in it -- the whole rest of the line is the message and no tail field,
+  # address included, is taken. See HTTP_ERROR_NGINX_TAIL.
+  HTTP_ERROR_NGINX: '(?:[\w.-]+ nginx(?:\[[% POSINT %]\])?: ){0,2}(?<http_error_timestamp>[% HTTP_ERROR_NGINX_DATE %]) \[(?<http_error_loglevel>[% LOGLEVEL %])\] (?<http_error_pid>[% POSINT %])#(?<http_error_tid>[% NUMBER %]): (?:\*(?<http_error_connectionid>[% NUMBER %]) )?(?:(?<http_error_message>(?:(?!, client: ).)*?)[% HTTP_ERROR_NGINX_TAIL %]|(?<http_error_message>.*))'
+  # The "2011-12-25 17:09:20: (http_auth.c.875) " head of a lighttpd line. The
+  # timestamp is missing through syslog, and some builds drop the "(".
+  HTTP_ERROR_LIGHTTPD_HEAD: '(?:(?<http_error_timestamp>[% HTTP_ERROR_LIGHTTPD_DATE %]): )?\(?(?<http_error_module>[\w-]+\.c\.\d+)\) '
+  # lighttpd: "(http_auth.c.875) password doesn't match for /gitweb/ username:
+  # neti, IP: 192.0.2.4"
+  #
+  # The address is the last thing on the line, and the account ahead of it is
+  # the client's, so the "IP: " taken is the one that ends the line.
+  HTTP_ERROR_LIGHTTPD: '[% HTTP_ERROR_LIGHTTPD_HEAD %](?<http_error_message>.*?)(?:,? IP: (?:::ffff:(?<http_error_client_ip>[% IPv4 %])|(?<http_error_client_ip>[% IP %])))?'
+  # suhosin: "ALERT - script tried to increase memory_limit to 4294967295 bytes
+  # which is above the allowed value (attacker '192.0.2.77', file
+  # '/var/www/x.php', line 161)"
+  #
+  # As its own syslog line or as a PHP FastCGI's stderr inside lighttpd's log.
+  # The alert names what the script was handed, which the client may have
+  # chosen, so the "(attacker '" taken is the last one.
+  HTTP_ERROR_SUHOSIN: '(?:[% HTTP_ERROR_LIGHTTPD_HEAD %]FastCGI-stderr: )?ALERT - (?<http_error_message>.*) \(attacker ''(?:::ffff:(?<http_error_client_ip>[% IPv4 %])|(?<http_error_client_ip>[% IP %]))'', file ''(?<http_error_file>[^'']*)''(?:, line (?<http_error_line>[% INT %]))?\)'
+  # The account an authentication failure names, read out of the message by the
+  # decompose below. apache:
+  #   user neti not found: /admin
+  #   user neti: authentication failure for "/": Password Mismatch
+  #   user neti: authorization failure for "/":
+  #   Digest: user neti: password mismatch: /
+  #   Digest: user `neti' in realm `private' not found: /
+  #   Authorization of user neti to access /private failed, reason: ...
+  # nginx:
+  #   user "neti" was not found in "/etc/nginx/.htpasswd"
+  #   user "neti": password mismatch
+  #   PAM: user 'neti' - not authenticated: Authentication failure
+  # lighttpd:
+  #   password doesn't match for /gitweb/ username: neti
+  #   digest: auth failed for  neti : wrong password
+  # The account may be empty or hold spaces and quotes.
+  HTTP_ERROR_USER: '.*?(?:\buser `(?<http_error_user>[^'']*)'' in realm `|\buser "(?<http_error_user>.*?)"(?: was not found in "|: password mismatch)|PAM: user ''(?<http_error_user>.*?)'' - not authenticated|Authorization of user (?<http_error_user>.*?) to access |\buser (?<http_error_user>.*?): (?:authentication failure|authorization failure|password mismatch)|\buser (?<http_error_user>\S*) not found|auth failed for\s+(?<http_error_user>.*?) :|username: (?<http_error_user>.*?)\z).*'
 vars_tests:
   HTTP_ERROR_APACHE_DATE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -36,6 +153,65 @@ vars_tests:
         result: '2026/07/15 10:00:00'
     negative:
       - 'Wed Oct 11 14:32:52 2000'
+  HTTP_ERROR_LIGHTTPD_DATE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2011-12-25 17:09:20'
+        result: '2011-12-25 17:09:20'
+    negative:
+      - '2011/12/25 17:09:20'
+  HTTP_ERROR_APACHE24_PEER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '192.0.2.1:58585'
+        result: '192.0.2.1:58585'
+      - string: '[2001:db8::80da:af6b:8b2c]:51548'
+        result: '[2001:db8::80da:af6b:8b2c]:51548'
+      - string: '2001:db8::1:4321'
+        result: '2001:db8::1:4321'
+      - string: '::ffff:192.0.2.5:51395'
+        result: '::ffff:192.0.2.5:51395'
+      - string: '192.0.2.1'
+        result: '192.0.2.1'
+    negative:
+      - 'not an address'
+  HTTP_ERROR_APACHE24_REMOTE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[remote 192.0.2.111:35924]'
+        result: '[remote 192.0.2.111:35924]'
+    negative:
+      - '[client 192.0.2.111:35924]'
+  HTTP_ERROR_APACHE24_ADDRS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: ' [client 192.0.2.1:58585]'
+        result: ' [client 192.0.2.1:58585]'
+      - string: ' [client 192.0.2.2:47762] [client 192.0.2.2]'
+        result: ' [client 192.0.2.2:47762] [client 192.0.2.2]'
+      - string: ' [client 198.51.100.1:1234] [remote 192.0.2.3:443]'
+        result: ' [client 198.51.100.1:1234] [remote 192.0.2.3:443]'
+      - string: ' [remote 192.0.2.111:35924]'
+        result: ' [remote 192.0.2.111:35924]'
+      - string: ''
+        result: ''
+    negative:
+      - ' [pid 1]'
+  HTTP_ERROR_APACHE_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'user gg not found: /, referer: http://example.com/'
+        result: 'user gg not found: /, referer: http://example.com/'
+    negative: []
+  HTTP_ERROR_APACHE24_BODY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[authz_core:error] [pid 22034] [client 192.0.2.1:58585] AH01630: client denied by server configuration: /home/www/'
+        result: '[authz_core:error] [pid 22034] [client 192.0.2.1:58585] AH01630: client denied by server configuration: /home/www/'
+      - string: '[core:error] [client 192.0.2.1:55555] File does not exist: /x'
+        result: '[core:error] [client 192.0.2.1:55555] File does not exist: /x'
+    negative:
+      - '[error] [client 127.0.0.1] user x not found: /'
   HTTP_ERROR_APACHE24:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -43,6 +219,15 @@ vars_tests:
         result: '[Wed Oct 11 14:32:52.123456 2000] [core:error] [pid 12345:tid 140234] [client 192.168.1.1:1234] AH00128: File does not exist: /var/www/html/favicon.ico'
     negative:
       - '[Wed Oct 11 14:32:52 2000] [error] [client 192.168.1.1] File does not exist'
+  HTTP_ERROR_APACHE22_BODY:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[error] [client 127.0.0.1] user wrongusername not found: /basic/file'
+        result: '[error] [client 127.0.0.1] user wrongusername not found: /basic/file'
+      - string: '[error] [client 192.0.2.1:55555] [client 192.0.2.1] ModSecurity: Access denied with code 403'
+        result: '[error] [client 192.0.2.1:55555] [client 192.0.2.1] ModSecurity: Access denied with code 403'
+    negative:
+      - '[core:error] [pid 1] [client 192.0.2.1:2] x'
   HTTP_ERROR_APACHE22:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -50,6 +235,18 @@ vars_tests:
         result: '[Wed Oct 11 14:32:52 2000] [error] [client 192.168.1.1] File does not exist: /var/www/favicon.ico'
     negative:
       - '2000/10/11 14:32:52 [error] 12345#0: *67 open() failed'
+  HTTP_ERROR_NGINX_TAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: ', client: 192.0.2.0, server: example.com, request: "GET /index.php HTTP/1.1", host: "example.com", referrer: "https://example.com"'
+        result: ', client: 192.0.2.0, server: example.com, request: "GET /index.php HTTP/1.1", host: "example.com", referrer: "https://example.com"'
+      - string: ', client: 192.0.2.5, server: www.example.de, request: "GET /admin/config HTTP/1.1", upstream: "http://127.0.0.1:3000/admin/config", host: "www.example.de"'
+        result: ', client: 192.0.2.5, server: www.example.de, request: "GET /admin/config HTTP/1.1", upstream: "http://127.0.0.1:3000/admin/config", host: "www.example.de"'
+      - string: ''
+        result: ''
+    negative:
+      # a Host header with a space in it is not one the tail will read
+      - ', client: 192.0.2.5, server: s, request: "GET / HTTP/1.1", host: "a b"'
   HTTP_ERROR_NGINX:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -57,16 +254,52 @@ vars_tests:
         result: '2000/10/11 14:32:52 [error] 12345#0: *67 open() "/var/www/html/favicon.ico" failed (2: No such file or directory), client: 192.168.1.1, server: example.com, request: "GET /favicon.ico HTTP/1.1", host: "example.com"'
     negative:
       - '[Wed Oct 11 14:32:52 2000] [error] [client 192.168.1.1] File does not exist'
+  HTTP_ERROR_LIGHTTPD_HEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2011-12-25 17:09:20: (http_auth.c.875) '
+        result: '2011-12-25 17:09:20: (http_auth.c.875) '
+      - string: 'mod_auth.c.828) '
+        result: 'mod_auth.c.828) '
+    negative:
+      - '(not a module) '
+  HTTP_ERROR_LIGHTTPD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2011-12-25 17:09:20: (http_auth.c.875) password doesn''t match for /gitweb/ username: francois, IP: 192.0.2.4'
+        result: '2011-12-25 17:09:20: (http_auth.c.875) password doesn''t match for /gitweb/ username: francois, IP: 192.0.2.4'
+    negative:
+      - '2011-12-25 17:09:20 not lighttpd'
+  HTTP_ERROR_SUHOSIN:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ALERT - script tried to increase memory_limit to 4294967295 bytes which is above the allowed value (attacker ''198.51.100.77'', file ''/var/www/x.php'', line 161)'
+        result: 'ALERT - script tried to increase memory_limit to 4294967295 bytes which is above the allowed value (attacker ''198.51.100.77'', file ''/var/www/x.php'', line 161)'
+    negative:
+      - 'ALERT - something with no attacker'
+  HTTP_ERROR_USER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'user neti not found: /admin'
+        result: 'user neti not found: /admin'
+      - string: 'user "neti": password mismatch'
+        result: 'user "neti": password mismatch'
+    negative:
+      - 'File does not exist: /x'
 rules:
   - name: http_error
     field: MESSAGE
     anchored: true
     geoip:
       - http_error_client_ip
+      - http_error_remote_ip
     patterns:
       - HTTP_ERROR_APACHE24
       - HTTP_ERROR_APACHE22
       - HTTP_ERROR_NGINX
+      # ahead of the lighttpd line it can be carried in
+      - HTTP_ERROR_SUHOSIN
+      - HTTP_ERROR_LIGHTTPD
     tests:
       positive:
         # apache 2.4
@@ -81,6 +314,105 @@ rules:
             http_error_client_port: '1234'
             http_error_code: 'AH00128'
             http_error_message: 'File does not exist: /var/www/html/favicon.ico'
+        # apache 2.4, an auth failure with a referer, the account read out
+        - string: '[Sat Jun 01 11:23:08.402106 2013] [auth_basic:error] [pid 3175:tid 140231596689152] [client 192.0.2.1:46695] AH01618: user gg not found: /, referer: http://example.com/'
+          enriched:
+            http_error_client_ip: '192.0.2.1'
+            http_error_client_port: '46695'
+            http_error_code: 'AH01618'
+            http_error_loglevel: 'error'
+            http_error_message: 'user gg not found: /'
+            http_error_module: 'auth_basic'
+            http_error_pid: '3175'
+            http_error_referer: 'http://example.com/'
+            http_error_tid: '140231596689152'
+            http_error_timestamp: 'Sat Jun 01 11:23:08.402106 2013'
+            http_error_user: 'gg'
+          result:
+            http_error_timestamp: 'Sat Jun 01 11:23:08.402106 2013'
+            http_error_module: 'auth_basic'
+            http_error_loglevel: 'error'
+            http_error_pid: '3175'
+            http_error_tid: '140231596689152'
+            http_error_client_ip: '192.0.2.1'
+            http_error_client_port: '46695'
+            http_error_code: 'AH01618'
+            http_error_message: 'user gg not found: /'
+            http_error_referer: 'http://example.com/'
+        # bracketed IPv6
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [auth_basic:error] [pid 1:tid 2] [client [2001:db8::80da:af6b:8b2c]:51548] AH01637: Authorization of user test-ipv6 to access /x failed'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_module: 'auth_basic'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_tid: '2'
+            http_error_client_ip: '2001:db8::80da:af6b:8b2c'
+            http_error_client_port: '51548'
+            http_error_code: 'AH01637'
+            http_error_message: 'Authorization of user test-ipv6 to access /x failed'
+        # unbracketed IPv6 with a four-digit port, and a v4-mapped client
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [core:error] [pid 1] [client 2001:db8::1:4321] AH00128: File does not exist: /x'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_module: 'core'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_client_ip: '2001:db8::1'
+            http_error_client_port: '4321'
+            http_error_code: 'AH00128'
+            http_error_message: 'File does not exist: /x'
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [core:error] [pid 1] [client ::ffff:192.0.2.5:51395] AH00128: File does not exist: /x'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_module: 'core'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_client_ip: '192.0.2.5'
+            http_error_client_port: '51395'
+            http_error_code: 'AH00128'
+            http_error_message: 'File does not exist: /x'
+        # mod_remoteip: the forwarded client and the peer, and a peer alone
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [auth_basic:error] [pid 1] [client 198.51.100.1:1234] [remote 192.0.2.3:443] AH01618: user x not found: /admin'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_module: 'auth_basic'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_client_ip: '198.51.100.1'
+            http_error_client_port: '1234'
+            http_error_remote_ip: '192.0.2.3'
+            http_error_remote_port: '443'
+            http_error_code: 'AH01618'
+            http_error_message: 'user x not found: /admin'
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [auth_basic:error] [pid 1] [remote 192.0.2.111:35924] AH01618: user whatever not found: /admin'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_module: 'auth_basic'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_client_ip: '192.0.2.111'
+            http_error_client_port: '35924'
+            http_error_code: 'AH01618'
+            http_error_message: 'user whatever not found: /admin'
+        # no [pid] block (custom ErrorLogFormat), and ModSecurity, which is
+        # not an AH code
+        - string: '[Sat May 09 00:35:52.389262 2020] [core:error] [client 192.0.2.1:55555] File does not exist: /x'
+          result:
+            http_error_timestamp: 'Sat May 09 00:35:52.389262 2020'
+            http_error_module: 'core'
+            http_error_loglevel: 'error'
+            http_error_client_ip: '192.0.2.1'
+            http_error_client_port: '55555'
+            http_error_message: 'File does not exist: /x'
+        - string: '[Thu Jan 01 00:00:00.000000 2026] [:error] [pid 1] [client 192.0.2.2:47762] [client 192.0.2.2] ModSecurity: Access denied with code 403 (phase 2).'
+          result:
+            http_error_timestamp: 'Thu Jan 01 00:00:00.000000 2026'
+            http_error_loglevel: 'error'
+            http_error_pid: '1'
+            http_error_client_ip: '192.0.2.2'
+            http_error_client_port: '47762'
+            http_error_message: 'ModSecurity: Access denied with code 403 (phase 2).'
         # apache 2.2
         - string: '[Wed Oct 11 14:32:52 2000] [error] [client 192.168.1.1] File does not exist: /var/www/favicon.ico'
           result:
@@ -88,6 +420,14 @@ rules:
             http_error_loglevel: 'error'
             http_error_client_ip: '192.168.1.1'
             http_error_message: 'File does not exist: /var/www/favicon.ico'
+        # apache 2.2 with a port, and ModSecurity's second client block
+        - string: '[Wed Oct 11 14:32:52 2000] [error] [client 192.0.2.1:55555] [client 192.0.2.1] ModSecurity: Access denied with code 403'
+          result:
+            http_error_timestamp: 'Wed Oct 11 14:32:52 2000'
+            http_error_loglevel: 'error'
+            http_error_client_ip: '192.0.2.1'
+            http_error_client_port: '55555'
+            http_error_message: 'ModSecurity: Access denied with code 403'
         # nginx with the structured tail (client/server/request/host extracted)
         - string: '2000/10/11 14:32:52 [error] 12345#0: *67 open() "/var/www/html/favicon.ico" failed (2: No such file or directory), client: 192.168.1.1, server: example.com, request: "GET /favicon.ico HTTP/1.1", host: "example.com"'
           result:
@@ -101,6 +441,67 @@ rules:
             http_error_server: 'example.com'
             http_error_request: 'GET /favicon.ico HTTP/1.1'
             http_error_host: 'example.com'
+        # nginx with a referrer and an auth failure
+        - string: '2026/07/15 10:00:01 [error] 999#0: *2 user "scribendio": password mismatch, client: 192.0.2.10, server: example.com, request: "GET / HTTP/1.1", host: "example.com", referrer: "https://example.com/"'
+          enriched:
+            http_error_client_ip: '192.0.2.10'
+            http_error_connectionid: '2'
+            http_error_host: 'example.com'
+            http_error_loglevel: 'error'
+            http_error_message: 'user "scribendio": password mismatch'
+            http_error_pid: '999'
+            http_error_referrer: 'https://example.com/'
+            http_error_request: 'GET / HTTP/1.1'
+            http_error_server: 'example.com'
+            http_error_tid: '0'
+            http_error_timestamp: '2026/07/15 10:00:01'
+            http_error_user: 'scribendio'
+          result:
+            http_error_timestamp: '2026/07/15 10:00:01'
+            http_error_loglevel: 'error'
+            http_error_pid: '999'
+            http_error_tid: '0'
+            http_error_connectionid: '2'
+            http_error_message: 'user "scribendio": password mismatch'
+            http_error_client_ip: '192.0.2.10'
+            http_error_server: 'example.com'
+            http_error_request: 'GET / HTTP/1.1'
+            http_error_host: 'example.com'
+            http_error_referrer: 'https://example.com/'
+        # nginx with an upstream, from behind a proxy_pass
+        - string: '2026/07/15 10:00:02 [error] 999#0: *3 connect() failed (111: Connection refused) while connecting to upstream, client: 192.0.2.11, server: www.example.de, request: "GET /admin/config HTTP/1.1", upstream: "http://127.0.0.1:3000/admin/config", host: "www.example.de"'
+          result:
+            http_error_timestamp: '2026/07/15 10:00:02'
+            http_error_loglevel: 'error'
+            http_error_pid: '999'
+            http_error_tid: '0'
+            http_error_connectionid: '3'
+            http_error_message: 'connect() failed (111: Connection refused) while connecting to upstream'
+            http_error_client_ip: '192.0.2.11'
+            http_error_server: 'www.example.de'
+            http_error_request: 'GET /admin/config HTTP/1.1'
+            http_error_upstream: 'http://127.0.0.1:3000/admin/config'
+            http_error_host: 'www.example.de'
+        # nginx, a whole forged tail in the account name ahead of the real
+        # one... two tails on the line, so no address is taken at all
+        - string: '2026/07/15 10:00:03 [error] 999#0: *4 user "test": password mismatch, client: 127.0.0.1, server: , request: "GET / HTTP/1.1", host: "localhost:8443"": was not found in "/etc/nginx/.htpasswd", client: 192.0.2.2, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
+          result:
+            http_error_timestamp: '2026/07/15 10:00:03'
+            http_error_loglevel: 'error'
+            http_error_pid: '999'
+            http_error_tid: '0'
+            http_error_connectionid: '4'
+            http_error_message: 'user "test": password mismatch, client: 127.0.0.1, server: , request: "GET / HTTP/1.1", host: "localhost:8443"": was not found in "/etc/nginx/.htpasswd", client: 192.0.2.2, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
+        # nginx, a forged tail in the Host header after the real one... no
+        # address is taken at all
+        - string: '2026/07/15 10:00:04 [error] 999#0: *5 access forbidden by rule, client: 192.0.2.12, server: s, request: "GET / HTTP/1.1", host: "h", client: 198.51.100.66, server: "y"'
+          result:
+            http_error_timestamp: '2026/07/15 10:00:04'
+            http_error_loglevel: 'error'
+            http_error_pid: '999'
+            http_error_tid: '0'
+            http_error_connectionid: '5'
+            http_error_message: 'access forbidden by rule, client: 192.0.2.12, server: s, request: "GET / HTTP/1.1", host: "h", client: 198.51.100.66, server: "y"'
         # nginx without a tail
         - string: '2026/07/15 10:00:00 [warn] 999#0: *1 a client request body is buffered to a temporary file'
           result:
@@ -110,6 +511,172 @@ rules:
             http_error_tid: '0'
             http_error_connectionid: '1'
             http_error_message: 'a client request body is buffered to a temporary file'
+        # nginx behind a journal that left its syslog tag on the body, twice
+        - string: 'web01 nginx[23141]: web01 nginx: 2025/09/07 21:20:40 [error] 1500#0: *7 no user/password was provided for basic authentication, client: 192.0.2.13, server: example.com, request: "GET / HTTP/1.1", host: "example.com"'
+          result:
+            http_error_timestamp: '2025/09/07 21:20:40'
+            http_error_loglevel: 'error'
+            http_error_pid: '1500'
+            http_error_tid: '0'
+            http_error_connectionid: '7'
+            http_error_message: 'no user/password was provided for basic authentication'
+            http_error_client_ip: '192.0.2.13'
+            http_error_server: 'example.com'
+            http_error_request: 'GET / HTTP/1.1'
+            http_error_host: 'example.com'
+        # lighttpd, its own log and through syslog
+        - string: '2011-12-25 17:09:20: (http_auth.c.875) password doesn''t match for /gitweb/ username: francois, IP: 192.0.2.4'
+          enriched:
+            http_error_client_ip: '192.0.2.4'
+            http_error_message: 'password doesn''t match for /gitweb/ username: francois'
+            http_error_module: 'http_auth.c.875'
+            http_error_timestamp: '2011-12-25 17:09:20'
+            http_error_user: 'francois'
+          result:
+            http_error_timestamp: '2011-12-25 17:09:20'
+            http_error_module: 'http_auth.c.875'
+            http_error_message: 'password doesn''t match for /gitweb/ username: francois'
+            http_error_client_ip: '192.0.2.4'
+        - string: '(mod_auth.c.791) digest: auth failed for  tester : wrong password, IP: 192.0.2.5'
+          enriched:
+            http_error_client_ip: '192.0.2.5'
+            http_error_message: 'digest: auth failed for  tester : wrong password'
+            http_error_module: 'mod_auth.c.791'
+            http_error_user: 'tester'
+          result:
+            http_error_module: 'mod_auth.c.791'
+            http_error_message: 'digest: auth failed for  tester : wrong password'
+            http_error_client_ip: '192.0.2.5'
+        # lighttpd, an account forging an address ahead of the real one
+        - string: '2011-12-25 17:09:21: (http_auth.c.875) password doesn''t match for /gitweb/ username: x, IP: 198.51.100.66, IP: 192.0.2.6'
+          result:
+            http_error_timestamp: '2011-12-25 17:09:21'
+            http_error_module: 'http_auth.c.875'
+            http_error_message: 'password doesn''t match for /gitweb/ username: x, IP: 198.51.100.66'
+            http_error_client_ip: '192.0.2.6'
+        # suhosin, on its own and as FastCGI stderr inside lighttpd's log
+        - string: 'ALERT - script tried to increase memory_limit to 4294967295 bytes which is above the allowed value (attacker ''198.51.100.77'', file ''/var/www/x.php'', line 161)'
+          numeric:
+            - http_error_line
+          result:
+            http_error_message: 'script tried to increase memory_limit to 4294967295 bytes which is above the allowed value'
+            http_error_client_ip: '198.51.100.77'
+            http_error_file: '/var/www/x.php'
+            http_error_line: '161'
+        - string: '2013-12-19 11:40:22: (mod_fastcgi.c.2676) FastCGI-stderr: ALERT - configured request variable name length limit exceeded - dropped variable ''x (attacker ''198.51.100.66'', file ''/y'')'' (attacker ''192.0.2.78'', file ''/var/www/index.php'')'
+          result:
+            http_error_timestamp: '2013-12-19 11:40:22'
+            http_error_module: 'mod_fastcgi.c.2676'
+            http_error_message: 'configured request variable name length limit exceeded - dropped variable ''x (attacker ''198.51.100.66'', file ''/y'')'''
+            http_error_client_ip: '192.0.2.78'
+            http_error_file: '/var/www/index.php'
       negative:
         - 'this is not an error log line at all'
         - '127.0.0.1 - - [12/Jul/2026:08:15:50 +0000] "GET / HTTP/1.1" 200 12'
+        # apache's syslog form is the second rule's, gated on the program
+        - '[authz_core:error] [pid 22034] [client 192.0.2.1:58585] AH01630: client denied by server configuration: /home/www/'
+  # apache "ErrorLog syslog": the same lines with syslog's stamp in place of
+  # apache's own, so the body starts at the module/level block. Gated, since
+  # "[error] ..." alone is too loose to take from any program. A second
+  # instance logs as httpd/<name> or apache2-<name>.
+  - name: http_error_syslog
+    gate:
+      - field: PROGRAM
+        values:
+          - '//^(?:httpd|apache2?)(?:[-\/][\w.-]+)?$//'
+    field: MESSAGE
+    anchored: true
+    geoip:
+      - http_error_client_ip
+      - http_error_remote_ip
+    patterns:
+      - HTTP_ERROR_APACHE24_BODY
+      - HTTP_ERROR_APACHE22_BODY
+    tests:
+      positive:
+        - string: '[authz_core:error] [pid 22034] [client 192.0.2.1:58585] AH01630: client denied by server configuration: /home/www/'
+          program: 'httpd'
+          result:
+            http_error_module: 'authz_core'
+            http_error_loglevel: 'error'
+            http_error_pid: '22034'
+            http_error_client_ip: '192.0.2.1'
+            http_error_client_port: '58585'
+            http_error_code: 'AH01630'
+            http_error_message: 'client denied by server configuration: /home/www/'
+        - string: '[:error] [pid 18154:tid 140680873617152] [client 192.0.2.3:48154] AH01630: client denied by server configuration: /x'
+          program: 'apache2'
+          result:
+            http_error_loglevel: 'error'
+            http_error_pid: '18154'
+            http_error_tid: '140680873617152'
+            http_error_client_ip: '192.0.2.3'
+            http_error_client_port: '48154'
+            http_error_code: 'AH01630'
+            http_error_message: 'client denied by server configuration: /x'
+        # a second apache instance
+        - string: '[authz_core:error] [pid 22036] [client 192.0.2.2:59392] AH01630: client denied by server configuration: /home/backend1/'
+          program: 'httpd/backend1'
+          result:
+            http_error_module: 'authz_core'
+            http_error_loglevel: 'error'
+            http_error_pid: '22036'
+            http_error_client_ip: '192.0.2.2'
+            http_error_client_port: '59392'
+            http_error_code: 'AH01630'
+            http_error_message: 'client denied by server configuration: /home/backend1/'
+        - string: '[error] [client 127.0.0.1] user wrongusername not found: /basic/file'
+          program: 'httpd'
+          enriched:
+            http_error_client_ip: '127.0.0.1'
+            http_error_loglevel: 'error'
+            http_error_message: 'user wrongusername not found: /basic/file'
+            http_error_user: 'wrongusername'
+          result:
+            http_error_loglevel: 'error'
+            http_error_client_ip: '127.0.0.1'
+            http_error_message: 'user wrongusername not found: /basic/file'
+      negative:
+        - string: '[error] [client 127.0.0.1] user wrongusername not found: /basic/file'
+          program: 'sshd'
+convert:
+  http_error_line: int
+# The account an authentication failure names, out of the message. A message
+# that names none is left as it is.
+decompose:
+  - field: http_error_message
+    type: pattern
+    pattern: HTTP_ERROR_USER
+    tests:
+      - input: 'user neti not found: /admin'
+        result:
+          http_error_message: 'user neti not found: /admin'
+          http_error_user: 'neti'
+      - input: 'user  not found: /'
+        result:
+          http_error_message: 'user  not found: /'
+          http_error_user: ''
+      - input: 'user neti: authentication failure for "/": Password Mismatch'
+        result:
+          http_error_message: 'user neti: authentication failure for "/": Password Mismatch'
+          http_error_user: 'neti'
+      - input: 'Digest: user `neti'' in realm `private'' not found: /'
+        result:
+          http_error_message: 'Digest: user `neti'' in realm `private'' not found: /'
+          http_error_user: 'neti'
+      - input: 'Authorization of user neti to access /private failed, reason: user is not part of the ''require''ed group(s).'
+        result:
+          http_error_message: 'Authorization of user neti to access /private failed, reason: user is not part of the ''require''ed group(s).'
+          http_error_user: 'neti'
+      - input: 'user "scriben dio" was not found in "/etc/nginx/.htpasswd"'
+        result:
+          http_error_message: 'user "scriben dio" was not found in "/etc/nginx/.htpasswd"'
+          http_error_user: 'scriben dio'
+      - input: 'PAM: user ''neti'' - not authenticated: Authentication failure'
+        result:
+          http_error_message: 'PAM: user ''neti'' - not authenticated: Authentication failure'
+          http_error_user: 'neti'
+      - input: 'password doesn''t match for /gitweb/ username: francois'
+        result:
+          http_error_message: 'password doesn''t match for /gitweb/ username: francois'
+          http_error_user: 'francois'

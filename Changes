@@ -89,6 +89,18 @@ Revision history for Log-Munger
         - http_access_logs: %u takes any account basic auth sent, spaces
           included; methods may hold a hyphen; a request path with spaces
           keeps its verb/path/version when the line ends in HTTP/x
+        - http_error_logs: apache "ErrorLog syslog" lines read by a second rule
+          gated on httpd/apache2
+        - http_error_logs: nginx tail takes login, subrequest, upstream and
+          referrer; a line holding a second ", client: " tail, or a client-set
+          value with a space, yields no address rather than a forged one
+        - http_error_logs: apache 2.4 [client] takes bracketed and unbracketed
+          IPv6 and ::ffff: mapped addresses, [remote] captured as
+          http_error_remote_ip, [pid] optional, ModSecurity's second [client]
+          skipped, http_error_code only AHnnnnn, ", referer:" split out
+        - http_error_logs: apache 2.2 [client] takes a port
+        - http_error_logs: add lighttpd and suhosin; auth failures name the
+          account as http_error_user
 
 0.0.1   2026-08-23/17:00
         - init
