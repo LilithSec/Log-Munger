@@ -16,11 +16,26 @@
 includes:
 - base
 vars_templated:
+  # The peer as slapd writes it (servers/slapd/daemon.c): "IP=192.0.2.5:49152",
+  # "IP=[2001:db8::5]:49152" for v6, or "PATH=/var/run/slapd/ldapi" for a
+  # local ldapi socket. A v4 client on a dual-stack listener is
+  # "IP=[::ffff:192.0.2.5]:49152", and the mapping prefix is dropped so
+  # slapd_src_ip holds the plain address.
+  SLAPD_SRC: '(?:IP=(?:\[(?:::ffff:(?<slapd_src_ip>[% IPv4 %])|(?<slapd_src_ip>[% IPv6 %]))\]|(?<slapd_src_ip>[% IPv4 %])):(?<slapd_src_port>[% INT %])|PATH=(?<slapd_src_path>[% NOTSPACE %]))'
+  # The listener the connection arrived on, in the same three forms. A v6 listener
+  # bound to every address is "IP=[::]:389", which base IPv6 does not take on
+  # its own.
+  SLAPD_DST: '(?:IP=(?:\[(?<slapd_dst_ip>[% IPv6 %]|::)\]|(?<slapd_dst_ip>[% IPv4 %])):(?<slapd_dst_port>[% INT %])|PATH=(?<slapd_dst_path>[^)\s]+))'
   # "conn=1000 fd=12 ACCEPT from IP=192.0.2.5:49152 (IP=0.0.0.0:389)"
+  # "conn=1000 fd=12 ACCEPT from IP=[2001:db8::5]:45011 (IP=[::]:389)"
+  # "conn=1000 fd=12 ACCEPT from PATH=/var/run/slapd/ldapi (PATH=/var/run/slapd/ldapi)"
   #
   # The only line that names the peer, which is why every other line has to be
   # correlated back to it by conn=.
-  SLAPD_ACCEPT: 'conn=(?<slapd_conn>[% INT %]) fd=(?<slapd_fd>[% INT %]) (?<slapd_event>ACCEPT|TLS) from IP=(?<slapd_src_ip>[% IP %]):(?<slapd_src_port>[% INT %])(?: \(IP=(?<slapd_dst_ip>[% IP %]):(?<slapd_dst_port>[% INT %])\))?(?: [% GREEDYDATA %])?'
+  SLAPD_ACCEPT: 'conn=(?<slapd_conn>[% INT %]) fd=(?<slapd_fd>[% INT %]) (?<slapd_event>ACCEPT|TLS) from [% SLAPD_SRC %](?: \([% SLAPD_DST %]\))?(?: [% GREEDYDATA %])?'
+  # "conn=1000 fd=12 TLS established tls_ssf=256 ssf=256"
+  # "conn=1000 fd=12 TLS established tls_ssf=256 ssf=256 tls_proto=TLSv1.3 tls_cipher=TLS_AES_256_GCM_SHA384"
+  SLAPD_TLS_ESTABLISHED: 'conn=(?<slapd_conn>[% INT %]) fd=(?<slapd_fd>[% INT %]) (?<slapd_event>TLS established) tls_ssf=(?<slapd_tls_ssf>[% INT %]) ssf=(?<slapd_ssf>[% INT %])(?: tls_proto=(?<slapd_tls_proto>[% NOTSPACE %]))?(?: tls_cipher=(?<slapd_tls_cipher>[% NOTSPACE %]))?(?: [% GREEDYDATA %])?'
   # "conn=1000 op=0 BIND dn="cn=admin,dc=example,dc=com" method=128"
   # "conn=1000 op=0 BIND dn="cn=admin,dc=example,dc=com" mech=SIMPLE ssf=0"
   #
@@ -31,8 +46,10 @@ vars_templated:
   # "conn=1000 op=0 RESULT tag=97 err=49 text="
   #
   # err=0 is success and err=49 is invalid credentials. qtime/etime appear on
-  # newer slapd and are left to the trailing GREEDYDATA.
-  SLAPD_RESULT: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) RESULT (?:oid=(?<slapd_oid>[% NOTSPACE %]) )?tag=(?<slapd_tag>[% INT %]) err=(?<slapd_err>[% INT %])(?: qtime=[% NOTSPACE %])?(?: etime=[% NOTSPACE %])?(?: text=(?<slapd_text>[% GREEDYDATA %]))?'
+  # newer slapd and are left to the trailing GREEDYDATA. The result of an
+  # extended operation names its oid, which may be empty, and no tag:
+  #   conn=1000 op=0 RESULT oid= err=1 text=TLS already started
+  SLAPD_RESULT: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) RESULT (?:oid=(?<slapd_oid>\S*) )?(?:tag=(?<slapd_tag>[% INT %]) )?err=(?<slapd_err>[% INT %])(?: qtime=[% NOTSPACE %])?(?: etime=[% NOTSPACE %])?(?: text=(?<slapd_text>[% GREEDYDATA %]))?'
   # "conn=1000 op=1 SRCH base="dc=example,dc=com" scope=2 deref=0
   #  filter="(uid=neti)""
   SLAPD_SEARCH: 'conn=(?<slapd_conn>[% INT %]) op=(?<slapd_op>[% INT %]) SRCH base="(?<slapd_base>[^"]*)" scope=(?<slapd_scope>[% INT %]) deref=(?<slapd_deref>[% INT %]) filter="(?<slapd_filter>.*)"'
@@ -50,8 +67,43 @@ vars_tests:
         result: 'conn=1000 fd=12 ACCEPT from IP=192.0.2.5:49152 (IP=0.0.0.0:389)'
       - string: 'conn=1000 fd=12 TLS from IP=192.0.2.5:49152'
         result: 'conn=1000 fd=12 TLS from IP=192.0.2.5:49152'
+      - string: 'conn=1023 fd=22 ACCEPT from IP=[2001:db8::5]:45011 (IP=[::]:389)'
+        result: 'conn=1023 fd=22 ACCEPT from IP=[2001:db8::5]:45011 (IP=[::]:389)'
+      - string: 'conn=1024 fd=23 ACCEPT from PATH=/var/run/slapd/ldapi (PATH=/var/run/slapd/ldapi)'
+        result: 'conn=1024 fd=23 ACCEPT from PATH=/var/run/slapd/ldapi (PATH=/var/run/slapd/ldapi)'
     negative:
       - 'conn=1000 fd=12 closed (connection lost)'
+  SLAPD_SRC:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'IP=192.0.2.5:49152'
+        result: 'IP=192.0.2.5:49152'
+      - string: 'IP=[2001:db8::5]:45011'
+        result: 'IP=[2001:db8::5]:45011'
+      - string: 'IP=[::ffff:192.0.2.5]:45011'
+        result: 'IP=[::ffff:192.0.2.5]:45011'
+      - string: 'PATH=/var/run/slapd/ldapi'
+        result: 'PATH=/var/run/slapd/ldapi'
+    negative:
+      - 'IP=scanner.example.net:389'
+  SLAPD_DST:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'IP=0.0.0.0:389'
+        result: 'IP=0.0.0.0:389'
+      - string: 'IP=[::]:389'
+        result: 'IP=[::]:389'
+    negative:
+      - 'not a listener'
+  SLAPD_TLS_ESTABLISHED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'conn=1022 fd=21 TLS established tls_ssf=256 ssf=256'
+        result: 'conn=1022 fd=21 TLS established tls_ssf=256 ssf=256'
+      - string: 'conn=1022 fd=21 TLS established tls_ssf=256 ssf=256 tls_proto=TLSv1.3 tls_cipher=TLS_AES_256_GCM_SHA384'
+        result: 'conn=1022 fd=21 TLS established tls_ssf=256 ssf=256 tls_proto=TLSv1.3 tls_cipher=TLS_AES_256_GCM_SHA384'
+    negative:
+      - 'conn=1000 fd=12 TLS from IP=192.0.2.5:49152'
   SLAPD_BIND:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -71,6 +123,8 @@ vars_tests:
         result: 'conn=1000 op=0 RESULT tag=97 err=49 text='
       - string: 'conn=1000 op=1 RESULT tag=101 err=0 qtime=0.000034 etime=0.000512 text='
         result: 'conn=1000 op=1 RESULT tag=101 err=0 qtime=0.000034 etime=0.000512 text='
+      - string: 'conn=1022 op=0 RESULT oid= err=1 text=TLS already started'
+        result: 'conn=1022 op=0 RESULT oid= err=1 text=TLS already started'
     negative:
       - 'conn=1000 op=0 BIND dn="cn=admin,dc=example,dc=com" method=128'
   SLAPD_SEARCH:
@@ -111,6 +165,7 @@ convert:
   slapd_scope: int
   slapd_deref: int
   slapd_ssf: int
+  slapd_tls_ssf: int
 rules:
   - name: slapd
     gate:
@@ -121,6 +176,7 @@ rules:
     anchored: true
     patterns:
       - SLAPD_ACCEPT
+      - SLAPD_TLS_ESTABLISHED
       - SLAPD_BIND
       - SLAPD_RESULT
       - SLAPD_SEARCH
@@ -185,6 +241,53 @@ rules:
             slapd_conn: '1000'
             slapd_op: '3'
             slapd_operation: 'UNBIND'
+        # a v6 peer on a v6 listener, and a v4 one through a dual-stack socket
+        - string: 'conn=1023 fd=22 ACCEPT from IP=[2001:db8::5]:45011 (IP=[::]:389)'
+          result:
+            slapd_conn: '1023'
+            slapd_fd: '22'
+            slapd_event: 'ACCEPT'
+            slapd_src_ip: '2001:db8::5'
+            slapd_src_port: '45011'
+            slapd_dst_ip: '::'
+            slapd_dst_port: '389'
+        - string: 'conn=1025 fd=24 ACCEPT from IP=[::ffff:192.0.2.6]:45012 (IP=[::]:389)'
+          result:
+            slapd_conn: '1025'
+            slapd_fd: '24'
+            slapd_event: 'ACCEPT'
+            slapd_src_ip: '192.0.2.6'
+            slapd_src_port: '45012'
+            slapd_dst_ip: '::'
+            slapd_dst_port: '389'
+        # a local ldapi socket, with no address at all
+        - string: 'conn=1024 fd=23 ACCEPT from PATH=/var/run/slapd/ldapi (PATH=/var/run/slapd/ldapi)'
+          result:
+            slapd_conn: '1024'
+            slapd_fd: '23'
+            slapd_event: 'ACCEPT'
+            slapd_src_path: '/var/run/slapd/ldapi'
+            slapd_dst_path: '/var/run/slapd/ldapi'
+        - string: 'conn=1022 fd=21 TLS established tls_ssf=256 ssf=256 tls_proto=TLSv1.3 tls_cipher=TLS_AES_256_GCM_SHA384'
+          numeric:
+            - slapd_ssf
+            - slapd_tls_ssf
+          result:
+            slapd_conn: '1022'
+            slapd_fd: '21'
+            slapd_event: 'TLS established'
+            slapd_tls_ssf: '256'
+            slapd_ssf: '256'
+            slapd_tls_proto: 'TLSv1.3'
+            slapd_tls_cipher: 'TLS_AES_256_GCM_SHA384'
+        # an extended operation's result: an empty oid and no tag
+        - string: 'conn=1022 op=0 RESULT oid= err=1 text=TLS already started'
+          result:
+            slapd_conn: '1022'
+            slapd_op: '0'
+            slapd_oid: ''
+            slapd_err: '1'
+            slapd_text: 'TLS already started'
       negative:
         - 'this is not a slapd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'

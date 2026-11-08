@@ -134,6 +134,11 @@ Revision history for Log-Munger
           rest as mongo_msg
         - mongodb: peer split tries ip:port first, so an unbracketed v6 peer
           keeps its port
+        - slapd: ACCEPT takes bracketed v6 peers and listeners (IP=[::]:389),
+          ::ffff: mapped peers unwrapped, and ldapi PATH= sockets
+          (slapd_src_path / slapd_dst_path)
+        - slapd: add TLS established; RESULT of an extended operation (empty
+          oid=, no tag=)
 
 0.0.1   2026-08-23/17:00
         - init
