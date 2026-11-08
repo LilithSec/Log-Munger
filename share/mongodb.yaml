@@ -21,6 +21,20 @@
 #   mongo_ctx -> context (thread/subsystem)
 #   mongo_msg -> the human-readable message
 #   mongo_attr_* -> the flattened attr object (varies by mongo_id)
+#
+# The peer is attr.remote on 5.0 and later, but 4.4 wrote "Authentication
+# failed" (id 20249) with it under attr.client instead; both are split into an
+# address and a port and both are looked up.
+#
+# Before 4.4 the log was plain text, as 2.6 wrote it
+#   2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: ...
+#   2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)
+# and as 3.x did, with a severity and component:
+#   2018-01-04T10:00:00.000+0000 I ACCESS   [conn1] Failed to authenticate root@admin from client 192.0.2.35:41234 with mechanism SCRAM-SHA-1: ...
+# Those lines are read into the same field names the JSON flatten produces
+# (mongo_ctx, mongo_msg, mongo_attr_remote, ...), so one consumer reads both.
+# 2.6 names no peer on the failure itself; it is on the "end connection" line
+# of the same mongo_ctx, and joining the two is left downstream.
 includes:
 - base
 vars_templated:
@@ -28,8 +42,25 @@ vars_templated:
   MONGO_JSON: '(?<mongo_json>\{.*\})'
   # MongoDB records the peer as "ip:port" (IPv4 or bracketed IPv6) under
   # attr.remote; this splits the flattened mongo_attr_remote into an address and
-  # a port so the address can be geoip'd. The port is optional.
-  MONGO_REMOTE: '(?:\[(?<mongo_attr_remote_ip>[% IPv6 %])\]|(?<mongo_attr_remote_ip>[% IP %]))(?::(?<mongo_attr_remote_port>[% INT %]))?'
+  # a port so the address can be geoip'd. A trailing :<digits> is read as the
+  # port first, so an unbracketed v6 peer does not swallow its port into the
+  # address; a peer with no port is still taken.
+  MONGO_REMOTE: '(?:(?:\[(?<mongo_attr_remote_ip>[% IPv6 %])\]|(?<mongo_attr_remote_ip>[% IP %])):(?<mongo_attr_remote_port>[% INT %])|(?<mongo_attr_remote_ip>[% IP %]))'
+  # The same, for 4.4's attr.client.
+  MONGO_CLIENT: '(?:(?:\[(?<mongo_attr_client_ip>[% IPv6 %])\]|(?<mongo_attr_client_ip>[% IP %])):(?<mongo_attr_client_port>[% INT %])|(?<mongo_attr_client_ip>[% IP %]))'
+  # The head of a pre-4.4 text line: the timestamp, 3.x's severity and
+  # component, then the [context]. Through syslog the timestamp is gone.
+  MONGO_TEXT_HEAD: '(?:(?<mongo_t>\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)\s+)?(?:(?<mongo_s>[FEWI]|D\d?)\s+(?<mongo_c>[A-Z_-]+)\s+)?\[(?<mongo_ctx>[^\]]+)\]\s+'
+  # "[conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound ..."
+  # "[conn1] Failed to authenticate root@admin from client 192.0.2.35:41234 with mechanism SCRAM-SHA-1: AuthenticationFailed: ..."
+  # The database is the part after the last "@", since the user may hold one.
+  MONGO_TEXT_AUTH_FAILED: '[% MONGO_TEXT_HEAD %](?<mongo_msg>Failed to authenticate) (?<mongo_attr_principalName>\S+)@(?<mongo_attr_authenticationDatabase>[^\s@]+)(?: from client (?<mongo_attr_client>\S+))? with mechanism (?<mongo_attr_mechanism>\S+): (?<mongo_attr_error>.*)'
+  # "[initandlisten] connection accepted from 127.0.0.1:58774 #2261 (1 connection now open)"
+  MONGO_TEXT_CONN_ACCEPTED: '[% MONGO_TEXT_HEAD %](?<mongo_msg>connection accepted) from (?<mongo_attr_remote>\S+) #(?<mongo_attr_connectionId>[% INT %]) \((?<mongo_attr_connectionCount>[% INT %]) connections? now open\)'
+  # "[conn1] end connection 192.0.2.35:53276 (0 connections now open)"
+  MONGO_TEXT_END_CONNECTION: '[% MONGO_TEXT_HEAD %](?<mongo_msg>end connection) (?<mongo_attr_remote>\S+) \((?<mongo_attr_connectionCount>[% INT %]) connections? now open\)'
+  # Anything else a pre-4.4 mongod said. Only safe because the rule is gated.
+  MONGO_TEXT_MESSAGE: '[% MONGO_TEXT_HEAD %](?<mongo_msg>.+)'
 vars_tests:
   MONGO_JSON:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -47,8 +78,58 @@ vars_tests:
         result: '192.168.14.15:52111'
       - string: '[2001:db8::1]:27017'
         result: '[2001:db8::1]:27017'
+      - string: '2001:db8::7:41234'
+        result: '2001:db8::7:41234'
+      - string: '192.168.14.15'
+        result: '192.168.14.15'
     negative:
       - 'not-an-address'
+  MONGO_CLIENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '192.0.2.35:41234'
+        result: '192.0.2.35:41234'
+    negative:
+      - 'not-an-address'
+  MONGO_TEXT_HEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2016-11-20T00:04:00.110+0100 [conn1] '
+        result: '2016-11-20T00:04:00.110+0100 [conn1] '
+      - string: '2018-01-04T10:00:00.000+0000 I ACCESS   [conn1] '
+        result: '2018-01-04T10:00:00.000+0000 I ACCESS   [conn1] '
+      - string: '[conn1] '
+        result: '[conn1] '
+    negative:
+      - '{"s":"I"}'
+  MONGO_TEXT_AUTH_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin'
+        result: '2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin'
+    negative:
+      - '2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)'
+  MONGO_TEXT_CONN_ACCEPTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2016-11-20T12:54:02.370+0100 [initandlisten] connection accepted from 127.0.0.1:58774 #2261 (1 connection now open)'
+        result: '2016-11-20T12:54:02.370+0100 [initandlisten] connection accepted from 127.0.0.1:58774 #2261 (1 connection now open)'
+    negative:
+      - '2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)'
+  MONGO_TEXT_END_CONNECTION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)'
+        result: '2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)'
+    negative:
+      - '2016-11-20T12:54:02.370+0100 [initandlisten] connection accepted from 127.0.0.1:58774 #2261 (1 connection now open)'
+  MONGO_TEXT_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '2016-11-20T13:07:49.781+0100 [conn2271]  authenticate db: admin { authenticate: 1, nonce: "xxx", user: "root", key: "xxx" }'
+        result: '2016-11-20T13:07:49.781+0100 [conn2271]  authenticate db: admin { authenticate: 1, nonce: "xxx", user: "root", key: "xxx" }'
+    negative:
+      - 'no context'
 # JSON-decode the captured blob and flatten it into mongo_*.
 decompose:
   - field: mongo_json
@@ -97,12 +178,29 @@ decompose:
           mongo_attr_remote: '[2001:db8::1]:27017'
           mongo_attr_remote_ip: '2001:db8::1'
           mongo_attr_remote_port: '27017'
+      - input: '2001:db8::7:41234'
+        result:
+          mongo_attr_remote: '2001:db8::7:41234'
+          mongo_attr_remote_ip: '2001:db8::7'
+          mongo_attr_remote_port: '41234'
+  # 4.4's attr.client, split the same way
+  - field: mongo_attr_client
+    type: pattern
+    pattern: MONGO_CLIENT
+    tests:
+      - input: '192.0.2.35:41234'
+        result:
+          mongo_attr_client: '192.0.2.35:41234'
+          mongo_attr_client_ip: '192.0.2.35'
+          mongo_attr_client_port: '41234'
 # geoip the split peer address (only used when a geoip database is configured);
 # coerce the split port to an integer at runtime.
 geoip:
   - mongo_attr_remote_ip
+  - mongo_attr_client_ip
 convert:
   mongo_attr_remote_port: int
+  mongo_attr_client_port: int
 rules:
   - name: mongodb
     gate:
@@ -113,6 +211,11 @@ rules:
     anchored: true
     patterns:
       - MONGO_JSON
+      - MONGO_TEXT_AUTH_FAILED
+      - MONGO_TEXT_CONN_ACCEPTED
+      - MONGO_TEXT_END_CONNECTION
+      # last: matches any text line with a [context], safe only behind the gate
+      - MONGO_TEXT_MESSAGE
     tests:
       # the rule test checks only the pattern capture (the whole JSON blob);
       # the flatten-into-mongo_* behavior is validated by the decompose tests above
@@ -136,6 +239,90 @@ rules:
           program: 'mongodb'
           result:
             mongo_json: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.168.14.15:52111","connectionId":7}}'
+        # 4.4: the peer under attr.client
+        - string: '{"t":{"$date":"2026-07-12T08:15:50.123+00:00"},"s":"I","c":"ACCESS","id":20249,"ctx":"conn123","msg":"Authentication failed","attr":{"mechanism":"SCRAM-SHA-1","principalName":"admin","authenticationDatabase":"admin","client":"192.0.2.35:41234","result":"AuthenticationFailed: SCRAM authentication failed, storedKey mismatch"}}'
+          enriched:
+            mongo_attr_authenticationDatabase: 'admin'
+            mongo_attr_client: '192.0.2.35:41234'
+            mongo_attr_client_ip: '192.0.2.35'
+            mongo_attr_client_port: '41234'
+            mongo_attr_mechanism: 'SCRAM-SHA-1'
+            mongo_attr_principalName: 'admin'
+            mongo_attr_result: 'AuthenticationFailed: SCRAM authentication failed, storedKey mismatch'
+            mongo_c: 'ACCESS'
+            mongo_ctx: 'conn123'
+            mongo_id: '20249'
+            mongo_msg: 'Authentication failed'
+            mongo_s: 'I'
+            mongo_t: '2026-07-12T08:15:50.123+00:00'
+          numeric:
+            - mongo_attr_client_port
+          result:
+            mongo_json: '{"t":{"$date":"2026-07-12T08:15:50.123+00:00"},"s":"I","c":"ACCESS","id":20249,"ctx":"conn123","msg":"Authentication failed","attr":{"mechanism":"SCRAM-SHA-1","principalName":"admin","authenticationDatabase":"admin","client":"192.0.2.35:41234","result":"AuthenticationFailed: SCRAM authentication failed, storedKey mismatch"}}'
+        # pre-4.4 text: the 2.6 failure (no peer) and the end of the same conn
+        - string: '2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin'
+          result:
+            mongo_t: '2016-11-20T00:04:00.110+0100'
+            mongo_ctx: 'conn1'
+            mongo_msg: 'Failed to authenticate'
+            mongo_attr_principalName: 'root'
+            mongo_attr_authenticationDatabase: 'admin'
+            mongo_attr_mechanism: 'MONGODB-CR'
+            mongo_attr_error: 'AuthenticationFailed UserNotFound Could not find user root@admin'
+        - string: '2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)'
+          enriched:
+            mongo_attr_connectionCount: '0'
+            mongo_attr_remote: '192.0.2.35:53276'
+            mongo_attr_remote_ip: '192.0.2.35'
+            mongo_attr_remote_port: '53276'
+            mongo_ctx: 'conn1'
+            mongo_msg: 'end connection'
+            mongo_t: '2016-11-20T00:04:00.111+0100'
+          result:
+            mongo_t: '2016-11-20T00:04:00.111+0100'
+            mongo_ctx: 'conn1'
+            mongo_msg: 'end connection'
+            mongo_attr_remote: '192.0.2.35:53276'
+            mongo_attr_connectionCount: '0'
+        # 3.x text: severity, component, and the peer on the failure itself
+        - string: '2018-01-04T10:00:00.000+0000 I ACCESS   [conn7] Failed to authenticate root@admin from client 192.0.2.36:41234 with mechanism SCRAM-SHA-1: AuthenticationFailed: SCRAM-SHA-1 authentication failed, storedKey mismatch'
+          enriched:
+            mongo_attr_authenticationDatabase: 'admin'
+            mongo_attr_client: '192.0.2.36:41234'
+            mongo_attr_client_ip: '192.0.2.36'
+            mongo_attr_client_port: '41234'
+            mongo_attr_error: 'AuthenticationFailed: SCRAM-SHA-1 authentication failed, storedKey mismatch'
+            mongo_attr_mechanism: 'SCRAM-SHA-1'
+            mongo_attr_principalName: 'root'
+            mongo_c: 'ACCESS'
+            mongo_ctx: 'conn7'
+            mongo_msg: 'Failed to authenticate'
+            mongo_s: 'I'
+            mongo_t: '2018-01-04T10:00:00.000+0000'
+          result:
+            mongo_t: '2018-01-04T10:00:00.000+0000'
+            mongo_s: 'I'
+            mongo_c: 'ACCESS'
+            mongo_ctx: 'conn7'
+            mongo_msg: 'Failed to authenticate'
+            mongo_attr_principalName: 'root'
+            mongo_attr_authenticationDatabase: 'admin'
+            mongo_attr_client: '192.0.2.36:41234'
+            mongo_attr_mechanism: 'SCRAM-SHA-1'
+            mongo_attr_error: 'AuthenticationFailed: SCRAM-SHA-1 authentication failed, storedKey mismatch'
+        - string: '2016-11-20T12:54:02.370+0100 [initandlisten] connection accepted from 192.0.2.40:58774 #2261 (1 connection now open)'
+          result:
+            mongo_t: '2016-11-20T12:54:02.370+0100'
+            mongo_ctx: 'initandlisten'
+            mongo_msg: 'connection accepted'
+            mongo_attr_remote: '192.0.2.40:58774'
+            mongo_attr_connectionId: '2261'
+            mongo_attr_connectionCount: '1'
+        - string: '2016-11-20T13:07:49.781+0100 [conn2271]  authenticate db: admin { authenticate: 1, nonce: "xxx", user: "root", key: "xxx" }'
+          result:
+            mongo_t: '2016-11-20T13:07:49.781+0100'
+            mongo_ctx: 'conn2271'
+            mongo_msg: 'authenticate db: admin { authenticate: 1, nonce: "xxx", user: "root", key: "xxx" }'
       negative:
         - 'this is not a mongodb json log line'
         - string: '{"t":{"$date":"2026-07-27T02:49:30.131+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.168.14.15:52111","connectionId":7}}'

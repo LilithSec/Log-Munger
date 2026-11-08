@@ -127,6 +127,13 @@ Revision history for Log-Munger
         - haproxy: captured request/response header blocks before the request
           taken as haproxy_req_headers / haproxy_res_headers instead of
           failing the line; ::ffff: mapped client addresses unwrapped
+        - mongodb: 4.4's attr.client split into mongo_attr_client_ip/_port and
+          looked up, as attr.remote is
+        - mongodb: pre-4.4 text log (2.6 and 3.x) read into the JSON field
+          names: auth failures, connection accepted / end connection, and the
+          rest as mongo_msg
+        - mongodb: peer split tries ip:port first, so an unbracketed v6 peer
+          keeps its port
 
 0.0.1   2026-08-23/17:00
         - init
