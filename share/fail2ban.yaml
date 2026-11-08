@@ -17,26 +17,47 @@
 # optional, so every pattern accepts the bare, level-prefixed and full forms.
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
 # wins. Every capture is namespaced with f2b_ .
+#
+# Being gated on PROGRAM, this reads fail2ban's messages as syslog or the
+# journal delivers them. fail2ban's own /var/log/fail2ban.log has no PROGRAM to
+# gate on and is not read here.
 includes:
 - base
 vars_templated:
-  # The optional lead-in before "[jail]": the "fail2ban.actions    [pid]: "
-  # logger prefix seen under fail2ban-server, then a level token. The logger
-  # name is kept as f2b_logger since under fail2ban-server it is not in PROGRAM.
-  F2B_LEAD: '(?:(?<f2b_logger>fail2ban(?:\.[a-z]+)*) *\[[% INT %]\]: +)?(?:[A-Z]+ +)?'
+  # The optional lead-in before "[jail]": fail2ban's own timestamp, which it
+  # writes when logtarget is STDOUT rather than SYSOUT (gh-1876); the
+  # "fail2ban.actions    [pid]: " logger prefix seen under fail2ban-server; then
+  # a level token. The logger name is kept as f2b_logger since under
+  # fail2ban-server it is not in PROGRAM, and the level as f2b_level, since
+  # "already banned" is logged at more than one.
+  F2B_LEAD: '(?:(?<f2b_time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)?) )?(?:(?<f2b_logger>fail2ban(?:\.[a-z]+)*) *\[[% INT %]\]: +)?(?:(?<f2b_level>[A-Z]+) +)?'
+  # "[sshd] " -- a jail name may hold spaces, but no "]".
+  F2B_JAIL: '\[(?<f2b_jail>[^\]]+)\]'
+  # What fail2ban bans: an address, a subnet ("192.0.2.0/24", "2001:db8::/64"),
+  # or with usedns=raw or a <F-ID> filter some other token, kept as f2b_id
+  # since it is no address to look up. It is followed by a space, a comma or
+  # the end of the line.
+  F2B_ID: '(?:(?<f2b_ip>[% IP %])(?:/(?<f2b_prefixlen>[% INT %]))?|(?<f2b_id>[^\s,]+))'
   # "[sshd] Ban 203.0.113.7", "[sshd] Unban 203.0.113.7",
-  # "[sshd] Restore Ban 203.0.113.7".
-  F2B_ACTION_BAN: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ban|Unban|Restore Ban) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
-  # "[sshd] Found 203.0.113.7" and
-  # "[sshd] Found 203.0.113.7 - 2024-01-01 12:00:00".
-  F2B_FOUND: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Found) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  # "[sshd] Restore Ban 203.0.113.7", "[sshd] Repeal Ban 203.0.113.7" (an unban
+  # as the jail stops), "[sshd] Reban 203.0.113.7, action 'iptables'" and
+  # "[sshd] Increase Ban 203.0.113.7 (2 # 1:00:00 -> 2026-11-07 13:00:00)"
+  # (bantime.increment).
+  F2B_ACTION_BAN: '[% F2B_LEAD %][% F2B_JAIL %] (?<f2b_action>Ban|Unban|Restore Ban|Repeal Ban|Reban|Increase Ban) [% F2B_ID %](?:[ ,][% GREEDYDATA %])?'
+  # "[sshd] Found 203.0.113.7 - 2024-01-01 12:00:00" from the filter, and
+  # "[sshd] Found 203.0.113.7, bad - 2026-11-07 12:00:00, 2 # -> 3, Ban" from
+  # the observer.
+  F2B_FOUND: '[% F2B_LEAD %][% F2B_JAIL %] (?<f2b_action>Found) [% F2B_ID %](?:[ ,][% GREEDYDATA %])?'
   # "[sshd] Already banned 203.0.113.7".
-  F2B_ALREADY_BANNED: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Already banned) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
-  # "[sshd] 203.0.113.7 already banned" (IP-first variant). f2b_action is
-  # normalised to "Already banned" for consistency with F2B_ALREADY_BANNED.
-  F2B_ALREADY_BANNED_ALT: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_ip>[% IP %]) (?<f2b_action>already banned)(?: [% GREEDYDATA %])?'
-  # "[sshd] Ignore 203.0.113.7 by ip".
-  F2B_IGNORE: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ignore) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  F2B_ALREADY_BANNED: '[% F2B_LEAD %][% F2B_JAIL %] (?<f2b_action>Already banned) [% F2B_ID %](?:[ ,][% GREEDYDATA %])?'
+  # "[sshd] 203.0.113.7 already banned", which is how current fail2ban writes
+  # it. f2b_action is left as written, "already banned", so the two forms can
+  # still be told apart.
+  F2B_ALREADY_BANNED_ALT: '[% F2B_LEAD %][% F2B_JAIL %] [% F2B_ID %] (?<f2b_action>already banned)(?: [% GREEDYDATA %])?'
+  # "[sshd] Ignore 203.0.113.7 by ip" and
+  # "[sshd] Ignore 203.0.113.7, expired bantime". The debug-level "Ignore
+  # failure <ip> ..." is not one of these.
+  F2B_IGNORE: '[% F2B_LEAD %][% F2B_JAIL %] (?<f2b_action>Ignore) (?!failure )[% F2B_ID %](?:[ ,][% GREEDYDATA %])?'
 vars_tests:
   F2B_LEAD:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -49,8 +70,33 @@ vars_tests:
         result: 'fail2ban.actions        [11524]: NOTICE  '
       - string: 'fail2ban.server.transmitter[11524]: WARNING '
         result: 'fail2ban.server.transmitter[11524]: WARNING '
+      # logtarget = STDOUT under systemd
+      - string: '2026-11-07 12:00:00,388 fail2ban.actions        [11524]: NOTICE  '
+        result: '2026-11-07 12:00:00,388 fail2ban.actions        [11524]: NOTICE  '
     negative:
       - 'sshd[11524]: NOTICE '
+  F2B_JAIL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[sshd]'
+        result: '[sshd]'
+      - string: '[my jail]'
+        result: '[my jail]'
+    negative:
+      - '[]'
+  F2B_ID:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '203.0.113.7'
+        result: '203.0.113.7'
+      - string: '192.0.2.0/24'
+        result: '192.0.2.0/24'
+      - string: '2001:db8::/64'
+        result: '2001:db8::/64'
+      - string: 'bad.example.net'
+        result: 'bad.example.net'
+    negative:
+      - 'two words'
   F2B_ACTION_BAN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -60,6 +106,14 @@ vars_tests:
         result: 'NOTICE [sshd] Unban 203.0.113.7'
       - string: '[sshd] Restore Ban 203.0.113.7'
         result: '[sshd] Restore Ban 203.0.113.7'
+      - string: '[sshd] Repeal Ban 203.0.113.7'
+        result: '[sshd] Repeal Ban 203.0.113.7'
+      - string: '[sshd] Reban 203.0.113.7, action ''iptables'''
+        result: '[sshd] Reban 203.0.113.7, action ''iptables'''
+      - string: '[sshd] Increase Ban 203.0.113.7 (2 # 1:00:00 -> 2026-11-07 13:00:00)'
+        result: '[sshd] Increase Ban 203.0.113.7 (2 # 1:00:00 -> 2026-11-07 13:00:00)'
+      - string: '[recidive] Ban 192.0.2.0/24'
+        result: '[recidive] Ban 192.0.2.0/24'
     negative:
       - '[sshd] Found 203.0.113.7'
   F2B_FOUND:
@@ -69,6 +123,10 @@ vars_tests:
         result: '[sshd] Found 203.0.113.7'
       - string: '[sshd] Found 203.0.113.7 - 2024-01-01 12:00:00'
         result: '[sshd] Found 203.0.113.7 - 2024-01-01 12:00:00'
+      - string: '[sshd] Found 203.0.113.7, bad - 2026-11-07 12:00:00, 2 # -> 3, Ban'
+        result: '[sshd] Found 203.0.113.7, bad - 2026-11-07 12:00:00, 2 # -> 3, Ban'
+      - string: '[sshd] Found bad.example.net - 2026-11-07 12:00:00'
+        result: '[sshd] Found bad.example.net - 2026-11-07 12:00:00'
     negative:
       - '[sshd] Ban 203.0.113.7'
   F2B_ALREADY_BANNED:
@@ -96,8 +154,11 @@ vars_tests:
         result: '[sshd] Ignore 203.0.113.7 by ip'
       - string: '[sshd] Ignore 198.51.100.9'
         result: '[sshd] Ignore 198.51.100.9'
+      - string: '[sshd] Ignore 198.51.100.9, expired bantime'
+        result: '[sshd] Ignore 198.51.100.9, expired bantime'
     negative:
       - '[sshd] Ban 203.0.113.7'
+      - '[sshd] Ignore failure 198.51.100.9 before last ban 1 < 2, restored'
 # Look up the banned/observed source IP.
 geoip:
   - f2b_ip
@@ -131,6 +192,7 @@ rules:
             f2b_ip: '203.0.113.7'
         - string: 'NOTICE [sshd] Unban 203.0.113.7'
           result:
+            f2b_level: 'NOTICE'
             f2b_jail: 'sshd'
             f2b_action: 'Unban'
             f2b_ip: '203.0.113.7'
@@ -138,9 +200,54 @@ rules:
           program: 'fail2ban-server'
           result:
             f2b_logger: 'fail2ban.actions'
+            f2b_level: 'NOTICE'
             f2b_jail: 'sshd'
             f2b_action: 'Ban'
             f2b_ip: '203.0.113.7'
+        # logtarget = STDOUT under systemd puts fail2ban's own timestamp first
+        - string: '2026-11-07 12:00:00,388 fail2ban.actions        [11524]: NOTICE  [sshd] Increase Ban 203.0.113.8 (2 # 1:00:00 -> 2026-11-07 13:00:00)'
+          program: 'fail2ban-server'
+          result:
+            f2b_time: '2026-11-07 12:00:00,388'
+            f2b_logger: 'fail2ban.actions'
+            f2b_level: 'NOTICE'
+            f2b_jail: 'sshd'
+            f2b_action: 'Increase Ban'
+            f2b_ip: '203.0.113.8'
+        - string: '[sshd] Repeal Ban 203.0.113.9'
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Repeal Ban'
+            f2b_ip: '203.0.113.9'
+        - string: '[sshd] Reban 203.0.113.10, action ''iptables'''
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Reban'
+            f2b_ip: '203.0.113.10'
+        # a subnet ban, and a jail name with a space in it
+        - string: '[my jail] Ban 192.0.2.0/24'
+          result:
+            f2b_jail: 'my jail'
+            f2b_action: 'Ban'
+            f2b_ip: '192.0.2.0'
+            f2b_prefixlen: '24'
+        # the observer's comma after the address
+        - string: '[sshd] Found 203.0.113.11, bad - 2026-11-07 12:00:00, 2 # -> 3, Ban'
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Found'
+            f2b_ip: '203.0.113.11'
+        # usedns=raw, an id that is no address
+        - string: '[sshd] Found bad.example.net - 2026-11-07 12:00:00'
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Found'
+            f2b_id: 'bad.example.net'
+        - string: '[sshd] Ignore 203.0.113.12, expired bantime'
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Ignore'
+            f2b_ip: '203.0.113.12'
         - string: '[sshd] Restore Ban 203.0.113.7'
           result:
             f2b_jail: 'sshd'

@@ -112,6 +112,12 @@ Revision history for Log-Munger
         - proftpd: refusals with no "(Login failed)" (no such user found,
           Limit access denies login, Invalid shell, ...) captured with user
           and reason; accounts may hold spaces
+        - fail2ban: add Repeal Ban, Reban and Increase Ban
+        - fail2ban: a comma may follow the address (Found <ip>, bad ...;
+          Ignore <ip>, expired bantime); subnet bans give f2b_prefixlen, an id
+          that is no address goes to f2b_id
+        - fail2ban: leading timestamp (logtarget=STDOUT) as f2b_time, level as
+          f2b_level; jail names may hold spaces
 
 0.0.1   2026-08-23/17:00
         - init
