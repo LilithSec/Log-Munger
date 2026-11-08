@@ -1,5 +1,5 @@
 ---
-# Dovecot (IMAP/POP3) login-line enrichment.
+# Dovecot (IMAP/POP3) login and auth log enrichment.
 #
 # Dovecot's login processes emit lines of the shape:
 #   <service>-login: <Event>: key=value, key=value, ...
@@ -12,6 +12,12 @@
 # into dovecot_user, dovecot_method, dovecot_rip, dovecot_lip, dovecot_mpid,
 # dovecot_session, etc. dovecot_rip (the remote IP) is fed to geoip and
 # dovecot_mpid is converted to an int.
+#
+# The auth process logs passdb results (unknown user, password mismatch) as
+# "<backend>(user,rip): reason", see DOVECOT_AUTH_FAIL and DOVECOT_AUTH_REQUEST.
+# These, with the login-process "auth failed" lines, are what a brute force
+# looks like. pam_unix lines written under the dovecot PROGRAM are left to
+# pam.yaml.
 includes:
 - base
 # Additional primitives used below that are not in base.yaml.
@@ -27,14 +33,31 @@ vars_templated:
   DOVECOT_SESSION_PREFIX: '(?<dovecot_service>[% WORD %])\((?<dovecot_user>[^)]*)\)(?:<(?<dovecot_pid>[% INT %])><(?<dovecot_session>[^>]*)>)?'
   # The severity keywords dovecot prefixes a message with. Info is included
   # because the auth process uses it, but most lines carry no keyword at all.
+  # Writing to its own log_path rather than syslog, dovecot puts "Info: " on
+  # login lines too, which is why the login patterns take it as optional.
   DOVECOT_LEVEL: '(?<dovecot_level>Debug|Info|Warning|Error|Fatal|Panic)'
+  # The ", "-separated key=value tail of a login-process line, for the shapes
+  # that can end in a TLS error. Since 2.3 a failed handshake is appended as
+  # prose before the session:
+  #
+  #   user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS: read(size=653) failed: Connection reset by peer, session=<q>
+  #   user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS handshaking: SSL_accept() failed: ..., session=<q>
+  #
+  # Left in dovecot_kv, the kv decompose turns "TLS: read(size=653) ..." into
+  # a field named "dovecot_TLS: read(size". So the error is taken out as
+  # dovecot_tls_state / dovecot_tls_error, and the session after it is
+  # captured directly. Without a TLS error the whole tail, session included,
+  # stays in dovecot_kv as before.
+  #
+  # dovecot_kv is lazy, so this only works at the end of an anchored pattern.
+  DOVECOT_LOGIN_KV: '(?<dovecot_kv>[\w-]+=.*?)(?:, (?<dovecot_tls_state>TLS(?: handshaking)?): (?<dovecot_tls_error>.*?)(?:, session=<(?<dovecot_session>[^>]*)>)?)?'
   # "imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, ..."
   #
   # The tail has to start with a key=value token. Without that the pattern also
   # swallows "imap-login: Error: Failed to initialize SSL server context: ..."
   # and the reason text on a Disconnected line, and the kv decompose then turns
   # whatever prose it was handed into junk field names.
-  DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %]): (?<dovecot_kv>[\w-]+=[% GREEDYDATA %])'
+  DOVECOT_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]): (?<dovecot_kv>[\w-]+=[% GREEDYDATA %])'
   # A pre-auth disconnect that says why, e.g.
   #   imap-login: Disconnected: TLS initialization failed. (auth failed, 2 attempts in 6 secs): user=<x>, method=PLAIN, rip=203.0.113.7, ...
   #   imap-login: Disconnected: Connection closed (no auth attempts in 0 secs): user=<>, rip=203.0.113.7, ...
@@ -42,7 +65,22 @@ vars_templated:
   # The prose reason comes first and the parenthetical attempt summary last, and
   # only then does the kv blob start. The reason is optional because a bare
   # "Disconnected (auth failed, ...)" is also logged.
-  DOVECOT_LOGIN_DISCONNECTED: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %])(: (?<dovecot_reason>.*?))? \((?<dovecot_abort_reason>[^)]*)\): (?<dovecot_kv>[\w-]+=[% GREEDYDATA %])'
+  DOVECOT_LOGIN_DISCONNECTED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %])(: (?<dovecot_reason>.*?))? \((?<dovecot_abort_reason>[^)]*)\): [% DOVECOT_LOGIN_KV %]'
+  # The 2.3.18+ replacement for "Aborted login" / "Disconnected", which adds a
+  # machine-readable code after the attempt summary:
+  #   imap-login: Login aborted: Connection closed (auth failed, 3 attempts in 16 secs) (auth_failed): user=<x>, method=PLAIN, rip=203.0.113.7, ...
+  #   imap-login: Login aborted: Connection closed: SSL_accept() failed: ...: no shared cipher (disconnected during TLS handshake) (tls_handshake_not_finished): user=<>, ...
+  #
+  # The reason can hold colons and parentheses of its own, so it is lazy and
+  # ends at the first " (summary) (code): " that is followed by the kv tail.
+  DOVECOT_LOGIN_ABORTED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>Login aborted): (?<dovecot_reason>.*?) \((?<dovecot_abort_reason>[^()]*)\) \((?<dovecot_abort_code>\w+)\): [% DOVECOT_LOGIN_KV %]'
+  # A pre-auth disconnect whose reason is prose with no event word in front:
+  #   submission-login: Client has quit the connection (auth failed, 1 attempts in 2 secs): user=<x>, method=LOGIN, rip=203.0.113.7, ...
+  #   submission-login: Remote closed connection (auth failed, 1 attempts in 2 secs): user=<x>, ...
+  #
+  # The reason may not contain a colon, so "imap-login: Error: ..." lines are
+  # left for DOVECOT_LOGIN_LEVEL.
+  DOVECOT_LOGIN_CLOSED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_reason>[^:(]+?) \((?<dovecot_abort_reason>[^)]*)\): [% DOVECOT_LOGIN_KV %]'
   # A login process complaining about itself rather than about a client, e.g.
   #   imap-login: Error: Failed to initialize SSL server context: Can't load DH parameters
   DOVECOT_LOGIN_LEVEL: '(?<dovecot_service>[% WORD %])-login: [% DOVECOT_LEVEL %]: (?<dovecot_message>[% GREEDYDATA %])'
@@ -54,17 +92,39 @@ vars_templated:
   DOVECOT_SESSION_STATS: '(?<dovecot_service>[% WORD %])\((?<dovecot_user>[^)]*)\)<(?<dovecot_pid>[% INT %])><(?<dovecot_session>[^>]*)>: (?<dovecot_event>[% WORD %]): (?<dovecot_reason>.*?) (?<dovecot_stats>in=[% INT %] out=[% INT %][% GREEDYDATA %])'
   # Aborted pre-auth login, e.g.
   #   imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, ...
-  # The parenthetical reason is captured, the trailing user=<..>,... blob is fed
+  #   pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1
+  # The parenthetical reason is captured, the trailing key=value blob is fed
   # to the same comma/<>-style kv decompose as DOVECOT_LOGIN via dovecot_kv.
-  DOVECOT_ABORTED_LOGIN: '(?<dovecot_service>[% WORD %])-login: Aborted login \((?<dovecot_abort_reason>[^)]*)\): (?<dovecot_kv>user=<[% GREEDYDATA %])'
+  # The blob does not always start with user=: a client refused before it got
+  # to send a name has none.
+  DOVECOT_ABORTED_LOGIN: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?Aborted login \((?<dovecot_abort_reason>[^)]*)\): [% DOVECOT_LOGIN_KV %]'
   # Login failure from a login process, e.g.
   #   imap-login: Login failed: Authentication failed: Password mismatch, user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<XyZ>
   # reason is everything up to the ", user=<" that starts the kv blob.
-  DOVECOT_LOGIN_FAILED: '(?<dovecot_service>[% WORD %])-login: (?<dovecot_event>[% WORD %]) failed: (?<dovecot_reason>.*?), (?<dovecot_kv>user=<[% GREEDYDATA %])'
-  # auth backend failure, e.g.
+  DOVECOT_LOGIN_FAILED: '(?<dovecot_service>[% WORD %])-login: (?:[% DOVECOT_LEVEL %]: )?(?<dovecot_event>[% WORD %]) failed: (?<dovecot_reason>.*?), (?<dovecot_kv>user=<[% GREEDYDATA %])'
+  # auth backend (passdb) failure, with the user and remote IP in the backend's
+  # parentheses:
   #   auth: passwd-file(neti,203.0.113.7): unknown user
-  # the backend name, user, and remote IP (dovecot_rip -> geoip) are captured.
-  DOVECOT_AUTH_FAIL: 'auth: (?<dovecot_auth_db>[^(:]+)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
+  #   auth: sql(neti,203.0.113.7,<n4JLdHNVngZGpV2j>): Password mismatch
+  #   auth: Info: ldap(neti,203.0.113.7,): invalid credentials
+  #   auth-worker(304): pam(neti,203.0.113.7): pam_authenticate() failed: Authentication failure (password mismatch?)
+  #   auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): unknown user
+  #
+  # This is where a brute force against a passdb shows up, so it has to take
+  # every prefix the auth process puts in front: auth or auth-worker, the
+  # worker's pid, a level, and the 2.3 worker-connection chain whose
+  # auth-worker<N> is the request id. A third item in the parentheses is the
+  # session id when it is in <...>, and is otherwise kept as dovecot_auth_mech.
+  # The 1.x auth instance name, as in "auth-worker(default):", is accepted and
+  # dropped.
+  DOVECOT_AUTH_FAIL: '(?<dovecot_service>auth(?:-worker)?)(?:\((?:(?<dovecot_pid>[% INT %])|[^)]*)\))?: (?:[% DOVECOT_LEVEL %]: )?(?:conn (?<dovecot_auth_conn>\S+) \([^)]*\): auth-worker<(?<dovecot_auth_request>[% INT %])>: )?(?<dovecot_auth_db>[\w-]+)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])(?:,(?:<(?<dovecot_session>[^>]*)>|(?<dovecot_auth_mech>[^)]+))?)?\): (?<dovecot_auth_reason>[% GREEDYDATA %])'
+  # The newer auth-process prefix, with the user and remote IP on the process
+  # rather than on the backend:
+  #   auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)
+  #   auth(neti@example.com,203.0.113.7,sasl:login)<a1b2c3>: Info: sql: Password mismatch
+  #
+  # A numeric first <...> is the process id and anything else is the session.
+  DOVECOT_AUTH_REQUEST: '(?<dovecot_service>auth(?:-worker)?)\((?<dovecot_user>[^,)]*),(?<dovecot_rip>[% IP %])(?:,(?<dovecot_auth_mech>[^)]+))?\)(?:<(?<dovecot_pid>[% INT %])>)?(?:<(?<dovecot_session>[^>]*)>)?: (?:[% DOVECOT_LEVEL %]: )?(?:request \[(?<dovecot_auth_request>[% INT %])\]: )?(?<dovecot_auth_db>[\w-]+): (?<dovecot_auth_reason>[% GREEDYDATA %])'
   # A generic informational auth line, e.g.
   #   auth: Info: passwd(neti): unknown user
   DOVECOT_AUTH_INFO: 'auth: Info: (?<dovecot_auth_info>[% GREEDYDATA %])'
@@ -126,6 +186,10 @@ vars_tests:
         result: 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
       - string: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
         result: 'pop3-login: Aborted login (no auth attempts in 0 secs): user=<>, rip=198.51.100.9, lip=192.0.2.1, session=<XyZ>'
+      - string: 'pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1'
+        result: 'pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1'
+      - string: 'imap-login: Info: Aborted login (auth failed, 1 attempts): user=<alice@example.com>, method=CRAM-MD5, rip=203.0.113.7, lip=192.0.2.1, TLS'
+        result: 'imap-login: Info: Aborted login (auth failed, 1 attempts): user=<alice@example.com>, method=CRAM-MD5, rip=203.0.113.7, lip=192.0.2.1, TLS'
     negative:
       - 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
   DOVECOT_LOGIN_FAILED:
@@ -144,8 +208,26 @@ vars_tests:
         result: 'auth: passwd-file(neti,203.0.113.7): unknown user'
       - string: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
         result: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
+      - string: 'auth: sql(neti,203.0.113.7,<n4JLdHNVngZGpV2j>): Password mismatch'
+        result: 'auth: sql(neti,203.0.113.7,<n4JLdHNVngZGpV2j>): Password mismatch'
+      - string: 'auth: Info: ldap(neti,203.0.113.7,): invalid credentials'
+        result: 'auth: Info: ldap(neti,203.0.113.7,): invalid credentials'
+      - string: 'auth-worker(304): pam(neti,203.0.113.7): pam_authenticate() failed: Authentication failure (password mismatch?)'
+        result: 'auth-worker(304): pam(neti,203.0.113.7): pam_authenticate() failed: Authentication failure (password mismatch?)'
+      - string: 'auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): unknown user'
+        result: 'auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): unknown user'
     negative:
       - 'auth: Info: passwd(neti): unknown user'
+      - 'auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed'
+  DOVECOT_AUTH_REQUEST:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)'
+        result: 'auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)'
+      - string: 'auth(neti@example.com,203.0.113.7,sasl:login)<CvN+E95Uf4e7eEnj>: Info: sql: Password mismatch'
+        result: 'auth(neti@example.com,203.0.113.7,sasl:login)<CvN+E95Uf4e7eEnj>: Info: sql: Password mismatch'
+    negative:
+      - 'auth-worker(304): pam(neti,203.0.113.7): unknown user'
   DOVECOT_AUTH_INFO:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -164,6 +246,33 @@ vars_tests:
         result: 'imap-login: Disconnected: Connection closed (no auth attempts in 0 secs): user=<>, rip=203.0.113.7, lip=192.0.2.1, session=<q>'
     negative:
       - 'imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, mpid=1234, TLS, session=<AbC123>'
+  DOVECOT_LOGIN_KV:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'user=<neti>, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+        result: 'user=<neti>, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+      - string: 'user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS: read(size=653) failed: Connection reset by peer, session=<AbC>'
+        result: 'user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS: read(size=653) failed: Connection reset by peer, session=<AbC>'
+    negative:
+      - 'TLS handshaking: SSL_accept() failed'
+  DOVECOT_LOGIN_ABORTED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'imap-login: Login aborted: Connection closed (auth failed, 3 attempts in 16 secs) (auth_failed): user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+        result: 'imap-login: Login aborted: Connection closed (auth failed, 3 attempts in 16 secs) (auth_failed): user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+      - string: 'imap-login: Login aborted: Connection closed: SSL_accept() failed: error:0A0000C1:SSL routines::no shared cipher (disconnected during TLS handshake) (tls_handshake_not_finished): user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS handshaking: SSL_accept() failed: error:0A0000C1:SSL routines::no shared cipher, session=<AbC>'
+        result: 'imap-login: Login aborted: Connection closed: SSL_accept() failed: error:0A0000C1:SSL routines::no shared cipher (disconnected during TLS handshake) (tls_handshake_not_finished): user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS handshaking: SSL_accept() failed: error:0A0000C1:SSL routines::no shared cipher, session=<AbC>'
+    negative:
+      - 'imap-login: Aborted login (auth failed, 1 attempts in 2 secs): user=<x>, rip=203.0.113.7'
+  DOVECOT_LOGIN_CLOSED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'submission-login: Client has quit the connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=LOGIN, rip=203.0.113.7, lip=192.0.2.1'
+        result: 'submission-login: Client has quit the connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=LOGIN, rip=203.0.113.7, lip=192.0.2.1'
+      - string: 'submission-login: Remote closed connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1'
+        result: 'submission-login: Remote closed connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1'
+    negative:
+      - 'pop3-login: Disconnected: Inactivity (auth failed, 1 attempts in 178 secs): user=<neti>, rip=203.0.113.7'
   DOVECOT_LOGIN_LEVEL:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -267,6 +376,7 @@ geoip:
 convert:
   dovecot_mpid: int
   dovecot_pid: int
+  dovecot_auth_request: int
   dovecot_in: int
   dovecot_out: int
   dovecot_deleted: int
@@ -325,8 +435,11 @@ rules:
       - DOVECOT_ABORTED_LOGIN
       - DOVECOT_LOGIN_FAILED
       - DOVECOT_LOGIN_DISCONNECTED
+      - DOVECOT_LOGIN_ABORTED
+      - DOVECOT_LOGIN_CLOSED
       - DOVECOT_LOGIN_LEVEL
       - DOVECOT_AUTH_FAIL
+      - DOVECOT_AUTH_REQUEST
       - DOVECOT_AUTH_INFO
       - DOVECOT_SIEVE_STORED
       - DOVECOT_SIEVE_ACTION
@@ -438,12 +551,14 @@ rules:
         # DOVECOT_AUTH_FAIL: auth backend failure with remote IP
         - string: 'auth: passwd-file(neti,203.0.113.7): unknown user'
           result:
+            dovecot_service: 'auth'
             dovecot_auth_db: 'passwd-file'
             dovecot_user: 'neti'
             dovecot_rip: '203.0.113.7'
             dovecot_auth_reason: 'unknown user'
         - string: 'auth: pam(bob,198.51.100.9): pam_authenticate() failed'
           result:
+            dovecot_service: 'auth'
             dovecot_auth_db: 'pam'
             dovecot_user: 'bob'
             dovecot_rip: '198.51.100.9'
@@ -525,6 +640,106 @@ rules:
           result:
             dovecot_lmtp_id: '5678'
             dovecot_lmtp_from: '192.0.2.5'
+        # DOVECOT_ABORTED_LOGIN: refused before a username was sent, so the kv
+        # blob starts at rip=
+        - string: 'pop3-login: Aborted login (tried to use disabled plaintext auth): rip=203.0.113.7, lip=192.0.2.1'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_abort_reason: 'tried to use disabled plaintext auth'
+            dovecot_kv: 'rip=203.0.113.7, lip=192.0.2.1'
+        # DOVECOT_LOGIN_ABORTED: 2.3.18+ form, with a TLS error ahead of the
+        # session. The enriched set shows the error does not reach the kv split.
+        - string: 'imap-login: Login aborted: Connection closed: read(size=653) failed: Connection reset by peer (no auth attempts in 1 secs) (no_auth_attempts): user=<>, rip=203.0.113.7, lip=192.0.2.1, TLS: read(size=653) failed: Connection reset by peer, session=<AbC>'
+          enriched:
+            dovecot_abort_code: 'no_auth_attempts'
+            dovecot_abort_reason: 'no auth attempts in 1 secs'
+            dovecot_event: 'Login aborted'
+            dovecot_lip: '192.0.2.1'
+            dovecot_reason: 'Connection closed: read(size=653) failed: Connection reset by peer'
+            dovecot_rip: '203.0.113.7'
+            dovecot_service: 'imap'
+            dovecot_session: 'AbC'
+            dovecot_tls_error: 'read(size=653) failed: Connection reset by peer'
+            dovecot_tls_state: 'TLS'
+            dovecot_user: ''
+          result:
+            dovecot_service: 'imap'
+            dovecot_event: 'Login aborted'
+            dovecot_reason: 'Connection closed: read(size=653) failed: Connection reset by peer'
+            dovecot_abort_reason: 'no auth attempts in 1 secs'
+            dovecot_abort_code: 'no_auth_attempts'
+            dovecot_kv: 'user=<>, rip=203.0.113.7, lip=192.0.2.1'
+            dovecot_tls_state: 'TLS'
+            dovecot_tls_error: 'read(size=653) failed: Connection reset by peer'
+            dovecot_session: 'AbC'
+        - string: 'managesieve-login: Login aborted: Logged out (auth failed, 1 attempts in 10 secs) (auth_failed): user=<neti@example.com>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+          result:
+            dovecot_service: 'managesieve'
+            dovecot_event: 'Login aborted'
+            dovecot_reason: 'Logged out'
+            dovecot_abort_reason: 'auth failed, 1 attempts in 10 secs'
+            dovecot_abort_code: 'auth_failed'
+            dovecot_kv: 'user=<neti@example.com>, method=PLAIN, rip=203.0.113.7, lip=192.0.2.1, TLS, session=<AbC>'
+        # DOVECOT_LOGIN_CLOSED
+        - string: 'submission-login: Client has quit the connection (auth failed, 1 attempts in 2 secs): user=<neti>, method=LOGIN, rip=203.0.113.7, lip=192.0.2.1'
+          result:
+            dovecot_service: 'submission'
+            dovecot_reason: 'Client has quit the connection'
+            dovecot_abort_reason: 'auth failed, 1 attempts in 2 secs'
+            dovecot_kv: 'user=<neti>, method=LOGIN, rip=203.0.113.7, lip=192.0.2.1'
+        # DOVECOT_LOGIN_DISCONNECTED with the level dovecot's own log file adds
+        - string: 'pop3-login: Info: Disconnected: Inactivity (auth failed, 1 attempts in 178 secs): user=<neti>, method=PLAIN, rip=203.0.113.7'
+          result:
+            dovecot_service: 'pop3'
+            dovecot_level: 'Info'
+            dovecot_event: 'Disconnected'
+            dovecot_reason: 'Inactivity'
+            dovecot_abort_reason: 'auth failed, 1 attempts in 178 secs'
+            dovecot_kv: 'user=<neti>, method=PLAIN, rip=203.0.113.7'
+        # DOVECOT_AUTH_FAIL: session id as the third item, then the 2.3
+        # worker-connection chain
+        - string: 'auth: sql(neti@example.com,203.0.113.7,<n4JLdHNVngZGpV2j>): Password mismatch'
+          result:
+            dovecot_service: 'auth'
+            dovecot_auth_db: 'sql'
+            dovecot_user: 'neti@example.com'
+            dovecot_rip: '203.0.113.7'
+            dovecot_session: 'n4JLdHNVngZGpV2j'
+            dovecot_auth_reason: 'Password mismatch'
+        - string: 'auth-worker(5787): conn unix:auth-worker (pid=27359,uid=97): auth-worker<55>: pam(neti,203.0.113.7): pam_authenticate() failed: Authentication failure (Password mismatch?)'
+          numeric:
+            - dovecot_auth_request
+            - dovecot_pid
+          result:
+            dovecot_service: 'auth-worker'
+            dovecot_pid: '5787'
+            dovecot_auth_conn: 'unix:auth-worker'
+            dovecot_auth_request: '55'
+            dovecot_auth_db: 'pam'
+            dovecot_user: 'neti'
+            dovecot_rip: '203.0.113.7'
+            dovecot_auth_reason: 'pam_authenticate() failed: Authentication failure (Password mismatch?)'
+        # DOVECOT_AUTH_REQUEST: user and remote IP on the process prefix
+        - string: 'auth-worker(neti,203.0.113.7)<566595><a1b2c3>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)'
+          result:
+            dovecot_service: 'auth-worker'
+            dovecot_user: 'neti'
+            dovecot_rip: '203.0.113.7'
+            dovecot_pid: '566595'
+            dovecot_session: 'a1b2c3'
+            dovecot_auth_request: '3'
+            dovecot_auth_db: 'pam'
+            dovecot_auth_reason: 'pam_authenticate() failed: Authentication failure (Password mismatch?)'
+        - string: 'auth(neti@example.com,203.0.113.7,sasl:login)<CvN+E95Uf4e7eEnj>: Info: sql: Password mismatch'
+          result:
+            dovecot_service: 'auth'
+            dovecot_user: 'neti@example.com'
+            dovecot_rip: '203.0.113.7'
+            dovecot_auth_mech: 'sasl:login'
+            dovecot_session: 'CvN+E95Uf4e7eEnj'
+            dovecot_level: 'Info'
+            dovecot_auth_db: 'sql'
+            dovecot_auth_reason: 'Password mismatch'
       negative:
         - 'this is not a dovecot login line at all'
         - 'Jul 15 10:00:00 host sshd[123]: Accepted publickey for neti'

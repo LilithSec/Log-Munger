@@ -5,6 +5,15 @@ Revision history for Log-Munger
         - sendmail: gate on sm-acceptingconnections
         - fail2ban: gate on fail2ban-server and accept its logger prefix,
           captured as f2b_logger
+        - dovecot: match passdb failures from auth-worker, the 2.3 worker
+          conn chain, and the newer auth(user,rip)<...> prefix
+        - dovecot: add "Login aborted ... (code)" and prose-reason
+          disconnects (submission-login)
+        - dovecot: Aborted login no longer requires user=
+        - dovecot: optional level on login lines (log_path output)
+        - dovecot: split a trailing TLS error out of dovecot_kv as
+          dovecot_tls_state / dovecot_tls_error
+        - dovecot: auth failure lines now capture dovecot_service
 
 0.0.1   2026-08-23/17:00
         - init
