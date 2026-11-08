@@ -118,6 +118,12 @@ Revision history for Log-Munger
           that is no address goes to f2b_id
         - fail2ban: leading timestamp (logtarget=STDOUT) as f2b_time, level as
           f2b_level; jail names may hold spaces
+        - dropbear: older lowercase wordings, the journal's "[pid] date "
+          prefix, a missing port, and ::ffff: mapped peers unwrapped
+        - dropbear: usernames greedy, so a "' from <addr>" forged in one no
+          longer sets dropbear_src_ip
+        - dropbear: older "Exit before auth (user ...): ... from <peer>" form;
+          user and fail count captured as dropbear_user / dropbear_fails
 
 0.0.1   2026-08-23/17:00
         - init

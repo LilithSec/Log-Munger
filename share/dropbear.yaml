@@ -14,42 +14,90 @@
 #
 # Dropbear reports the peer as "<address>:<port>" rather than sshd's
 # "<address> port <port>", and it quotes the username. Otherwise the events
-# are the same ones sshd logs.
+# are the same ones sshd logs. Older builds write the event lowercase ("bad
+# password attempt"), and some leave the port off.
+#
+# The username is whatever the client typed and may hold a quote, so the
+# patterns take it greedily and read the " from <peer>" that ends the line...
+# a forged "' from <addr>" inside the name can not stand in for dropbear's own.
 includes:
 - base
 vars_templated:
+  # "[825] Jul 10 23:53:52 " -- dropbear's own pid and timestamp, which some
+  # journal setups leave on the front of the message (fail2ban gh-3597).
+  DROPBEAR_PREFIX: '(?:\[(?<dropbear_pid>[% INT %])\] [% MONTH %] +[% MONTHDAY %] [% TIME %] )?'
+  # The peer, "192.0.2.5:48719". A v4 client on a dual-stack socket is
+  # "::ffff:192.0.2.5:48719", and the mapping prefix is dropped so
+  # dropbear_src_ip holds the plain address. A trailing :<digits> is read as
+  # the port first, the address only taking it when nothing else parses; some
+  # builds write no port at all.
+  DROPBEAR_PEER: '(?:::ffff:(?<dropbear_src_ip>[% IPv4 %])|(?<dropbear_src_ip>[% IP %]))(?::(?<dropbear_src_port>[% INT %]))?'
   # "Pubkey auth succeeded for 'root' with ssh-ed25519 key SHA256:... from 192.0.2.5:48719"
   # "Password auth succeeded for 'neti' from 192.0.2.5:48719"
   # The key type and fingerprint are present only for public-key auth.
-  DROPBEAR_AUTH_SUCCEEDED: '(?<dropbear_method>Pubkey|Password|PAM password) auth succeeded for ''(?<dropbear_user>[^'']*)''(?: with (?<dropbear_key_type>[% NOTSPACE %]) key (?<dropbear_key_fingerprint>[% NOTSPACE %]))? from (?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])'
+  DROPBEAR_AUTH_SUCCEEDED: '[% DROPBEAR_PREFIX %](?<dropbear_method>[Pp]ubkey|[Pp]assword|PAM password) auth succeeded for ''(?<dropbear_user>.*)''(?: with (?<dropbear_key_type>[% NOTSPACE %]) key (?<dropbear_key_fingerprint>[% NOTSPACE %]))? from [% DROPBEAR_PEER %]'
   # "Bad password attempt for 'root' from 192.0.2.5:48719"
   # "Bad PAM password attempt for 'root' from 192.0.2.5:48719"
   # The method is captured as whatever dropbear called it rather than being
   # matched against a list, because which build is in use decides the wording.
-  DROPBEAR_AUTH_FAILED: 'Bad (?<dropbear_method>[^'']*) attempt for ''(?<dropbear_user>[^'']*)'' from (?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])'
+  DROPBEAR_AUTH_FAILED: '[% DROPBEAR_PREFIX %][Bb]ad (?<dropbear_method>[^'']*?) attempt for ''(?<dropbear_user>.*)'' from [% DROPBEAR_PEER %]'
   # "Login attempt for nonexistent user from 192.0.2.5:48719"
   # "Login attempt for nonexistent user 'admin' from 192.0.2.5:48719"
   # Older dropbear does not name the user it was asked for; newer does.
-  DROPBEAR_NONEXISTENT_USER: 'Login attempt for nonexistent user(?: ''(?<dropbear_user>[^'']*)'')? from (?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])'
+  DROPBEAR_NONEXISTENT_USER: '[% DROPBEAR_PREFIX %][Ll]ogin attempt for nonexistent user(?: ''(?<dropbear_user>.*)'')? from [% DROPBEAR_PEER %]'
   # "Too many authentication attempts for user root from 192.0.2.5:48719"
-  DROPBEAR_TOO_MANY: 'Too many authentication attempts for user (?<dropbear_user>[% NOTSPACE %]) from (?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])'
+  DROPBEAR_TOO_MANY: '[% DROPBEAR_PREFIX %]Too many authentication attempts for user (?<dropbear_user>.+) from [% DROPBEAR_PEER %]'
   # "Child connection from 192.0.2.5:21859" -- a TCP connection accepted,
   # logged before anything is known about who is on the other end.
-  DROPBEAR_CHILD_CONNECTION: 'Child connection from (?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])'
-  # "Exit before auth from <192.0.2.5:64040>: (user 'root', 0 fails): Exited normally"
+  DROPBEAR_CHILD_CONNECTION: '[% DROPBEAR_PREFIX %]Child connection from [% DROPBEAR_PEER %]'
+  # "Exit before auth from <192.0.2.5:64040>: (user 'root', 10 fails): Max auth tries reached - user 'root'"
+  # "Exit before auth from <192.0.2.5:64040>: Exited normally"
   # A session that closed without ever authenticating -- a scanner, a health
-  # check, or a client that gave up. Kept ahead of DROPBEAR_EXIT because that
-  # one would otherwise take it.
-  DROPBEAR_EXIT_BEFORE_AUTH: 'Exit before auth from <(?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])>: (?<dropbear_exit_reason>[% GREEDYDATA %])'
+  # check, a client that gave up, or one that ran out of tries. The account
+  # and the count of failures are pulled out where dropbear gives them. Kept
+  # ahead of DROPBEAR_EXIT because that one would otherwise take it. The peer
+  # comes first here, so nothing the client typed can move it.
+  DROPBEAR_EXIT_BEFORE_AUTH: '[% DROPBEAR_PREFIX %][Ee]xit before auth from <[% DROPBEAR_PEER %]>: (?:\(user ''(?<dropbear_user>.*?)'', (?<dropbear_fails>[% INT %]) fails\): )?(?<dropbear_exit_reason>[% GREEDYDATA %])'
+  # "Exit before auth (user 'root', 10 fails): Max auth tries reached - user 'root' from 192.0.2.5:60588"
+  # The older form, with the peer last. The reason holds the account again, the
+  # client's to write, so the " from <peer>" that ends the line is taken.
+  DROPBEAR_EXIT_BEFORE_AUTH_OLD: '[% DROPBEAR_PREFIX %][Ee]xit before auth \(user ''(?<dropbear_user>.*?)'', (?<dropbear_fails>[% INT %]) fails\): (?<dropbear_exit_reason>.*) from [% DROPBEAR_PEER %]'
   # "Exit (root) from <192.0.2.5:64040>: Disconnect received"
-  DROPBEAR_EXIT: 'Exit \((?<dropbear_user>[^)]*)\) from <(?<dropbear_src_ip>[% IP %]):(?<dropbear_src_port>[% INT %])>: (?<dropbear_exit_reason>[% GREEDYDATA %])'
+  DROPBEAR_EXIT: '[% DROPBEAR_PREFIX %][Ee]xit \((?<dropbear_user>[^)]*)\) from <[% DROPBEAR_PEER %]>: (?<dropbear_exit_reason>[% GREEDYDATA %])'
   # "Early exit: Terminated by signal" -- the daemon itself going away, with no
   # session attached, so there is no peer on the line.
-  DROPBEAR_EARLY_EXIT: 'Early exit: (?<dropbear_exit_reason>[% GREEDYDATA %])'
+  DROPBEAR_EARLY_EXIT: '[% DROPBEAR_PREFIX %]Early exit: (?<dropbear_exit_reason>[% GREEDYDATA %])'
   # Anything else dropbear said. Matching anything is only safe because the
   # rule is gated on PROGRAM being dropbear.
   DROPBEAR_MESSAGE: '(?<dropbear_message>.+)'
 vars_tests:
+  DROPBEAR_PREFIX:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '[825] Jul 10 23:53:52 '
+        result: '[825] Jul 10 23:53:52 '
+      - string: ''
+        result: ''
+    negative:
+      - '825 Jul 10 23:53:52 '
+  DROPBEAR_PEER:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: '192.0.2.5:48719'
+        result: '192.0.2.5:48719'
+      - string: '::ffff:192.0.2.5:48719'
+        result: '::ffff:192.0.2.5:48719'
+      - string: '192.0.2.5'
+        result: '192.0.2.5'
+    negative:
+      - 'scanner.example.net:22'
+  DROPBEAR_EXIT_BEFORE_AUTH_OLD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: "Exit before auth (user 'root', 10 fails): Max auth tries reached - user 'root' from 192.0.2.5:60588"
+        result: "Exit before auth (user 'root', 10 fails): Max auth tries reached - user 'root' from 192.0.2.5:60588"
+    negative:
+      - "Exit before auth from <192.0.2.5:60588>: Exited normally"
   DROPBEAR_AUTH_SUCCEEDED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -137,6 +185,8 @@ geoip:
 # Coerce numeric captures.
 convert:
   dropbear_src_port: int
+  dropbear_pid: int
+  dropbear_fails: int
 rules:
   - name: dropbear
     gate:
@@ -153,6 +203,7 @@ rules:
       - DROPBEAR_CHILD_CONNECTION
       # Before DROPBEAR_EXIT, which also matches the "Exit before auth" shape
       - DROPBEAR_EXIT_BEFORE_AUTH
+      - DROPBEAR_EXIT_BEFORE_AUTH_OLD
       - DROPBEAR_EXIT
       - DROPBEAR_EARLY_EXIT
       # last: matches anything, which is only safe because the rule is gated
@@ -200,7 +251,60 @@ rules:
           result:
             dropbear_src_ip: '203.0.113.7'
             dropbear_src_port: '44444'
-            dropbear_exit_reason: "(user 'root', 0 fails): Exited normally"
+            dropbear_user: 'root'
+            dropbear_fails: '0'
+            dropbear_exit_reason: 'Exited normally'
+        # older builds' lowercase wording, and a v4-mapped peer
+        - string: "bad password attempt for 'root' from 198.51.100.87:5543"
+          result:
+            dropbear_method: 'password'
+            dropbear_user: 'root'
+            dropbear_src_ip: '198.51.100.87'
+            dropbear_src_port: '5543'
+        - string: 'login attempt for nonexistent user from ::ffff:198.51.100.215:60495'
+          result:
+            dropbear_src_ip: '198.51.100.215'
+            dropbear_src_port: '60495'
+        # the journal's pid and timestamp on the front
+        - string: "[825] Jul 10 23:53:52 Bad password attempt for 'root' from 192.0.2.4:52289"
+          result:
+            dropbear_pid: '825'
+            dropbear_method: 'password'
+            dropbear_user: 'root'
+            dropbear_src_ip: '192.0.2.4'
+            dropbear_src_port: '52289'
+        - string: "[825] Jul 10 23:57:29 Exit before auth from <192.0.2.3:52289>: (user 'root', 10 fails): Max auth tries reached - user 'root'"
+          numeric:
+            - dropbear_fails
+            - dropbear_pid
+          result:
+            dropbear_pid: '825'
+            dropbear_src_ip: '192.0.2.3'
+            dropbear_src_port: '52289'
+            dropbear_user: 'root'
+            dropbear_fails: '10'
+            dropbear_exit_reason: "Max auth tries reached - user 'root'"
+        # the older exit form, with the peer last
+        - string: "Exit before auth (user 'root', 10 fails): Max auth tries reached - user 'root' from 192.0.2.5:60588"
+          result:
+            dropbear_user: 'root'
+            dropbear_fails: '10'
+            dropbear_exit_reason: "Max auth tries reached - user 'root'"
+            dropbear_src_ip: '192.0.2.5'
+            dropbear_src_port: '60588'
+        # no port
+        - string: "Bad password attempt for 'root' from 192.0.2.6"
+          result:
+            dropbear_method: 'password'
+            dropbear_user: 'root'
+            dropbear_src_ip: '192.0.2.6'
+        # a typed account forging a "' from <addr>" of its own
+        - string: "Bad password attempt for 'x' from 198.51.100.6:1' from 192.0.2.7:60588"
+          result:
+            dropbear_method: 'password'
+            dropbear_user: "x' from 198.51.100.6:1"
+            dropbear_src_ip: '192.0.2.7'
+            dropbear_src_port: '60588'
         - string: 'Early exit: Terminated by signal'
           result:
             dropbear_exit_reason: 'Terminated by signal'
