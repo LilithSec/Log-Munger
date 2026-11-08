@@ -18,7 +18,22 @@ vars_templated:
   # message belongs to, present only for messages logged in a call's context.
   # The source file may contain a directory ("res_pjsip/pjsip_distributor.c"),
   # so it is bounded by the colon before the line number rather than by NOTSPACE.
-  ASTERISK_PREFIX: '(?<asterisk_level>[A-Z]+)\[(?<asterisk_thread_id>[% INT %])\](?:\[C-(?<asterisk_channel_id>[0-9a-fA-F]+)\])?: (?<asterisk_source_file>[^\s:]+):(?<asterisk_source_line>[% INT %]) in (?<asterisk_function>[% WORD %]): '
+  #
+  # The prefix has changed across versions and logger.conf formats, and all of
+  # these are still in the field:
+  #
+  #   NOTICE[1037277]: res_pjsip/pjsip_distributor.c:688 in log_failed_request: ...
+  #   NOTICE[566]: chan_sip.c:28926 handle_request_register: ...
+  #   NOTICE[1638] chan_sip.c: ...
+  #   NOTICE [22382] manager.c: ...
+  #   WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: ...
+  #
+  # So the colon after the thread id, the line number, the "in" and the
+  # function are all optional. The last form is the dialplan Log()
+  # application, which names the extension, priority and context instead of a
+  # source file. Asterisk's own log files (full, messages) also put a
+  # "[2026-08-04 10:18:16] " timestamp in front, which syslog does not.
+  ASTERISK_PREFIX: '(?:\[(?<asterisk_timestamp>[^\]]+)\] )?(?<asterisk_level>[A-Z]+) ?\[(?<asterisk_thread_id>[% INT %])\](?:\[C-(?<asterisk_channel_id>[0-9a-fA-F]+)\])?:? (?:(?<asterisk_source_file>[^\s:]+):(?:(?<asterisk_source_line>[% INT %])(?: in)? (?<asterisk_function>[% WORD %]):)?|Ext\. (?<asterisk_dialplan_location>[^"]*?):) +'
   # Security events, the reason to parse this log at all. res_security_log
   # writes a comma-separated list of quoted key=value pairs, broken out by the
   # decompose below:
@@ -29,7 +44,17 @@ vars_templated:
   # SuccessfulAuth, Challenge/Response/ExpectedResponse on
   # ChallengeResponseFailed, ACLName on FailedACL -- so the blob is taken whole
   # rather than one pattern per type.
-  ASTERISK_SECURITY: '[% ASTERISK_PREFIX %](?<asterisk_security_kv>SecurityEvent=[% GREEDYDATA %])'
+  #
+  # Asterisk does not escape the values it writes here, and some of them
+  # (AccountID, SessionID) come from the client. A client can send a SessionID
+  # of '",RemoteAddress="IPV4/UDP/192.0.2.1/5060' and the line then carries a
+  # forged RemoteAddress ahead of the real one. The kv decompose keeps the
+  # first value it sees for a key, which is the forged one, so a ban or a geoip
+  # lookup lands on an address the attacker picked. The lookaheads take the
+  # LAST LocalAddress and RemoteAddress instead, which is what Asterisk itself
+  # wrote after the client-supplied fields. Because they are captured here
+  # first, the decompose leaves them alone.
+  ASTERISK_SECURITY: '[% ASTERISK_PREFIX %](?=.*,LocalAddress="(?<asterisk_LocalAddress>[^"]*)")?(?=.*,RemoteAddress="(?<asterisk_RemoteAddress>[^"]*)")?(?<asterisk_security_kv>SecurityEvent=[% GREEDYDATA %])'
   # "IPV4/UDP/192.168.15.4/55024". RemoteAddress is the peer and becomes
   # asterisk_src_ip so it geoips and lines up with the _src_ip other rule files
   # use; LocalAddress is this host and becomes asterisk_dst_ip.
@@ -40,7 +65,47 @@ vars_templated:
   #
   # A failed SIP request. asterisk_sip_call_id is the Call-ID header and is not
   # the same thing as asterisk_channel_id in the prefix.
-  ASTERISK_REQUEST_FAILED: '[% ASTERISK_PREFIX %]Request ''(?<asterisk_sip_method>[^'']*)'' from ''(?<asterisk_sip_from>[^'']*)'' failed for ''(?<asterisk_src_ip>[% IP %]):(?<asterisk_src_port>[% INT %])''(?: \(callid: (?<asterisk_sip_call_id>[^)]*)\))?(?: - (?<asterisk_reason>[% GREEDYDATA %]))?'
+  #
+  # Versions before 14 leave out the method ("Request from '...' failed for").
+  # The From is client text and can hold quotes of its own (a scanner sends
+  # <sip:'or''='@192.0.2.1>), so it runs lazily to the "' failed for '" that
+  # ends it rather than to the first quote.
+  ASTERISK_REQUEST_FAILED: '[% ASTERISK_PREFIX %]Request (?:''(?<asterisk_sip_method>[^'']*)'' )?from ''(?<asterisk_sip_from>.*?)'' failed for ''(?<asterisk_src_ip>[% IP %]):(?<asterisk_src_port>[% INT %])''(?: \(callid: (?<asterisk_sip_call_id>[^)]*)\))?(?: - (?<asterisk_reason>[% GREEDYDATA %]))?'
+  # chan_sip's failed REGISTER:
+  #   Registration from '<sip:1002@example.com>' failed for '203.0.113.7:5060' - Wrong password
+  #   Registration from '"100" <sip:100@192.0.2.1>' failed for '203.0.113.7' - No matching peer found
+  #
+  # chan_sip is gone from Asterisk 21 but runs on a great many older PBXes, and
+  # this line is the SIP brute force on them. The port is only logged by
+  # later versions.
+  ASTERISK_SIP_REGISTRATION_FAILED: '[% ASTERISK_PREFIX %]Registration from ''(?<asterisk_sip_from>.*?)'' failed for ''(?<asterisk_src_ip>[% IP %])(?::(?<asterisk_src_port>[% INT %]))?'' - (?<asterisk_reason>[% GREEDYDATA %])'
+  # An inbound call to an extension the context does not have, which is how
+  # toll-fraud scanners probe for a route out:
+  #   Call from '' (203.0.113.7:10836) to extension '0972598285108' rejected because extension not found in context 'default'.
+  #   Call from 'anonymous' (TCP:[203.0.113.7]:61470) to extension '9011442037690237' rejected because extension not found in context 'default'.
+  #   anonymous: Call (UDP:203.0.113.7:65049) to extension '001447441452805' rejected because extension not found in context 'inbound'.
+  #
+  # The first is chan_sip, the other two pjsip. The older pjsip form puts the
+  # endpoint in front rather than naming the caller.
+  ASTERISK_EXTENSION_NOT_FOUND: '[% ASTERISK_PREFIX %](?:(?<asterisk_endpoint>[^:\s]+): )?Call (?:from ''(?<asterisk_caller>[^'']*)'' )?\((?:(?<asterisk_src_proto>[A-Za-z]+):)?(?:\[(?<asterisk_src_ip>[% IP %])\]|(?<asterisk_src_ip>[% IP %])):(?<asterisk_src_port>[% INT %])\) to extension ''(?<asterisk_extension>[^'']*)'' rejected because extension not found in context ''(?<asterisk_context>[^'']*)''\.?'
+  # IAX2 authentication failures:
+  #   Host 203.0.113.7 failed to authenticate as 'trunk1'
+  #   Host 203.0.113.7 failed MD5 authentication for 'trunk1' (e7df7cd2... != 53ac4bc4...)
+  #   No registration for peer 'trunk1' (from 203.0.113.7)
+  ASTERISK_IAX_AUTH_FAILED: '[% ASTERISK_PREFIX %](?:Host (?<asterisk_src_ip>[% IP %]) failed (?:to authenticate as|MD5 authentication for) ''(?<asterisk_user>[^'']*)''(?: \([^)]*\))?|No registration for peer ''(?<asterisk_user>[^'']*)'' \(from (?<asterisk_src_ip>[% IP %])\))'
+  # Manager (AMI) login failures:
+  #   203.0.113.7 failed to authenticate as 'admin'
+  #   203.0.113.7 tried to authenticate with nonexistent user 'admin'
+  ASTERISK_MANAGER_AUTH_FAILED: '[% ASTERISK_PREFIX %](?<asterisk_src_ip>[% IP %]) (?:failed to authenticate as|tried to authenticate with nonexistent user) ''(?<asterisk_user>[^'']*)'''
+  # chan_sip's check for a malformed request from a known scanner shape:
+  #   hacking attempt detected '203.0.113.7'
+  ASTERISK_HACKING_ATTEMPT: '[% ASTERISK_PREFIX %]hacking attempt detected ''(?<asterisk_src_ip>[% IP %])'''
+  # FreePBX's dialplan refusing a call from an unknown peer, written by the
+  # Log() application, so it carries the dialplan prefix rather than a source
+  # file:
+  #   WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: "Rejecting unknown SIP connection from 203.0.113.7"
+  #   WARNING[1195][C-00000b43]: Ext. s: "Rejecting unknown SIP connection from [2001:db8::1]:5060"
+  ASTERISK_UNKNOWN_SIP_CONNECTION: '[% ASTERISK_PREFIX %]"Rejecting unknown SIP connection from (?:\[(?<asterisk_src_ip>[% IP %])\]|(?<asterisk_src_ip>[% IP %]))(?::(?<asterisk_src_port>[% INT %]))?"'
   # "Registration attempt from endpoint '1002' (192.168.15.166:5060) to AOR
   #  '1002' will exceed max contacts of 1"
   ASTERISK_REGISTER_MAX_CONTACTS: '[% ASTERISK_PREFIX %]Registration attempt from endpoint ''(?<asterisk_endpoint>[^'']*)'' \((?<asterisk_src_ip>[% IP %]):(?<asterisk_src_port>[% INT %])\) to AOR ''(?<asterisk_aor>[^'']*)'' will exceed max contacts of (?<asterisk_max_contacts>[% INT %])'
@@ -60,6 +125,16 @@ vars_tests:
         result: 'WARNING[578447][C-00000004]: acl.c:1045 in ast_ouraddrfor: '
       - string: 'NOTICE[1037277]: res_pjsip/pjsip_distributor.c:688 in log_failed_request: '
         result: 'NOTICE[1037277]: res_pjsip/pjsip_distributor.c:688 in log_failed_request: '
+      - string: 'NOTICE[566]: chan_sip.c:28926 handle_request_register: '
+        result: 'NOTICE[566]: chan_sip.c:28926 handle_request_register: '
+      - string: 'NOTICE[1638] chan_sip.c: '
+        result: 'NOTICE[1638] chan_sip.c: '
+      - string: 'NOTICE [22382] manager.c: '
+        result: 'NOTICE [22382] manager.c: '
+      - string: '[2026-08-04 10:18:16] NOTICE[19388] res_pjsip/pjsip_distributor.c: '
+        result: '[2026-08-04 10:18:16] NOTICE[19388] res_pjsip/pjsip_distributor.c: '
+      - string: 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: '
+        result: 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: '
     negative:
       - 'WARNING: something without a thread id'
   ASTERISK_SECURITY:
@@ -118,6 +193,64 @@ vars_tests:
         result: 'ERROR[101145]: netsock2.c:646 in ast_sockaddr_stringify_fmt: getnameinfo(): Address family not recognized'
     negative:
       - 'not an asterisk line'
+  ASTERISK_EXTENSION_NOT_FOUND:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'NOTICE[436][C-00000fa9] chan_sip.c: Call from '''' (203.0.113.7:10836) to extension ''0972598285108'' rejected because extension not found in context ''default''.'
+        result: 'NOTICE[436][C-00000fa9] chan_sip.c: Call from '''' (203.0.113.7:10836) to extension ''0972598285108'' rejected because extension not found in context ''default''.'
+      - string: 'NOTICE[12049]: res_pjsip_session.c:2337 new_invite: Call from ''anonymous'' (TCP:[203.0.113.7]:61470) to extension ''9011442037690237'' rejected because extension not found in context ''default''.'
+        result: 'NOTICE[12049]: res_pjsip_session.c:2337 new_invite: Call from ''anonymous'' (TCP:[203.0.113.7]:61470) to extension ''9011442037690237'' rejected because extension not found in context ''default''.'
+      - string: 'NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:203.0.113.7:65049) to extension ''001447441452805'' rejected because extension not found in context ''inbound''.'
+        result: 'NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:203.0.113.7:65049) to extension ''001447441452805'' rejected because extension not found in context ''inbound''.'
+    negative:
+      - 'NOTICE[1638] chan_sip.c: Registration from ''<sip:1002@example.com>'' failed for ''203.0.113.7'' - Wrong password'
+  ASTERISK_HACKING_ATTEMPT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'NOTICE[3453] chan_sip.c: hacking attempt detected ''203.0.113.7'''
+        result: 'NOTICE[3453] chan_sip.c: hacking attempt detected ''203.0.113.7'''
+    negative:
+      - 'NOTICE[3453] chan_sip.c: hacking attempt detected ''mail.example.com'''
+  ASTERISK_IAX_AUTH_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'NOTICE[1638] chan_iax2.c: Host 203.0.113.7 failed to authenticate as ''trunk1'''
+        result: 'NOTICE[1638] chan_iax2.c: Host 203.0.113.7 failed to authenticate as ''trunk1'''
+      - string: 'NOTICE[1638] chan_iax2.c: Host 203.0.113.7 failed MD5 authentication for ''trunk1'' (e7df7cd2ca07f4f1ab415d457a6e1c13 != 53ac4bc41ee4ec77888ed4aa50677247)'
+        result: 'NOTICE[1638] chan_iax2.c: Host 203.0.113.7 failed MD5 authentication for ''trunk1'' (e7df7cd2ca07f4f1ab415d457a6e1c13 != 53ac4bc41ee4ec77888ed4aa50677247)'
+      - string: 'NOTICE[1638] chan_iax2.c: No registration for peer ''trunk1'' (from 203.0.113.7)'
+        result: 'NOTICE[1638] chan_iax2.c: No registration for peer ''trunk1'' (from 203.0.113.7)'
+    negative:
+      - 'NOTICE[6772] manager.c: 203.0.113.7 failed to authenticate as ''admin'''
+  ASTERISK_MANAGER_AUTH_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'NOTICE [22382] manager.c: 203.0.113.7 failed to authenticate as ''admin'''
+        result: 'NOTICE [22382] manager.c: 203.0.113.7 failed to authenticate as ''admin'''
+      - string: 'NOTICE[31554] manager.c: 203.0.113.7 tried to authenticate with nonexistent user ''opennms'''
+        result: 'NOTICE[31554] manager.c: 203.0.113.7 tried to authenticate with nonexistent user ''opennms'''
+    negative:
+      - 'NOTICE[1638] chan_iax2.c: Host 203.0.113.7 failed to authenticate as ''trunk1'''
+  ASTERISK_SIP_REGISTRATION_FAILED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from ''<sip:1002@example.com>'' failed for ''203.0.113.7:36998'' - Wrong password'
+        result: 'NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from ''<sip:1002@example.com>'' failed for ''203.0.113.7:36998'' - Wrong password'
+      - string: '[2026-08-04 17:21:54] NOTICE[1638] chan_sip.c: Registration from ''"100" <sip:100@192.0.2.1>'' failed for ''203.0.113.7'' - No matching peer found'
+        result: '[2026-08-04 17:21:54] NOTICE[1638] chan_sip.c: Registration from ''"100" <sip:100@192.0.2.1>'' failed for ''203.0.113.7'' - No matching peer found'
+    negative:
+      - 'NOTICE[1638] chan_sip.c: hacking attempt detected ''203.0.113.7'''
+  ASTERISK_UNKNOWN_SIP_CONNECTION:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: "Rejecting unknown SIP connection from 203.0.113.7"'
+        result: 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: "Rejecting unknown SIP connection from 203.0.113.7"'
+      - string: 'WARNING[8447][C-00000244] Ext. s: "Rejecting unknown SIP connection from 203.0.113.7:52126"'
+        result: 'WARNING[8447][C-00000244] Ext. s: "Rejecting unknown SIP connection from 203.0.113.7:52126"'
+      - string: 'WARNING[12124][C-00000001] Ext. s: "Rejecting unknown SIP connection from [2001:db8::1]:5060"'
+        result: 'WARNING[12124][C-00000001] Ext. s: "Rejecting unknown SIP connection from [2001:db8::1]:5060"'
+    negative:
+      - 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: "Some other dialplan message"'
 # The peer, from either a security event or a failed request.
 geoip:
   - asterisk_src_ip
@@ -192,6 +325,12 @@ rules:
     patterns:
       - ASTERISK_SECURITY
       - ASTERISK_REQUEST_FAILED
+      - ASTERISK_SIP_REGISTRATION_FAILED
+      - ASTERISK_EXTENSION_NOT_FOUND
+      - ASTERISK_IAX_AUTH_FAILED
+      - ASTERISK_MANAGER_AUTH_FAILED
+      - ASTERISK_HACKING_ATTEMPT
+      - ASTERISK_UNKNOWN_SIP_CONNECTION
       - ASTERISK_REGISTER_MAX_CONTACTS
       - ASTERISK_NO_PUBLISH_HANDLER
       # last: matches any line carrying the shared prefix
@@ -235,6 +374,8 @@ rules:
             asterisk_source_file: 'res_security_log.c'
             asterisk_source_line: '114'
             asterisk_function: 'security_event_stasis_cb'
+            asterisk_LocalAddress: 'IPV4/UDP/192.168.15.2/5060'
+            asterisk_RemoteAddress: 'IPV4/UDP/192.168.15.4/43185'
             asterisk_security_kv: 'SecurityEvent="SuccessfulAuth",EventTV="2026-07-01T00:00:25.218-0500",Severity="Informational",Service="PJSIP",EventVersion="1",AccountID="1002",SessionID="4b4cd701",LocalAddress="IPV4/UDP/192.168.15.2/5060",RemoteAddress="IPV4/UDP/192.168.15.4/43185",UsingPassword="1"'
         - string: "NOTICE[1037277]: res_pjsip/pjsip_distributor.c:688 in log_failed_request: Request 'REGISTER' from '<sip:1003@192.168.15.4>' failed for '192.168.15.166:5062' (callid: 260084097-5062-1@BJC.BGI.BF.BGG) - Failed to authenticate"
           result:
@@ -282,6 +423,118 @@ rules:
             asterisk_source_line: '1045'
             asterisk_function: 'ast_ouraddrfor'
             asterisk_message: 'Cannot connect to 192.168.15.4: Invalid argument'
+        # A forged RemoteAddress smuggled in ahead of the real one through a
+        # client-supplied field. The real (last) address must win.
+        - string: 'SECURITY[6988]: res_security_log.c:114 in security_event_stasis_cb: SecurityEvent="InvalidAccountID",EventTV="2026-08-04T07:21:48.275-0500",Severity="Error",Service="PJSIP",EventVersion="1",AccountID="1002",SessionID="",LocalAddress="IPV4/UDP/192.0.2.9/5060",RemoteAddress="IPV4/UDP/198.51.100.9/1111"",LocalAddress="IPV4/UDP/192.0.2.1/5060",RemoteAddress="IPV4/UDP/203.0.113.7/5061"'
+          enriched:
+            asterisk_AccountID: '1002'
+            asterisk_EventTV: '2026-08-04T07:21:48.275-0500'
+            asterisk_EventVersion: '1'
+            asterisk_LocalAddress: 'IPV4/UDP/192.0.2.1/5060'
+            asterisk_RemoteAddress: 'IPV4/UDP/203.0.113.7/5061'
+            asterisk_SecurityEvent: 'InvalidAccountID'
+            asterisk_Service: 'PJSIP'
+            asterisk_SessionID: ''
+            asterisk_Severity: 'Error'
+            asterisk_dst_family: 'IPV4'
+            asterisk_dst_ip: '192.0.2.1'
+            asterisk_dst_port: '5060'
+            asterisk_dst_proto: 'UDP'
+            asterisk_function: 'security_event_stasis_cb'
+            asterisk_level: 'SECURITY'
+            asterisk_source_file: 'res_security_log.c'
+            asterisk_source_line: '114'
+            asterisk_src_family: 'IPV4'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_src_port: '5061'
+            asterisk_src_proto: 'UDP'
+            asterisk_thread_id: '6988'
+          numeric:
+            - asterisk_dst_port
+            - asterisk_source_line
+            - asterisk_src_port
+            - asterisk_thread_id
+          result:
+            asterisk_level: 'SECURITY'
+            asterisk_thread_id: '6988'
+            asterisk_source_file: 'res_security_log.c'
+            asterisk_source_line: '114'
+            asterisk_function: 'security_event_stasis_cb'
+            asterisk_LocalAddress: 'IPV4/UDP/192.0.2.1/5060'
+            asterisk_RemoteAddress: 'IPV4/UDP/203.0.113.7/5061'
+            asterisk_security_kv: 'SecurityEvent="InvalidAccountID",EventTV="2026-08-04T07:21:48.275-0500",Severity="Error",Service="PJSIP",EventVersion="1",AccountID="1002",SessionID="",LocalAddress="IPV4/UDP/192.0.2.9/5060",RemoteAddress="IPV4/UDP/198.51.100.9/1111"",LocalAddress="IPV4/UDP/192.0.2.1/5060",RemoteAddress="IPV4/UDP/203.0.113.7/5061"'
+        # older prefix: no line number or function, Asterisk's own timestamp
+        - string: '[2026-08-04 17:21:54] NOTICE[1638] chan_sip.c: Registration from ''<sip:1002@example.com>'' failed for ''203.0.113.7'' - Wrong password'
+          result:
+            asterisk_timestamp: '2026-08-04 17:21:54'
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '1638'
+            asterisk_source_file: 'chan_sip.c'
+            asterisk_sip_from: '<sip:1002@example.com>'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_reason: 'Wrong password'
+        # pre-14 pjsip: no method, and a From with quotes of its own
+        - string: 'NOTICE[1943] res_pjsip/pjsip_distributor.c: Request from ''<sip:''or''''=''@192.0.2.9>'' failed for ''203.0.113.7:43678'' (callid: UmOkE9yQPGOsF3Az24YTRe..) - No matching endpoint found'
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '1943'
+            asterisk_source_file: 'res_pjsip/pjsip_distributor.c'
+            asterisk_sip_from: '<sip:''or''''=''@192.0.2.9>'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_src_port: '43678'
+            asterisk_sip_call_id: 'UmOkE9yQPGOsF3Az24YTRe..'
+            asterisk_reason: 'No matching endpoint found'
+        - string: 'NOTICE[12049]: res_pjsip_session.c:2337 new_invite: Call from ''anonymous'' (TCP:[203.0.113.7]:61470) to extension ''9011442037690237'' rejected because extension not found in context ''default''.'
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '12049'
+            asterisk_source_file: 'res_pjsip_session.c'
+            asterisk_source_line: '2337'
+            asterisk_function: 'new_invite'
+            asterisk_caller: 'anonymous'
+            asterisk_src_proto: 'TCP'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_src_port: '61470'
+            asterisk_extension: '9011442037690237'
+            asterisk_context: 'default'
+        - string: 'NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:203.0.113.7:65049) to extension ''001447441452805'' rejected because extension not found in context ''inbound''.'
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '3980'
+            asterisk_source_file: 'res_pjsip_session.c'
+            asterisk_endpoint: 'anonymous'
+            asterisk_src_proto: 'UDP'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_src_port: '65049'
+            asterisk_extension: '001447441452805'
+            asterisk_context: 'inbound'
+        - string: 'NOTICE[1638] chan_iax2.c: No registration for peer ''trunk1'' (from 203.0.113.7)'
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '1638'
+            asterisk_source_file: 'chan_iax2.c'
+            asterisk_user: 'trunk1'
+            asterisk_src_ip: '203.0.113.7'
+        - string: 'NOTICE [22382] manager.c: 203.0.113.7 failed to authenticate as ''admin'''
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '22382'
+            asterisk_source_file: 'manager.c'
+            asterisk_src_ip: '203.0.113.7'
+            asterisk_user: 'admin'
+        - string: 'NOTICE[3453] chan_sip.c: hacking attempt detected ''203.0.113.7'''
+          result:
+            asterisk_level: 'NOTICE'
+            asterisk_thread_id: '3453'
+            asterisk_source_file: 'chan_sip.c'
+            asterisk_src_ip: '203.0.113.7'
+        - string: 'WARNING[1195][C-00000b43]: Ext. s:6 in @ from-sip-external: "Rejecting unknown SIP connection from 203.0.113.7"'
+          result:
+            asterisk_level: 'WARNING'
+            asterisk_thread_id: '1195'
+            asterisk_channel_id: '00000b43'
+            asterisk_dialplan_location: 's:6 in @ from-sip-external'
+            asterisk_src_ip: '203.0.113.7'
       negative:
         - 'this is not an asterisk line at all'
         - 'WARNING: no thread id, so not an asterisk log line'

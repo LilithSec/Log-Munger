@@ -22,6 +22,16 @@ Revision history for Log-Munger
         - exim: add no MAIL, SMTP protocol error, synchronization error,
           sender/recipient verify fail, reverse/forward DNS lookup failures,
           local_scan() rejects and SA-Exim SA: Action lines
+        - asterisk: prefix accepts older forms (no line/function, no "in",
+          no colon after thread id), dialplan Log() lines and the
+          full/messages file timestamp
+        - asterisk: security events take the last LocalAddress and
+          RemoteAddress, so a forged one injected via a client-supplied
+          field no longer sets asterisk_src_ip
+        - asterisk: Request failed accepts no method and quotes in From
+        - asterisk: add chan_sip registration failure, extension not found,
+          IAX2 and AMI auth failures, hacking attempt, and FreePBX unknown
+          SIP connection
 
 0.0.1   2026-08-23/17:00
         - init
