@@ -11,11 +11,11 @@ Log::Munger - Extracts structured fields from log records using YAML rule files.
 
 =head1 VERSION
 
-Version 0.0.1
+Version 0.1.0
 
 =cut
 
-our $VERSION = '0.0.1';
+our $VERSION = '0.1.0';
 
 =head1 SYNOPSIS
 

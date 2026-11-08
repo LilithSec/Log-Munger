@@ -5,26 +5,52 @@
 # "fail2ban.filter", or plain "fail2ban". The MESSAGE that Log::Munger sees is
 # the text after the program + level, e.g. "[sshd] Ban 203.0.113.7". Some
 # deployments prefix a bare level token (e.g. "NOTICE " / "WARNING ") before the
-# "[jail]", so every pattern tolerates an optional leading "(?:[A-Z]+ +)?".
+# "[jail]".
+#
+# Run as a systemd service logging to stdout, it lands in the journal (and so
+# in syslog) under PROGRAM "fail2ban-server", with its own log format still on
+# the front of the message:
+#
+#   fail2ban.actions        [11524]: NOTICE  [sshd] Ban 203.0.113.7
+#
+# The logger name is padded to 24 columns. F2B_LEAD below takes all of that as
+# optional, so every pattern accepts the bare, level-prefixed and full forms.
 # Patterns are anchored (each must match the whole MESSAGE) and first-match
 # wins. Every capture is namespaced with f2b_ .
 includes:
 - base
 vars_templated:
+  # The optional lead-in before "[jail]": the "fail2ban.actions    [pid]: "
+  # logger prefix seen under fail2ban-server, then a level token. The logger
+  # name is kept as f2b_logger since under fail2ban-server it is not in PROGRAM.
+  F2B_LEAD: '(?:(?<f2b_logger>fail2ban(?:\.[a-z]+)*) *\[[% INT %]\]: +)?(?:[A-Z]+ +)?'
   # "[sshd] Ban 203.0.113.7", "[sshd] Unban 203.0.113.7",
   # "[sshd] Restore Ban 203.0.113.7".
-  F2B_ACTION_BAN: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ban|Unban|Restore Ban) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  F2B_ACTION_BAN: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ban|Unban|Restore Ban) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
   # "[sshd] Found 203.0.113.7" and
   # "[sshd] Found 203.0.113.7 - 2024-01-01 12:00:00".
-  F2B_FOUND: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Found) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  F2B_FOUND: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Found) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
   # "[sshd] Already banned 203.0.113.7".
-  F2B_ALREADY_BANNED: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Already banned) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  F2B_ALREADY_BANNED: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Already banned) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
   # "[sshd] 203.0.113.7 already banned" (IP-first variant). f2b_action is
   # normalised to "Already banned" for consistency with F2B_ALREADY_BANNED.
-  F2B_ALREADY_BANNED_ALT: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_ip>[% IP %]) (?<f2b_action>already banned)(?: [% GREEDYDATA %])?'
+  F2B_ALREADY_BANNED_ALT: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_ip>[% IP %]) (?<f2b_action>already banned)(?: [% GREEDYDATA %])?'
   # "[sshd] Ignore 203.0.113.7 by ip".
-  F2B_IGNORE: '(?:[A-Z]+ +)?\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ignore) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
+  F2B_IGNORE: '[% F2B_LEAD %]\[(?<f2b_jail>[% NOTSPACE %])\] (?<f2b_action>Ignore) (?<f2b_ip>[% IP %])(?: [% GREEDYDATA %])?'
 vars_tests:
+  F2B_LEAD:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: ''
+        result: ''
+      - string: 'NOTICE '
+        result: 'NOTICE '
+      - string: 'fail2ban.actions        [11524]: NOTICE  '
+        result: 'fail2ban.actions        [11524]: NOTICE  '
+      - string: 'fail2ban.server.transmitter[11524]: WARNING '
+        result: 'fail2ban.server.transmitter[11524]: WARNING '
+    negative:
+      - 'sshd[11524]: NOTICE '
   F2B_ACTION_BAN:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -80,7 +106,7 @@ rules:
     gate:
       - field: PROGRAM
         values:
-          - '//^fail2ban(\.[a-z]+)?$//'
+          - '//^fail2ban(?:\.[a-z]+|-server)?$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -107,6 +133,13 @@ rules:
           result:
             f2b_jail: 'sshd'
             f2b_action: 'Unban'
+            f2b_ip: '203.0.113.7'
+        - string: 'fail2ban.actions        [11524]: NOTICE  [sshd] Ban 203.0.113.7'
+          program: 'fail2ban-server'
+          result:
+            f2b_logger: 'fail2ban.actions'
+            f2b_jail: 'sshd'
+            f2b_action: 'Ban'
             f2b_ip: '203.0.113.7'
         - string: '[sshd] Restore Ban 203.0.113.7'
           result:

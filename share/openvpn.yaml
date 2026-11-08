@@ -1,8 +1,10 @@
 ---
 # OpenVPN server connection / certificate / authentication log enrichment.
 #
-# Gates on the syslog PROGRAM field being "openvpn" or "openvpn-server"
-# (systemd's openvpn-server@.service logs under the latter). Patterns are
+# Gates on the syslog PROGRAM field being "openvpn", "openvpn-server" or
+# "openvpn-client" (systemd's openvpn-server@ / openvpn-client@ units log
+# under those), or "ovpn-<instance>" (Debian's older openvpn@.service passes
+# --syslog ovpn-%i, so openvpn@office logs as "ovpn-office"). Patterns are
 # anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with openvpn_ .
 #
@@ -137,7 +139,7 @@ rules:
     gate:
       - field: PROGRAM
         values:
-          - '//^openvpn(?:-server|-client)?$//'
+          - '//^(?:openvpn(?:-server|-client)?|ovpn-\S+)$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -179,6 +181,7 @@ rules:
             openvpn_cert_depth: '1'
             openvpn_cert_subject: 'CN=ca'
         - string: '192.0.2.5:49152 TLS Error: TLS key negotiation failed to occur within 60 seconds (check your network connectivity)'
+          program: 'ovpn-server'
           result:
             openvpn_src_ip: '192.0.2.5'
             openvpn_src_port: '49152'
@@ -213,3 +216,5 @@ rules:
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
         - string: '192.0.2.5:49152 TLS: Initial packet from [AF_INET]192.0.2.5:49152, sid=abc123 def456'
           program: 'openvpn-extra'
+        - string: '192.0.2.5:49152 TLS: Initial packet from [AF_INET]192.0.2.5:49152, sid=abc123 def456'
+          program: 'ovpn'

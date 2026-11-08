@@ -1,7 +1,9 @@
 ---
 # Sendmail MTA log enrichment.
 #
-# Gates on the syslog PROGRAM field being "sendmail" or "sm-mta". Patterns are
+# Gates on the syslog PROGRAM field being "sendmail", "sm-mta", "sm-msp-queue",
+# or "sm-acceptingconnections" (some systems tag the listening daemon with its
+# process title, "sm-mta: accepting connections", squashed into one word). Patterns are
 # anchored (each must match the whole MESSAGE) and first-match wins. Every
 # capture is namespaced with sendmail_ .
 #
@@ -166,7 +168,7 @@ rules:
     gate:
       - field: PROGRAM
         values:
-          - '//^(?:sendmail|sm-mta|sm-msp-queue)$//'
+          - '//^(?:sendmail|sm-mta|sm-msp-queue|sm-acceptingconnections)$//'
     field: MESSAGE
     anchored: true
     patterns:
@@ -238,6 +240,7 @@ rules:
             sendmail_auth_error: 'authentication failure (-1) SASL(-13): user not found'
             sendmail_relay: 'scanner [203.0.113.7]'
         - string: 'did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA'
+          program: 'sm-acceptingconnections'
           result:
             sendmail_expected_commands: 'MAIL/EXPN/VRFY/ETRN'
             sendmail_daemon: 'MTA'

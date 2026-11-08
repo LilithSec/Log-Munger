@@ -1,4 +1,10 @@
 Revision history for Log-Munger
 
+0.1.0   ????-??-??/??:??
+        - openvpn: gate on ovpn-<instance> (Debian openvpn@.service)
+        - sendmail: gate on sm-acceptingconnections
+        - fail2ban: gate on fail2ban-server and accept its logger prefix,
+          captured as f2b_logger
+
 0.0.1   2026-08-23/17:00
         - init
