@@ -32,6 +32,19 @@ Revision history for Log-Munger
         - asterisk: add chan_sip registration failure, extension not found,
           IAX2 and AMI auth failures, hacking attempt, and FreePBX unknown
           SIP connection
+        - sshd: usernames may contain spaces and the last " from <ip>" wins,
+          so a forged address in the username no longer sets ssh_src_ip;
+          same for the Bad protocol identifier
+        - sshd: port optional on Failed, Connection closed and disconnects
+        - sshd: Received disconnect captures ssh_disconnect_code and
+          ssh_disconnect_reason, and takes an error: prefix
+        - sshd: User ... not allowed takes a hostname (UseDNS), PAM errors
+          take " via <ip>"
+        - sshd: old "Disconnecting: Too many authentication failures" form,
+          fatal: prefix on Unable to negotiate
+        - sshd: add Disconnecting <state> user, ssh_dispatch_run_fatal,
+          ROOT LOGIN REFUSED, tcp_wrappers refused connect and a catch-all
+          for error:/fatal: lines with no function name
 
 0.0.1   2026-08-23/17:00
         - init

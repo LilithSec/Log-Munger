@@ -35,22 +35,52 @@ vars_templated:
   # traffic worth keeping. The zero-width case is real: sshd prints an empty
   # field for an empty username, leaving two spaces.
   #
-  # Used only where sshd has already said the account is invalid or illegal.
-  # The patterns for a successful auth keep USERNAME, because there the name
-  # is an account that exists.
-  SSH_ANY_USERNAME: '\S*'
+  # The name can also contain spaces, and sshd logs it unescaped. A client
+  # that sends the username "x from 192.0.2.1 port 1 ssh2" gets
+  #
+  #   Failed password for invalid user x from 192.0.2.1 port 1 ssh2 from 203.0.113.7 port 40000 ssh2
+  #
+  # and anything that takes the first " from <ip>" bans or geolocates an
+  # address the client picked. So this is greedy rather than \S*: every
+  # pattern using it follows it with a fixed " from <ip>" or " <ip> port"
+  # anchor, and a greedy match backtracks to the LAST one, which is the part
+  # sshd wrote after the name.
+  #
+  # Used only where sshd has already said the account is invalid or illegal,
+  # or where a failed attempt reports what the client sent. The patterns for a
+  # successful auth keep USERNAME, because there the name is an account that
+  # exists.
+  SSH_ANY_USERNAME: '.*'
   # Accepted publickey/password/keyboard-interactive. For publickey OpenSSH
   # appends the key type + fingerprint ("ssh2: RSA SHA256:...").
   SSH_ACCEPTED: 'Accepted (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?<ssh_user>[% USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2(?::? (?<ssh_key_type>[% WORD %]) (?<ssh_key_fingerprint>[% NOTSPACE %]))?)?'
-  # Failed password/publickey, optionally "for invalid user X".
-  SSH_FAILED: 'Failed (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% SSH_ANY_USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
+  # Failed password/publickey, optionally "for invalid user X". OpenSSH before
+  # 5.x leaves the port off, and Solaris/macOS write the username as
+  # "<invalid username>", which SSH_ANY_USERNAME takes.
+  SSH_FAILED: 'Failed (?<ssh_method>[% SSH_AUTH_METHOD %]) for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% SSH_ANY_USERNAME %]) from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: ssh2)?(?: [% GREEDYDATA %])?'
   # "Invalid user oracle from 203.0.113.7 port 40000"
   SSH_INVALID_USER: 'Invalid user (?<ssh_user>[% SSH_ANY_USERNAME %]) from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Connection closed by 192.0.2.5 port 40000 [preauth]" and the
-  # "authenticating user root" variant.
-  SSH_CONN_CLOSED: 'Connection closed by (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% SSH_ANY_USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: [% GREEDYDATA %])?'
+  # "authenticating user root" variant. Before 7.x there is no port:
+  # "Connection closed by 192.0.2.5 [preauth]".
+  SSH_CONN_CLOSED: 'Connection closed by (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% SSH_ANY_USERNAME %]) )?(?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Disconnected from ..." and "Received disconnect from ...".
-  SSH_DISCONNECT: '(?:Disconnected|Received disconnect) from (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% SSH_ANY_USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?::[% GREEDYDATA %]| [% GREEDYDATA %])?'
+  #
+  # A client-initiated disconnect carries the SSH reason code and the client's
+  # own text:
+  #   Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]
+  #   error: Received disconnect from 203.0.113.7 port 7736:3: com.jcraft.jsch.JSchException: Auth fail [preauth]
+  #   Received disconnect from 203.0.113.7: 14: No supported authentication methods available [preauth]
+  #
+  # Code 3 with "Auth fail" is the JSch library giving up after a wrong
+  # password, and 14 is a client that had no method the server would take,
+  # so both are captured. Older OpenSSH has no port, and logs the line through
+  # error() when the client's reason is not a normal shutdown.
+  SSH_DISCONNECT: '(?:error: )?(?:Disconnected|Received disconnect) from (?:(?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% SSH_ANY_USERNAME %]) )?(?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?::\s*(?<ssh_disconnect_code>[% INT %]):\s*(?<ssh_disconnect_reason>.*?)(?: \[(?<ssh_preauth>preauth)\])?|:[% GREEDYDATA %]| \[(?<ssh_preauth>preauth)\]| [% GREEDYDATA %])?'
+  # The server ending the session itself, naming the peer:
+  #   Disconnecting invalid user admin 203.0.113.7 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]
+  #   Disconnecting authenticating user root 203.0.113.7 port 44004: Too many authentication failures [preauth]
+  SSH_DISCONNECTING: 'Disconnecting (?:(?<ssh_conn_state>authenticating|invalid) )?user (?<ssh_user>[% SSH_ANY_USERNAME %]) (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_disconnect_reason>.*?)(?: \[(?<ssh_preauth>preauth)\])?'
   # ------------------------------------------------------------------
   # New (additive) message types.
   # ------------------------------------------------------------------
@@ -58,8 +88,11 @@ vars_templated:
   #  port <port> ssh2 [preauth]" (also "invalid user" variant).
   SSH_MAX_AUTH: 'error: maximum authentication attempts exceeded for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% SSH_ANY_USERNAME %]) from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %])(?: ssh2)?(?: [% GREEDYDATA %])?'
   # "error: Too many authentication failures for <user>" and the PAM-style
-  # "...; logname= uid=0 euid=0 tty=ssh ruser= rhost=..." trailer.
-  SSH_TOO_MANY: '(?:error: )?Too many authentication failures for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %])(?:\s*;\s*(?<ssh_pam_kv>[% GREEDYDATA %]))?'
+  # "...; logname= uid=0 euid=0 tty=ssh ruser= rhost=..." trailer. Older
+  # OpenSSH writes it as "Disconnecting: Too many authentication failures for
+  # root [preauth]", sometimes with no user at all. There is no address on
+  # that form; the peer is on the neighbouring lines.
+  SSH_TOO_MANY: '(?:error: |Disconnecting: )?Too many authentication failures(?: for (?:(?<ssh_invalid>invalid) user )?(?<ssh_user>[% USERNAME %]))?(?:\s*;\s*(?<ssh_pam_kv>[% GREEDYDATA %]))?(?: \[(?<ssh_preauth>preauth)\])?'
   # "User <user> from <ip> not allowed because not listed in AllowUsers"
   # and "...not in any group" / "...listed in DenyUsers" variants.
   #
@@ -68,7 +101,11 @@ vars_templated:
   # missing, or whose password has expired:
   #
   #   User backup not allowed because shell /usr/local/bin/scponly does not exist
-  SSH_NOT_ALLOWED: 'User (?<ssh_user>[% USERNAME %])(?: from (?<ssh_src_ip>[% IP %]))? not allowed because (?<ssh_reason>[% GREEDYDATA %])'
+  #
+  # The AllowUsers/DenyUsers check is done against the client's resolved
+  # name, so with UseDNS on the "from" is a hostname, not an address. Only one
+  # of ssh_src_ip and ssh_src_host is set, as in SSH_PAM_ERROR.
+  SSH_NOT_ALLOWED: 'User (?<ssh_user>[% USERNAME %])(?: from (?:(?<ssh_src_ip>[% IP %])|(?<ssh_src_host>[% HOSTNAME %])))? not allowed because (?<ssh_reason>[% GREEDYDATA %])'
   # Reverse-mapping mismatch: "Address <ip> maps to <host>, but this does not
   # map back to the address - POSSIBLE BREAK-IN ATTEMPT!"
   #
@@ -161,7 +198,7 @@ vars_templated:
   # The offer is captured separately because it is the closest thing sshd gives
   # to a fingerprint of the client. A host that has just tightened its
   # KexAlgorithms or Ciphers shows its locked-out clients here.
-  SSH_NO_NEGOTIATE: 'Unable to negotiate with (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_negotiate_error>.*?)(?:\. Their offer: (?<ssh_peer_offer>[% GREEDYDATA %]))?'
+  SSH_NO_NEGOTIATE: '(?:fatal: )?Unable to negotiate with (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_negotiate_error>.*?)(?:\. Their offer: (?<ssh_peer_offer>[% GREEDYDATA %]))?'
   # "banner exchange: Connection from 203.0.113.7 port 44444: invalid format"
   SSH_BANNER_EXCHANGE: 'banner exchange: Connection from (?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_banner_error>[% GREEDYDATA %])'
   # "Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444"
@@ -169,7 +206,11 @@ vars_templated:
   # A web crawler, a TLS probe or a mistargeted health check landing on port
   # 22. The identifier is captured verbatim, since what was sent is the line's
   # entire content.
-  SSH_BAD_PROTOCOL: 'Bad protocol version identification ''(?<ssh_bad_protocol>[^'']*)'' from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
+  #
+  # The identifier is client text and may itself contain "' from <ip>", so it
+  # is greedy and backtracks to the last one, for the same reason as
+  # SSH_ANY_USERNAME.
+  SSH_BAD_PROTOCOL: 'Bad protocol version identification ''(?<ssh_bad_protocol>.*)'' from (?<ssh_src_ip>[% IP %])(?: port (?<ssh_src_port>[% INT %]))?(?: [% GREEDYDATA %])?'
   # "Connection from 203.0.113.7 port 44444 on 192.0.2.1 port 22"
   #
   # Only logged at LogLevel VERBOSE, which is also the level that produces the
@@ -183,7 +224,10 @@ vars_templated:
   # an address first and a hostname second. Only one of the two captures is
   # ever set, which keeps the address in ssh_src_ip where the geoip lookup
   # expects it instead of burying it in a field that is sometimes a name.
-  SSH_PAM_ERROR: 'error: PAM: (?<ssh_pam_error>.*?) for (?:(?<ssh_invalid>illegal|invalid) user )?(?<ssh_user>[% USERNAME %]) from (?:(?<ssh_src_ip>[% IP %])|(?<ssh_src_host>[% HOSTNAME %]))'
+  #
+  # Solaris and macOS add the local address the connection came in on:
+  #   error: PAM: Authentication failure for neti from 203.0.113.7 via 192.0.2.1
+  SSH_PAM_ERROR: 'error: PAM: (?<ssh_pam_error>.*?) for (?:(?<ssh_invalid>illegal|invalid) user )?(?<ssh_user>[% USERNAME %]) from (?:(?<ssh_src_ip>[% IP %])|(?<ssh_src_host>[% HOSTNAME %]))(?: via (?<ssh_dst_ip>[% IP %]))? ?'
   # "error: Bind to port 2222 on 0.0.0.0 failed: Address already in use."
   #
   # A listener that never came up. Its own pattern because the port is the
@@ -207,6 +251,28 @@ vars_templated:
   # them. The Fssh_ prefix is stripped for the same reason as in SSH_KEX_ERROR,
   # so a FreeBSD host and a Linux host name the same function identically.
   SSH_ERROR: '(?<ssh_level>error|fatal): (?:Fssh_)?(?<ssh_function>[% NOTSPACE_NO_COLON %]): (?<ssh_error>.*?)(?: \[(?<ssh_preauth>preauth)\])?'
+  # Whatever else sshd raised through error() or fatal() with no function
+  # name in front, e.g.
+  #   fatal: Read from socket failed: Connection reset by peer [preauth]
+  #   fatal: Unable to negotiate a key exchange method [preauth]
+  # so a failure with no pattern of its own still yields its level and text.
+  SSH_ERROR_MESSAGE: '(?<ssh_level>error|fatal): (?<ssh_error>.*?)(?: \[(?<ssh_preauth>preauth)\])?'
+  # A packet-level failure after the connection was up:
+  #   ssh_dispatch_run_fatal: Connection from 203.0.113.7 port 33738: message authentication code incorrect [preauth]
+  #   ssh_dispatch_run_fatal: Connection from authenticating user root 203.0.113.7 port 33738: Connection corrupted [preauth]
+  SSH_DISPATCH_FATAL: '(?:Fssh_)?ssh_dispatch_run_fatal: Connection from (?:(?<ssh_conn_state>authenticating|invalid) user (?<ssh_user>[% SSH_ANY_USERNAME %]) )?(?<ssh_src_ip>[% IP %]) port (?<ssh_src_port>[% INT %]): (?<ssh_error>.*?)(?: \[(?<ssh_preauth>preauth)\])?'
+  # The root refusal from OpenSSH 3.x, still logged by some embedded builds:
+  #   ROOT LOGIN REFUSED FROM 203.0.113.7 port 40000 [preauth]
+  # A v4 client on a dual-stack socket is logged as ::ffff:203.0.113.7; the
+  # mapping prefix is dropped so ssh_src_ip holds the plain address, here and
+  # in SSH_TCPWRAP_REFUSED.
+  SSH_ROOT_REFUSED: 'ROOT LOGIN REFUSED FROM (?:::ffff:(?<ssh_src_ip>[% IPv4 %])|(?<ssh_src_ip>[% IP %]))(?: port (?<ssh_src_port>[% INT %]))?(?: \[(?<ssh_preauth>preauth)\])?'
+  # tcp_wrappers (libwrap) turning a client away before sshd sees it:
+  #   refused connect from scanner.example.net (203.0.113.7)
+  # The name is whatever the client's reverse DNS said, which the client
+  # controls, so it is only kept as ssh_src_host. The address in parentheses
+  # is the one to trust.
+  SSH_TCPWRAP_REFUSED: 'refused connect from (?<ssh_src_host>\S+) \((?:::ffff:(?<ssh_src_ip>[% IPv4 %])|(?<ssh_src_ip>[% IP %]))\)'
 vars_tests:
   SSH_ACCEPTED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -220,6 +286,12 @@ vars_tests:
   SSH_FAILED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'Failed password for invalid user admin from 2001:db8::1'
+        result: 'Failed password for invalid user admin from 2001:db8::1'
+      - string: 'Failed keyboard-interactive for <invalid username> from 203.0.113.7 port 42742 ssh2'
+        result: 'Failed keyboard-interactive for <invalid username> from 203.0.113.7 port 42742 ssh2'
+      - string: 'Failed password for invalid user x from 192.0.2.1 port 1 ssh2 from 203.0.113.7 port 40000 ssh2'
+        result: 'Failed password for invalid user x from 192.0.2.1 port 1 ssh2 from 203.0.113.7 port 40000 ssh2'
       - string: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
         result: 'Failed password for root from 203.0.113.7 port 44444 ssh2'
       - string: 'Failed password for invalid user admin from 203.0.113.7 port 44444 ssh2'
@@ -236,6 +308,8 @@ vars_tests:
   SSH_CONN_CLOSED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'Connection closed by 203.0.113.7 [preauth]'
+        result: 'Connection closed by 203.0.113.7 [preauth]'
       - string: 'Connection closed by 192.0.2.5 port 40000 [preauth]'
         result: 'Connection closed by 192.0.2.5 port 40000 [preauth]'
       - string: 'Connection closed by authenticating user root 203.0.113.7 port 44444 [preauth]'
@@ -245,6 +319,10 @@ vars_tests:
   SSH_DISCONNECT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'Received disconnect from 203.0.113.7: 11: Bye Bye [preauth]'
+        result: 'Received disconnect from 203.0.113.7: 11: Bye Bye [preauth]'
+      - string: 'error: Received disconnect from 203.0.113.7 port 7736:3: com.jcraft.jsch.JSchException: Auth fail [preauth]'
+        result: 'error: Received disconnect from 203.0.113.7 port 7736:3: com.jcraft.jsch.JSchException: Auth fail [preauth]'
       - string: 'Disconnected from 198.51.100.9 port 40000'
         result: 'Disconnected from 198.51.100.9 port 40000'
       - string: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
@@ -263,6 +341,10 @@ vars_tests:
   SSH_TOO_MANY:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'Disconnecting: Too many authentication failures for root [preauth]'
+        result: 'Disconnecting: Too many authentication failures for root [preauth]'
+      - string: 'Disconnecting: Too many authentication failures [preauth]'
+        result: 'Disconnecting: Too many authentication failures [preauth]'
       - string: 'error: Too many authentication failures for root'
         result: 'error: Too many authentication failures for root'
       - string: 'Too many authentication failures for invalid user admin; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7'
@@ -272,6 +354,8 @@ vars_tests:
   SSH_NOT_ALLOWED:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'User root from scanner.example.net not allowed because not listed in AllowUsers'
+        result: 'User root from scanner.example.net not allowed because not listed in AllowUsers'
       - string: 'User root from 203.0.113.7 not allowed because not listed in AllowUsers'
         result: 'User root from 203.0.113.7 not allowed because not listed in AllowUsers'
       - string: 'User oracle from 198.51.100.9 not allowed because none of user''s groups are listed in AllowGroups'
@@ -297,10 +381,14 @@ vars_tests:
       # sshd prints an empty field when the client sent no username
       - string: ''
         result: ''
+      # spaces too: the patterns using this bound it by what follows
+      - string: 'two words'
+        result: 'two words'
+      - string: '<invalid username>'
+        result: '<invalid username>'
     negative:
-      # a name with a space in it would run past the field in every line that
-      # uses this, so it must not match
-      - 'two words'
+      # sshd never writes a newline into a log line
+      - "two\nlines"
   SSH_REVERSE_MAP:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -447,6 +535,8 @@ vars_tests:
   SSH_NO_NEGOTIATE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'fatal: Unable to negotiate with 203.0.113.7 port 55419: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
+        result: 'fatal: Unable to negotiate with 203.0.113.7 port 55419: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
       - string: 'Unable to negotiate with 203.0.113.7 port 44444: no matching host key type found. Their offer: ssh-rsa'
         result: 'Unable to negotiate with 203.0.113.7 port 44444: no matching host key type found. Their offer: ssh-rsa'
       - string: 'Unable to negotiate with 198.51.100.9 port 40000: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1'
@@ -466,6 +556,8 @@ vars_tests:
   SSH_BAD_PROTOCOL:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'Bad protocol version identification ''dummy'' from 192.0.2.1'' from 203.0.113.7 port 31778'
+        result: 'Bad protocol version identification ''dummy'' from 192.0.2.1'' from 203.0.113.7 port 31778'
       - string: 'Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444'
         result: 'Bad protocol version identification ''GET / HTTP/1.1'' from 203.0.113.7 port 44444'
       - string: 'Bad protocol version identification ''\x16\x03\x01'' from 198.51.100.9 port 40000'
@@ -488,6 +580,10 @@ vars_tests:
   SSH_PAM_ERROR:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
+      - string: 'error: PAM: Authentication failure for neti from 203.0.113.7 via 192.0.2.1'
+        result: 'error: PAM: Authentication failure for neti from 203.0.113.7 via 192.0.2.1'
+      - string: 'error: PAM: User not known to the underlying authentication module for illegal user admin from 203.0.113.7 '
+        result: 'error: PAM: User not known to the underlying authentication module for illegal user admin from 203.0.113.7 '
       - string: 'error: PAM: Authentication failure for root from 203.0.113.7'
         result: 'error: PAM: Authentication failure for root from 203.0.113.7'
       - string: 'error: PAM: Authentication failure for illegal user admin from 198.51.100.9'
@@ -497,6 +593,53 @@ vars_tests:
         result: 'error: PAM: User account has expired for neti from mail.example.net'
     negative:
       - 'error: kex_exchange_identification: Connection closed by remote host'
+  SSH_DISCONNECTING:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Disconnecting invalid user admin 203.0.113.7 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]'
+        result: 'Disconnecting invalid user admin 203.0.113.7 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]'
+      - string: 'Disconnecting authenticating user root 203.0.113.7 port 44004: Too many authentication failures [preauth]'
+        result: 'Disconnecting authenticating user root 203.0.113.7 port 44004: Too many authentication failures [preauth]'
+    negative:
+      - 'Disconnecting: Too many authentication failures [preauth]'
+  SSH_DISPATCH_FATAL:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ssh_dispatch_run_fatal: Connection from 203.0.113.7 port 33738: message authentication code incorrect [preauth]'
+        result: 'ssh_dispatch_run_fatal: Connection from 203.0.113.7 port 33738: message authentication code incorrect [preauth]'
+      - string: 'ssh_dispatch_run_fatal: Connection from authenticating user root 203.0.113.7 port 33738: Connection corrupted [preauth]'
+        result: 'ssh_dispatch_run_fatal: Connection from authenticating user root 203.0.113.7 port 33738: Connection corrupted [preauth]'
+    negative:
+      - 'Connection from 203.0.113.7 port 33738 on 192.0.2.1 port 22'
+  SSH_ERROR_MESSAGE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'fatal: Read from socket failed: Connection reset by peer [preauth]'
+        result: 'fatal: Read from socket failed: Connection reset by peer [preauth]'
+      - string: 'fatal: Unable to negotiate a key exchange method [preauth]'
+        result: 'fatal: Unable to negotiate a key exchange method [preauth]'
+    negative:
+      - 'Accepted password for alice from 198.51.100.9 port 40000 ssh2'
+  SSH_ROOT_REFUSED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'ROOT LOGIN REFUSED FROM 203.0.113.7'
+        result: 'ROOT LOGIN REFUSED FROM 203.0.113.7'
+      - string: 'ROOT LOGIN REFUSED FROM 203.0.113.7 port 12345 [preauth]'
+        result: 'ROOT LOGIN REFUSED FROM 203.0.113.7 port 12345 [preauth]'
+      - string: 'ROOT LOGIN REFUSED FROM ::ffff:203.0.113.7'
+        result: 'ROOT LOGIN REFUSED FROM ::ffff:203.0.113.7'
+    negative:
+      - 'ROOT LOGIN REFUSED FROM scanner.example.net'
+  SSH_TCPWRAP_REFUSED:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'refused connect from scanner.example.net (203.0.113.7)'
+        result: 'refused connect from scanner.example.net (203.0.113.7)'
+      - string: 'refused connect from _x_@::ffff:203.0.113.7 (::ffff:203.0.113.7)'
+        result: 'refused connect from _x_@::ffff:203.0.113.7 (::ffff:203.0.113.7)'
+    negative:
+      - 'refused connect from scanner.example.net'
   NOTSPACE_NO_COLON:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -554,6 +697,7 @@ convert:
   ssh_drop_count: int
   ssh_conn_pid: int
   ssh_signal: int
+  ssh_disconnect_code: int
 rules:
   - name: sshd
     gate:
@@ -568,6 +712,7 @@ rules:
       - SSH_INVALID_USER
       - SSH_CONN_CLOSED
       - SSH_DISCONNECT
+      - SSH_DISCONNECTING
       - SSH_ACCEPTED_CERT
       - SSH_MAX_AUTH
       - SSH_TOO_MANY
@@ -592,9 +737,13 @@ rules:
       - SSH_PAM_ERROR
       - SSH_BIND_FAILED
       - SSH_REXEC_FAILED
+      - SSH_DISPATCH_FATAL
+      - SSH_ROOT_REFUSED
+      - SSH_TCPWRAP_REFUSED
       # after every other "error: ..." / "fatal: ..." pattern, because it
       # matches the shape of most of them
       - SSH_ERROR
+      - SSH_ERROR_MESSAGE
       # last of the connection patterns: "Connection from <ip> port <port>" is
       # the loosest of them, so anything with a more specific shape gets first
       # refusal even though anchoring already keeps them apart
@@ -650,9 +799,15 @@ rules:
             ssh_src_ip: '198.51.100.9'
             ssh_src_port: '40000'
         - string: 'Received disconnect from 203.0.113.7 port 44444:11: Bye Bye [preauth]'
+          numeric:
+            - ssh_disconnect_code
+            - ssh_src_port
           result:
             ssh_src_ip: '203.0.113.7'
             ssh_src_port: '44444'
+            ssh_disconnect_code: '11'
+            ssh_disconnect_reason: 'Bye Bye'
+            ssh_preauth: 'preauth'
         # -- new message types --
         - string: 'Accepted publickey for neti from 192.0.2.5 port 54321 ssh2: ED25519-CERT SHA256:AbCdEf0123456789 ID neti@example (serial 7) CA ED25519 SHA256:ZzYyXx'
           numeric:
@@ -906,6 +1061,86 @@ rules:
             ssh_level: 'error'
             ssh_function: 'send_rexec_state'
             ssh_error: 'ssh_msg_send failed'
+        # a username carrying a forged " from <ip> port N ssh2": the address
+        # sshd wrote after the name is the one captured
+        - string: 'Failed password for invalid user x from 192.0.2.1 port 1 ssh2 from 203.0.113.7 port 40000 ssh2'
+          result:
+            ssh_method: 'password'
+            ssh_invalid: 'invalid'
+            ssh_user: 'x from 192.0.2.1 port 1 ssh2'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '40000'
+        - string: 'Failed keyboard-interactive for <invalid username> from 203.0.113.7 port 42742 ssh2'
+          result:
+            ssh_method: 'keyboard-interactive'
+            ssh_user: '<invalid username>'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '42742'
+        # older OpenSSH: no port
+        - string: 'Connection closed by 203.0.113.7 [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+        - string: 'error: Received disconnect from 203.0.113.7 port 7736:3: com.jcraft.jsch.JSchException: Auth fail [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '7736'
+            ssh_disconnect_code: '3'
+            ssh_disconnect_reason: 'com.jcraft.jsch.JSchException: Auth fail'
+            ssh_preauth: 'preauth'
+        - string: 'Received disconnect from 203.0.113.7: 14: No supported authentication methods available [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_disconnect_code: '14'
+            ssh_disconnect_reason: 'No supported authentication methods available'
+            ssh_preauth: 'preauth'
+        - string: 'Disconnecting invalid user admin 203.0.113.7 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]'
+          result:
+            ssh_conn_state: 'invalid'
+            ssh_user: 'admin'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '44004'
+            ssh_disconnect_reason: 'Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection)'
+            ssh_preauth: 'preauth'
+        - string: 'Disconnecting: Too many authentication failures for root [preauth]'
+          result:
+            ssh_user: 'root'
+            ssh_preauth: 'preauth'
+        # UseDNS on: the AllowUsers check names the resolved host
+        - string: 'User root from scanner.example.net not allowed because not listed in AllowUsers'
+          result:
+            ssh_user: 'root'
+            ssh_src_host: 'scanner.example.net'
+            ssh_reason: 'not listed in AllowUsers'
+        - string: 'error: PAM: Authentication failure for neti from 203.0.113.7 via 192.0.2.1'
+          result:
+            ssh_pam_error: 'Authentication failure'
+            ssh_user: 'neti'
+            ssh_src_ip: '203.0.113.7'
+            ssh_dst_ip: '192.0.2.1'
+        # an identifier carrying a forged "' from <ip>"
+        - string: 'Bad protocol version identification ''dummy'' from 192.0.2.1'' from 203.0.113.7 port 31778'
+          result:
+            ssh_bad_protocol: 'dummy'' from 192.0.2.1'
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '31778'
+        - string: 'ssh_dispatch_run_fatal: Connection from 203.0.113.7 port 33738: message authentication code incorrect [preauth]'
+          result:
+            ssh_src_ip: '203.0.113.7'
+            ssh_src_port: '33738'
+            ssh_error: 'message authentication code incorrect'
+            ssh_preauth: 'preauth'
+        - string: 'ROOT LOGIN REFUSED FROM ::ffff:203.0.113.7'
+          result:
+            ssh_src_ip: '203.0.113.7'
+        - string: 'refused connect from scanner.example.net (203.0.113.7)'
+          result:
+            ssh_src_host: 'scanner.example.net'
+            ssh_src_ip: '203.0.113.7'
+        - string: 'fatal: Read from socket failed: Connection reset by peer [preauth]'
+          result:
+            ssh_level: 'fatal'
+            ssh_error: 'Read from socket failed: Connection reset by peer'
+            ssh_preauth: 'preauth'
       negative:
         - 'this is not an sshd line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
