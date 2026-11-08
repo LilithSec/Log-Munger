@@ -29,7 +29,19 @@ vars_templated:
   # NOTE: pam_module uses USERNAME rather than WORD because base WORD is
   # '\b\w+\b' and the leading \b cannot match immediately after the "pam_"
   # literal ("_u" is not a word boundary), so [% WORD %] would never match here.
-  PAM_AUTH_FAILURE: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): authentication failure; (?<pam_kv>logname=[% GREEDYDATA %])'
+  #
+  # Linux-PAM before 0.99 wrote the module without the service and type, as
+  # "(pam_unix) authentication failure; ..." or "pam_unix: authentication
+  # failure; ...", and both are still in old logs and on embedded systems.
+  PAM_AUTH_FAILURE: '(?:pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): |\(pam_(?<pam_module>[% USERNAME %])\) |pam_(?<pam_module>[% USERNAME %]): )authentication failure; (?<pam_kv>logname=[% GREEDYDATA %])'
+  # The same failure with no module named at all, as some current builds log
+  # it under the calling program (vsftpd on Amazon Linux, for one):
+  #   authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7 user=neti
+  #
+  # Like PAM_AUTH_ERROR it has no "pam_" to key on in a gateless file, so it is
+  # pinned to pam_unix's exact key list in order rather than taking any tail.
+  # The gap before user= is one space or two depending on the version.
+  PAM_AUTH_FAILURE_BARE: 'authentication failure; (?<pam_kv>logname=\S* uid=[% INT %] euid=[% INT %] tty=\S* ruser=\S* rhost=\S*(?:\s+user=\S*)?)'
   # session open/close line.
   PAM_SESSION: 'pam_(?<pam_module>[% USERNAME %])\((?<pam_service>[% NOTSPACE %]):(?<pam_type>[% WORD %])\): session (?<pam_session_action>opened|closed) for user (?<pam_user>[% USERNAME %])(?:\(uid=(?<pam_uid>[% INT %])\))?(?: by (?:(?<pam_by_user>[% USERNAME %]))?\(uid=(?<pam_by_uid>[% INT %])\))?'
   # -------------------------------------------------------------------------
@@ -91,8 +103,24 @@ vars_tests:
         result: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
       - string: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
         result: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
+      - string: '(pam_unix) authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+        result: '(pam_unix) authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+      - string: 'pam_unix: authentication failure; logname= uid=0 euid=0 tty=ftp ruser=neti rhost=203.0.113.7'
+        result: 'pam_unix: authentication failure; logname= uid=0 euid=0 tty=ftp ruser=neti rhost=203.0.113.7'
     negative:
       - 'pam_unix(sshd:session): session closed for user neti'
+  PAM_AUTH_FAILURE_BARE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7 user=neti'
+        result: 'authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7 user=neti'
+      - string: 'authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=neti rhost=203.0.113.7  user=neti'
+        result: 'authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=neti rhost=203.0.113.7  user=neti'
+      - string: 'authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+        result: 'authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+    negative:
+      # any other program's "authentication failure; ..." prose
+      - 'authentication failure; the password was wrong'
   PAM_SESSION:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -231,6 +259,7 @@ rules:
     anchored: true
     patterns:
       - PAM_AUTH_FAILURE
+      - PAM_AUTH_FAILURE_BARE
       - PAM_SESSION
       - PAM_CHECK_PASS_USER_UNKNOWN
       - PAM_ACCOUNT_EXPIRED
@@ -264,6 +293,27 @@ rules:
             pam_service: 'sshd'
             pam_type: 'auth'
             pam_kv: 'logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.7 user=root'
+        # Linux-PAM before 0.99: module only
+        - string: '(pam_unix) authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+          result:
+            pam_module: 'unix'
+            pam_kv: 'logname= uid=0 euid=0 tty= ruser= rhost=203.0.113.7'
+        # no module named; the two spaces before user= leave an empty token
+        # the kv split skips
+        - string: 'authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=neti rhost=203.0.113.7  user=neti'
+          enriched:
+            pam_euid: '0'
+            pam_logname: ''
+            pam_rhost: '203.0.113.7'
+            pam_ruser: 'neti'
+            pam_tty: 'dovecot'
+            pam_uid: '0'
+            pam_user: 'neti'
+          numeric:
+            - pam_euid
+            - pam_uid
+          result:
+            pam_kv: 'logname= uid=0 euid=0 tty=dovecot ruser=neti rhost=203.0.113.7  user=neti'
         - string: 'pam_unix(su:auth): authentication failure; logname=neti uid=1000 euid=0 tty=pts/0 ruser=neti rhost= user=root'
           result:
             pam_module: 'unix'

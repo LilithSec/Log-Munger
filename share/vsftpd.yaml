@@ -9,7 +9,9 @@
 # syslog, except that the file gets a leading "Tue Jul 15 10:00:00 2026" that
 # syslog does not (syslog stamps the line itself). The date is therefore
 # optional here, so a rule file works for both a tailed vsftpd.log fed in raw
-# and a syslog-delivered one.
+# and a syslog-delivered one. The "[pid N] " vsftpd puts on each event is
+# optional for the same reason: with syslog_enable=YES it is left off, since
+# syslog carries the pid itself.
 #
 # FTP has no transport security to speak of and every credential crosses the
 # wire in the clear, so the FAIL LOGIN lines are the ones to count.
@@ -22,23 +24,32 @@ vars_templated:
   # The "[pid 1234] [user] " head every logged event shares. The user is
   # bracketed and absent on the events that happen before anyone has named an
   # account, which is why CONNECT has a pattern of its own below.
-  VSFTPD_HEAD: '(?:[% VSFTPD_DATE %] )?\[pid (?<vsftpd_pid>[% INT %])\] \[(?<vsftpd_user>[^\]]*)\] (?<vsftpd_result>OK|FAIL) '
+  # The quoted client address. With listen_ipv6 on, a v4 client arrives on a
+  # dual-stack socket and is logged as "::ffff:192.0.2.5"; the mapping prefix
+  # is dropped so vsftpd_client_ip holds the plain address the geoip lookup
+  # and every other rule file use.
+  VSFTPD_CLIENT: 'Client "(?:::ffff:(?<vsftpd_client_ip>[% IPv4 %])|(?<vsftpd_client_ip>[% IP %]))"'
+  VSFTPD_HEAD: '(?:[% VSFTPD_DATE %] )?(?:\[pid (?<vsftpd_pid>[% INT %])\] )?\[(?<vsftpd_user>[^\]]*)\] (?<vsftpd_result>OK|FAIL) '
   # "[pid 1234] [neti] OK DOWNLOAD: Client "192.0.2.5",
   #  "/home/neti/file.txt", 1234 bytes, 12.34Kbyte/sec"
   # The rate unit is matched as [A-Za-z]+ rather than with the base WORD.
   # WORD is \b\w+\b, and there is no word boundary between the "4" of "12.34"
   # and the "K" of "Kbyte" for it to anchor on, so it could never match here.
-  VSFTPD_XFER: '[% VSFTPD_HEAD %](?<vsftpd_action>DOWNLOAD|UPLOAD): Client "(?<vsftpd_client_ip>[% IP %])", "(?<vsftpd_path>[^"]*)", (?<vsftpd_bytes>[% INT %]) bytes, (?<vsftpd_rate>[% NUMBER %])(?<vsftpd_rate_unit>[A-Za-z]+)/sec'
+  VSFTPD_XFER: '[% VSFTPD_HEAD %](?<vsftpd_action>DOWNLOAD|UPLOAD): [% VSFTPD_CLIENT %], "(?<vsftpd_path>[^"]*)", (?<vsftpd_bytes>[% INT %]) bytes, (?<vsftpd_rate>[% NUMBER %])(?<vsftpd_rate_unit>[A-Za-z]+)/sec'
   # "[pid 1234] [neti] FAIL LOGIN: Client "192.0.2.5""
   # "[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "?""
-  VSFTPD_LOGIN: '[% VSFTPD_HEAD %](?<vsftpd_action>LOGIN): Client "(?<vsftpd_client_ip>[% IP %])"(?:, anon password "(?<vsftpd_anon_password>[^"]*)")?'
+  # "[pid 1234] [guest] FAIL LOGIN: Client "192.0.2.5", "User is not in the allow user list.""
+  #
+  # The last is userlist_enable turning an account away before a password is
+  # asked for; the reason is kept as vsftpd_reason.
+  VSFTPD_LOGIN: '[% VSFTPD_HEAD %](?<vsftpd_action>LOGIN): [% VSFTPD_CLIENT %](?:, anon password "(?<vsftpd_anon_password>[^"]*)"|, "(?<vsftpd_reason>[^"]*)")?'
   # Everything else vsftpd reports per-account: MKDIR, RMDIR, DELETE, RENAME,
   # CHMOD and friends. Same head, same "Client" clause, an action this file
   # does not need to know the name of in advance.
-  VSFTPD_ACTION: '[% VSFTPD_HEAD %](?<vsftpd_action>[A-Z]+): Client "(?<vsftpd_client_ip>[% IP %])"(?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
+  VSFTPD_ACTION: '[% VSFTPD_HEAD %](?<vsftpd_action>[A-Z]+): [% VSFTPD_CLIENT %](?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
   # "[pid 1234] CONNECT: Client "192.0.2.5""
   # No account yet, so no bracketed user and no OK/FAIL.
-  VSFTPD_CONNECT: '(?:[% VSFTPD_DATE %] )?\[pid (?<vsftpd_pid>[% INT %])\] (?<vsftpd_action>CONNECT): Client "(?<vsftpd_client_ip>[% IP %])"(?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
+  VSFTPD_CONNECT: '(?:[% VSFTPD_DATE %] )?(?:\[pid (?<vsftpd_pid>[% INT %])\] )?(?<vsftpd_action>CONNECT): [% VSFTPD_CLIENT %](?:, (?<vsftpd_detail>[% GREEDYDATA %]))?'
 vars_tests:
   VSFTPD_DATE:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
@@ -76,6 +87,10 @@ vars_tests:
         result: '[pid 1234] [neti] FAIL LOGIN: Client "192.0.2.5"'
       - string: '[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "?"'
         result: '[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "?"'
+      - string: '[neti] FAIL LOGIN: Client "192.0.2.5"'
+        result: '[neti] FAIL LOGIN: Client "192.0.2.5"'
+      - string: '[pid 15019] [guest] FAIL LOGIN: Client "::ffff:192.0.2.5", "User is not in the allow user list."'
+        result: '[pid 15019] [guest] FAIL LOGIN: Client "::ffff:192.0.2.5", "User is not in the allow user list."'
     negative:
       - '[pid 1234] CONNECT: Client "192.0.2.5"'
   VSFTPD_ACTION:
@@ -87,6 +102,17 @@ vars_tests:
         result: '[pid 1234] [neti] FAIL DELETE: Client "192.0.2.5", "/etc/shadow"'
     negative:
       - '[pid 1234] CONNECT: Client "192.0.2.5"'
+  VSFTPD_CLIENT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'Client "192.0.2.5"'
+        result: 'Client "192.0.2.5"'
+      - string: 'Client "::ffff:192.0.2.5"'
+        result: 'Client "::ffff:192.0.2.5"'
+      - string: 'Client "2001:db8::1"'
+        result: 'Client "2001:db8::1"'
+    negative:
+      - 'Client "scanner.example.net"'
   VSFTPD_CONNECT:
     test_template: '^(?<TEST>[% TEST_VAR %])$'
     positive:
@@ -128,6 +154,22 @@ rules:
             vsftpd_result: 'FAIL'
             vsftpd_action: 'LOGIN'
             vsftpd_client_ip: '192.0.2.5'
+        # syslog_enable=YES: no [pid N]
+        - string: '[neti] FAIL LOGIN: Client "203.0.113.7"'
+          result:
+            vsftpd_user: 'neti'
+            vsftpd_result: 'FAIL'
+            vsftpd_action: 'LOGIN'
+            vsftpd_client_ip: '203.0.113.7'
+        # listen_ipv6 with a v4 client, refused by userlist_enable
+        - string: 'Thu Sep  8 00:39:49 2026 [pid 15019] [guest] FAIL LOGIN: Client "::ffff:203.0.113.7", "User is not in the allow user list."'
+          result:
+            vsftpd_pid: '15019'
+            vsftpd_user: 'guest'
+            vsftpd_result: 'FAIL'
+            vsftpd_action: 'LOGIN'
+            vsftpd_client_ip: '203.0.113.7'
+            vsftpd_reason: 'User is not in the allow user list.'
         - string: '[pid 1234] [ftp] OK LOGIN: Client "192.0.2.5", anon password "?"'
           result:
             vsftpd_pid: '1234'

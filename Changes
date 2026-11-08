@@ -57,6 +57,11 @@ Revision history for Log-Munger
           openvpn_client_instance; the signal name may contain digits
         - openvpn: add tls-auth/tls-crypt "TLS Error: ... from [AF]ip:port"
           and "TLS Auth Error" username/password failures
+        - vsftpd: [pid N] optional (syslog_enable=YES), ::ffff: mapped
+          client addresses unwrapped, FAIL LOGIN refusal reason captured as
+          vsftpd_reason
+        - pam: match the pre-0.99 "(pam_unix) " and "pam_unix: " prefixes and
+          a bare "authentication failure; logname=..." line
 
 0.0.1   2026-08-23/17:00
         - init
