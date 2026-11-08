@@ -14,6 +14,14 @@ Revision history for Log-Munger
         - dovecot: split a trailing TLS error out of dovecot_kv as
           dovecot_tls_state / dovecot_tls_error
         - dovecot: auth failure lines now capture dovecot_service
+        - exim: accept log_selector +pid prefix and I=, Ci=, X=, CV=, SNI=
+          after the peer
+        - exim: reject accepts unbracketed F=/recipient, "rejected after
+          DATA" and a leading message id
+        - exim: connect ACL "dropped by" form, captured as exim_acl_action
+        - exim: add no MAIL, SMTP protocol error, synchronization error,
+          sender/recipient verify fail, reverse/forward DNS lookup failures,
+          local_scan() rejects and SA-Exim SA: Action lines
 
 0.0.1   2026-08-23/17:00
         - init
