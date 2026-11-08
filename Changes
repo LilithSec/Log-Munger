@@ -53,6 +53,10 @@ Revision history for Log-Munger
           the client address
         - mysql: accept the MySQL 5.5 YYMMDD date, MariaDB space-padded hour
           and a prefix with no thread id
+        - openvpn: client-instance restarting (SIGUSR1) matched, captured as
+          openvpn_client_instance; the signal name may contain digits
+        - openvpn: add tls-auth/tls-crypt "TLS Error: ... from [AF]ip:port"
+          and "TLS Auth Error" username/password failures
 
 0.0.1   2026-08-23/17:00
         - init
