@@ -148,6 +148,8 @@ Revision history for Log-Munger
           taken as audit_enriched and split into audit_UID, audit_AUID, ...
         - cyrus: new rule file for Cyrus imapd, pop3d, timsieved and lmtpd;
           badlogin (SASL failures) and login lines
+        - fail2ban: ::ffff: mapped addresses unwrapped in f2b_ip; a mapped
+          subnet keeps its v6 form
 
 0.0.1   2026-08-23/17:00
         - init

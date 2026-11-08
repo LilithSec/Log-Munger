@@ -37,7 +37,12 @@ vars_templated:
   # or with usedns=raw or a <F-ID> filter some other token, kept as f2b_id
   # since it is no address to look up. It is followed by a space, a comma or
   # the end of the line.
-  F2B_ID: '(?:(?<f2b_ip>[% IP %])(?:/(?<f2b_prefixlen>[% INT %]))?|(?<f2b_id>[^\s,]+))'
+  #
+  # A v4 client fail2ban saw through a dual-stack socket is "::ffff:192.0.2.5",
+  # and the mapping prefix is dropped so f2b_ip holds the plain address every
+  # other file reports. A mapped subnet ("::ffff:192.0.2.0/120") keeps its v6
+  # form, its prefix length being a v6 one that would be wrong on a v4 address.
+  F2B_ID: '(?:::ffff:(?<f2b_ip>[% IPv4 %])(?!/)|(?<f2b_ip>[% IP %])(?:/(?<f2b_prefixlen>[% INT %]))?|(?<f2b_id>[^\s,]+))'
   # "[sshd] Ban 203.0.113.7", "[sshd] Unban 203.0.113.7",
   # "[sshd] Restore Ban 203.0.113.7", "[sshd] Repeal Ban 203.0.113.7" (an unban
   # as the jail stops), "[sshd] Reban 203.0.113.7, action 'iptables'" and
@@ -95,6 +100,10 @@ vars_tests:
         result: '2001:db8::/64'
       - string: 'bad.example.net'
         result: 'bad.example.net'
+      - string: '::ffff:192.0.2.5'
+        result: '::ffff:192.0.2.5'
+      - string: '::ffff:192.0.2.0/120'
+        result: '::ffff:192.0.2.0/120'
     negative:
       - 'two words'
   F2B_ACTION_BAN:
@@ -278,6 +287,19 @@ rules:
             f2b_jail: 'sshd'
             f2b_action: 'Ignore'
             f2b_ip: '203.0.113.7'
+        # a v4 client through a dual-stack socket, unwrapped; a mapped subnet
+        # kept as the v6 it is
+        - string: '[sshd] Ban ::ffff:192.0.2.7'
+          result:
+            f2b_jail: 'sshd'
+            f2b_action: 'Ban'
+            f2b_ip: '192.0.2.7'
+        - string: '[recidive] Ban ::ffff:192.0.2.0/120'
+          result:
+            f2b_jail: 'recidive'
+            f2b_action: 'Ban'
+            f2b_ip: '::ffff:192.0.2.0'
+            f2b_prefixlen: '120'
       negative:
         - 'this is not a fail2ban line at all'
         - 'Jul 15 10:00:00 host cron[123]: session opened for user root'
