@@ -164,8 +164,10 @@ vars_templated:
   POSTFIX_SENDMAIL: "[% POSTFIX_WARNING %]\n"
   POSTFIX_SMTP: |
     [% POSTFIX_SMTP_DELIVERY %]|[% POSTFIX_SMTP_CONNERR %]|[% POSTFIX_SMTP_SSLCONNERR %]|[% POSTFIX_SMTP_LOSTCONN %]|[% POSTFIX_SMTP_TIMEOUT %]|[% POSTFIX_SMTP_RELAYERR %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTP_UTF8 %]|[% POSTFIX_TLSVERIFICATION %]
+  # The specific warnings come ahead of POSTFIX_WARNING, which would otherwise
+  # take them whole and leave the client address inside postfix_message.
   POSTFIX_SMTPD: |
-    [% POSTFIX_SMTPD_CONNECT %]|[% POSTFIX_SMTPD_DISCONNECT %]|[% POSTFIX_SMTPD_LOSTCONN %]|[% POSTFIX_SMTPD_NOQUEUE %]|[% POSTFIX_SMTPD_PIPELINING %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_COMPAT %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTPD_PROXY %]|[% POSTFIX_KEYVALUE %]
+    [% POSTFIX_SMTPD_CONNECT %]|[% POSTFIX_SMTPD_DISCONNECT %]|[% POSTFIX_SMTPD_LOSTCONN %]|[% POSTFIX_SMTPD_NOQUEUE %]|[% POSTFIX_SMTPD_PIPELINING %]|[% POSTFIX_SMTPD_TOO_MANY_ERRORS %]|[% POSTFIX_TLSCONN %]|[% POSTFIX_COMPAT %]|[% POSTFIX_SMTPD_RATE_LIMIT %]|[% POSTFIX_SMTPD_HOSTNAME_NOT_RESOLVE %]|[% POSTFIX_WARNING %]|[% POSTFIX_SMTPD_PROXY %]|[% POSTFIX_KEYVALUE %]
   POSTFIX_SMTPD_CONNECT: |
     connect from [% POSTFIX_CLIENT_INFO %]
   POSTFIX_SMTPD_DISCONNECT: |
@@ -179,10 +181,50 @@ vars_templated:
   # Older releases logged the same line without the prefix, so it is optional.
   POSTFIX_SMTPD_LOSTCONN: |
     ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?(?<postfix_smtpd_lostconn_data>[% POSTFIX_LOSTCONN %])( after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %])( \([% INT %] bytes\))?)? from [% POSTFIX_CLIENT_INFO %](: (?<postfix_smtpd_lostconn_reason>[% GREEDYDATA %]))?
+  # A rejection (or other access action) at some SMTP stage:
+  #
+  #   NOQUEUE: reject: RCPT from unknown[192.0.2.5]: 554 5.7.1 <a@b>: Relay access denied; from=<a@b> to=<c@d> proto=ESMTP helo=<x>
+  #   1D8CC1CA0A7F: milter-reject: END-OF-MESSAGE from mail.example.com[192.0.2.5]: 550 5.7.1 Command rejected; from=<a@b> to=<c@d> proto=ESMTP helo=<x>
+  #
+  # A milter's verdict has the same shape with "milter-" on the action, and a
+  # real queue id because the message had got that far.
+  #
+  # The "; from=... to=..." tail is optional. Syslog truncates long lines
+  # (1024 bytes is common), and a reject with a long reason loses the tail
+  # first. Without this the whole line, client address included, went
+  # unmatched; now the cut-off reason lands in postfix_status_message.
   POSTFIX_SMTPD_NOQUEUE: |
-    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_action>[% POSTFIX_ACTION %]): (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]:( (?<postfix_status_code>[% POSTFIX_STATUS_CODE %]) (?<postfix_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?( <(?<postfix_status_data>[% DATA %])>:)? ([% POSTFIX_DNSBL_MESSAGE %]|(?<postfix_status_message>[% GREEDYDATA %]);) (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
+    (?<postfix_queueid>[% POSTFIX_QUEUEID %]): (?<postfix_action>(?:milter-)?[% POSTFIX_ACTION %]): (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]:( (?<postfix_status_code>[% POSTFIX_STATUS_CODE %]) (?<postfix_status_code_enhanced>[% POSTFIX_STATUS_CODE_ENHANCED %]))?( <(?<postfix_status_data>[% DATA %])>:)? (?:([% POSTFIX_DNSBL_MESSAGE %]|(?<postfix_status_message>[% GREEDYDATA %]);) (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])|(?<postfix_status_message>[% GREEDYDATA %]))
+  # "improper command pipelining after RSET from unknown[192.0.2.5]: QUIT"
+  #
+  # What follows the client is the input that came too early. It is missing
+  # when the client sent nothing printable, which leaves either nothing or a
+  # bare trailing colon.
   POSTFIX_SMTPD_PIPELINING: |
-    improper command pipelining after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %]: (?<postfix_improper_pipelining_data>[% GREEDYDATA %])
+    improper command pipelining after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %]) from [% POSTFIX_CLIENT_INFO %](:( (?<postfix_improper_pipelining_data>[% GREEDYDATA %]))?)?
+  # "too many errors after RCPT from unknown[192.0.2.5]"
+  #
+  # smtpd hanging up on a client that hit smtpd_hard_error_limit, typically a
+  # dictionary attack walking RCPT TO through names that do not exist. Postfix
+  # 3.x may put NOQUEUE in front, as with POSTFIX_SMTPD_LOSTCONN.
+  POSTFIX_SMTPD_TOO_MANY_ERRORS: |
+    ((?<postfix_queueid>[% POSTFIX_QUEUEID %]): )?too many errors after (?<postfix_smtp_stage>[% POSTFIX_SMTP_STAGE %])( \([% INT %] bytes\))? from [% POSTFIX_CLIENT_INFO %]
+  # anvil limits enforced by smtpd:
+  #   warning: Connection rate limit exceeded: 31 from spamhost.example.org[192.0.2.123] for service smtpd
+  #   warning: Message delivery request rate limit exceeded: 334 from spam.example.com[192.0.2.227] for service submission
+  #
+  # The limit names a family of smtpd_client_*_limit settings (connection
+  # rate, connection concurrency, message rate, recipient rate, new TLS
+  # session rate, AUTH rate), so it is captured as written rather than listed.
+  POSTFIX_SMTPD_RATE_LIMIT: |
+    (?<postfix_message_level>warning): (?<postfix_limit_type>[A-Za-z ]+?) limit exceeded: (?<postfix_limit_count>[% INT %]) from [% POSTFIX_CLIENT_INFO %] for service (?<postfix_service>[% NOTSPACE %])
+  # "warning: hostname bad.example.com does not resolve to address 192.0.2.44: Name or service not known"
+  #
+  # The client's PTR names a host whose forward lookup fails or disagrees,
+  # which is how smtpd comes to call a client "unknown". The address is the
+  # client's, so it goes in postfix_client_ip like any other.
+  POSTFIX_SMTPD_HOSTNAME_NOT_RESOLVE: |
+    (?<postfix_message_level>warning): hostname (?<postfix_client_hostname>[% NOTSPACE %]) does not resolve to address (?<postfix_client_ip>[% IP %])(: (?<postfix_dns_error>[% GREEDYDATA %]))?
   POSTFIX_SMTPD_PROXY: |
     proxy-(?<postfix_proxy_result>[% POSTFIX_ACTION %]): ((?<postfix_proxy_smtp_stage>[% POSTFIX_SMTP_STAGE %])): (?<postfix_proxy_message>[% POSTFIX_PROXY_MESSAGE %]); (?<postfix_keyvalue_data>[% POSTFIX_KEYVALUE_DATA %])
   POSTFIX_SMTP_CONNERR: |
@@ -412,6 +454,59 @@ rules:
           result:
             postfix_keyvalue_data: 'client=localhost[127.0.0.1], orig_queue_id=3F8B2A9C1D5E, orig_client=mail.example[203.0.113.31]'
             postfix_queueid: '4Zx1Qk2Y3Zz0jK'
+        # a milter verdict, with a real queue id
+        - string: '1D8CC1CA0A7F: milter-reject: DATA from mail.example.com[192.0.2.151]: 550 5.7.1 Command rejected; from=<a@example.com> to=<b@example.org> proto=ESMTP helo=<mail.example.com>'
+          result:
+            postfix_queueid: '1D8CC1CA0A7F'
+            postfix_action: 'milter-reject'
+            postfix_smtp_stage: 'DATA'
+            postfix_client_hostname: 'mail.example.com'
+            postfix_client_ip: '192.0.2.151'
+            postfix_status_code: '550'
+            postfix_status_code_enhanced: '5.7.1'
+            postfix_status_message: 'Command rejected'
+            postfix_keyvalue_data: 'from=<a@example.com> to=<b@example.org> proto=ESMTP helo=<mail.example.com>'
+        # truncated by syslog, so no "; from=... to=..." tail
+        - string: 'NOQUEUE: reject: VRFY from mail.example.com[192.0.2.5]: 550 5.1.1 <a@example.com>: Recipient address rejected: User unknown in local recipient tab'
+          result:
+            postfix_queueid: 'NOQUEUE'
+            postfix_action: 'reject'
+            postfix_smtp_stage: 'VRFY'
+            postfix_client_hostname: 'mail.example.com'
+            postfix_client_ip: '192.0.2.5'
+            postfix_status_code: '550'
+            postfix_status_code_enhanced: '5.1.1'
+            postfix_status_data: 'a@example.com'
+            postfix_status_message: 'Recipient address rejected: User unknown in local recipient tab'
+        - string: 'improper command pipelining after RSET from mail.example.com[192.0.2.5]'
+          result:
+            postfix_smtp_stage: 'RSET'
+            postfix_client_hostname: 'mail.example.com'
+            postfix_client_ip: '192.0.2.5'
+        - string: 'improper command pipelining after DATA from unknown[192.0.2.5]:'
+          result:
+            postfix_smtp_stage: 'DATA'
+            postfix_client_hostname: 'unknown'
+            postfix_client_ip: '192.0.2.5'
+        - string: 'too many errors after RCPT from mail.example.com[192.0.2.5]'
+          result:
+            postfix_smtp_stage: 'RCPT'
+            postfix_client_hostname: 'mail.example.com'
+            postfix_client_ip: '192.0.2.5'
+        - string: 'warning: Connection rate limit exceeded: 31 from spamhost.example.org[192.0.2.123] for service smtpd'
+          result:
+            postfix_message_level: 'warning'
+            postfix_limit_type: 'Connection rate'
+            postfix_limit_count: '31'
+            postfix_client_hostname: 'spamhost.example.org'
+            postfix_client_ip: '192.0.2.123'
+            postfix_service: 'smtpd'
+        - string: 'warning: hostname bad.example.com does not resolve to address 192.0.2.44: Name or service not known'
+          result:
+            postfix_message_level: 'warning'
+            postfix_client_hostname: 'bad.example.com'
+            postfix_client_ip: '192.0.2.44'
+            postfix_dns_error: 'Name or service not known'
       negative:
         - 'this is not a valid smtpd line at all'
         - 'junk before 4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31], sasl_username=neti'
@@ -1950,6 +2045,10 @@ vars_tests:
     positive:
       - string: 'NOQUEUE: reject: RCPT from mail.example.com[192.0.2.5]: 554 5.7.1 Service unavailable; some reason; from=<a@b.com> to=<c@d.com>'
         result: 'NOQUEUE: reject: RCPT from mail.example.com[192.0.2.5]: 554 5.7.1 Service unavailable; some reason; from=<a@b.com> to=<c@d.com>'
+      - string: '1D8CC1CA0A7F: milter-reject: END-OF-MESSAGE from mail.example.com[192.0.2.5]: 550 5.7.1 Command rejected; from=<a@b.com> to=<c@d.com> proto=ESMTP helo=<x>'
+        result: '1D8CC1CA0A7F: milter-reject: END-OF-MESSAGE from mail.example.com[192.0.2.5]: 550 5.7.1 Command rejected; from=<a@b.com> to=<c@d.com> proto=ESMTP helo=<x>'
+      - string: 'NOQUEUE: reject: VRFY from mail.example.com[192.0.2.5]: 550 5.1.1 <a@b.com>: Recipient address rejected: User unknown in local recipient tab'
+        result: 'NOQUEUE: reject: VRFY from mail.example.com[192.0.2.5]: 550 5.1.1 <a@b.com>: Recipient address rejected: User unknown in local recipient tab'
     negative:
       - 'nothing relevant here'
 
@@ -1958,8 +2057,42 @@ vars_tests:
     positive:
       - string: 'improper command pipelining after DATA from mail.example.com[192.0.2.5]: QUIT'
         result: 'improper command pipelining after DATA from mail.example.com[192.0.2.5]: QUIT'
+      - string: 'improper command pipelining after RSET from mail.example.com[192.0.2.5]'
+        result: 'improper command pipelining after RSET from mail.example.com[192.0.2.5]'
+      - string: 'improper command pipelining after DATA from unknown[192.0.2.5]:'
+        result: 'improper command pipelining after DATA from unknown[192.0.2.5]:'
     negative:
       - 'nothing relevant here'
+
+  POSTFIX_SMTPD_HOSTNAME_NOT_RESOLVE:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'warning: hostname bad.example.com does not resolve to address 192.0.2.44: Name or service not known'
+        result: 'warning: hostname bad.example.com does not resolve to address 192.0.2.44: Name or service not known'
+      - string: 'warning: hostname bad.example.com does not resolve to address 192.0.2.44'
+        result: 'warning: hostname bad.example.com does not resolve to address 192.0.2.44'
+    negative:
+      - 'warning: hostname bad.example.com does not resolve'
+
+  POSTFIX_SMTPD_RATE_LIMIT:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'warning: Connection rate limit exceeded: 31 from spamhost.example.org[192.0.2.123] for service smtpd'
+        result: 'warning: Connection rate limit exceeded: 31 from spamhost.example.org[192.0.2.123] for service smtpd'
+      - string: 'warning: Message delivery request rate limit exceeded: 334 from spam.example.com[192.0.2.227] for service submission'
+        result: 'warning: Message delivery request rate limit exceeded: 334 from spam.example.com[192.0.2.227] for service submission'
+    negative:
+      - 'warning: Connection rate limit exceeded'
+
+  POSTFIX_SMTPD_TOO_MANY_ERRORS:
+    test_template: '^(?<TEST>[% TEST_VAR %])$'
+    positive:
+      - string: 'too many errors after RCPT from mail.example.com[192.0.2.5]'
+        result: 'too many errors after RCPT from mail.example.com[192.0.2.5]'
+      - string: 'NOQUEUE: too many errors after AUTH from unknown[192.0.2.5]'
+        result: 'NOQUEUE: too many errors after AUTH from unknown[192.0.2.5]'
+    negative:
+      - 'lost connection after RCPT from mail.example.com[192.0.2.5]'
 
   POSTFIX_SMTPD_PROXY:
     test_template: '(?<TEST>[% TEST_VAR %])'

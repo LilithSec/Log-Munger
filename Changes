@@ -45,6 +45,12 @@ Revision history for Log-Munger
         - sshd: add Disconnecting <state> user, ssh_dispatch_run_fatal,
           ROOT LOGIN REFUSED, tcp_wrappers refused connect and a catch-all
           for error:/fatal: lines with no function name
+        - postfix: smtpd reject matches milter-reject and a syslog-truncated
+          line with no "; from=... to=..." tail
+        - postfix: improper command pipelining no longer needs trailing data
+        - postfix: add too many errors after, anvil rate/concurrency limit
+          warnings and hostname does not resolve warnings, each capturing
+          the client address
 
 0.0.1   2026-08-23/17:00
         - init
